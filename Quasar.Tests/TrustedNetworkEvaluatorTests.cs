@@ -130,7 +130,7 @@ public sealed class TrustedNetworkEvaluatorTests
             context.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.10");
             return context;
         }
-        Assert.False(await Evaluate(LanRequest(), auth: new() { TrustedNetworkBypass = new() { AllowSameSubnet = false } }));
+        Assert.False(await Evaluate(LanRequest(), auth: new() { TrustedNetworkBypass = new() { BypassSignInForPrivateLan = false } }));
         var context = LanRequest();
         context.Request.Host = new HostString("unconfigured.test:8080");
         Assert.False(await Evaluate(context));

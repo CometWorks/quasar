@@ -3,7 +3,6 @@ namespace Quasar.Services.Auth;
 public sealed class QuasarAuthOptions
 {
     public bool Enabled { get; set; } = true;
-    public bool RequireHttpsForPublicAccess { get; set; }
     public string DefaultProvider { get; set; } = QuasarAuthSchemes.Steam;
     public TrustedNetworkBypassOptions TrustedNetworkBypass { get; set; } = new();
     public SteamAuthOptions Steam { get; set; } = new();
@@ -11,12 +10,23 @@ public sealed class QuasarAuthOptions
     public WorkshopOptions Workshop { get; set; } = new();
     public List<ServicePrincipalOptions> ServicePrincipals { get; set; } = [];
 
-    public static QuasarAuthOptions Create(IConfiguration configuration)
+    public static QuasarAuthOptions Create(IConfigurationRoot configuration)
     {
         var options = new QuasarAuthOptions();
         // Binding appends to existing lists. Apply the admin fallback only after reading explicit roles.
         options.TrustedNetworkBypass.Roles.Clear();
         configuration.GetSection("Quasar:Auth").Bind(options);
+        const string bypass = "Quasar:Auth:TrustedNetworkBypass:";
+        // Treat the old and new names as one setting across JSON and environment overrides.
+        foreach (var provider in configuration.Providers.Reverse())
+        {
+            if (provider.TryGet(bypass + nameof(TrustedNetworkBypassOptions.BypassSignInForPrivateLan), out var value) ||
+                provider.TryGet(bypass + "AllowSameSubnet", out value))
+            {
+                options.TrustedNetworkBypass.BypassSignInForPrivateLan = bool.Parse(value!);
+                break;
+            }
+        }
         options.Normalize();
         return options;
     }
@@ -68,7 +78,7 @@ public sealed class ServicePrincipalOptions
 public sealed class TrustedNetworkBypassOptions
 {
     public bool AllowLoopback { get; set; } = true;
-    public bool AllowSameSubnet { get; set; } = true;
+    public bool BypassSignInForPrivateLan { get; set; } = true;
     public List<string> TrustedProxies { get; set; } = [];
     public List<string> Roles { get; set; } = [QuasarRoles.Admin];
 

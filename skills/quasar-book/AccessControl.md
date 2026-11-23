@@ -101,7 +101,7 @@ recovery and the live OAuth/join acceptance checks still required before product
 - `/login` redirects to Steam (`https://steamcommunity.com/openid/`) and back. Any Steam account can complete the sign-in. Quasar then gives it the roles mapped to its SteamID64 in `rbac.json`.
 - The top bar shows your Steam profile name beside the sign-out button and in its tooltip. Quasar looks it up from your public Steam Community profile at sign-in without an API key and keeps it in the session cookie. If the lookup fails or takes more than five seconds, it shows `Steam <SteamID64>`. Sign out and back in to refresh the name, including after upgrading. Permissions and audit records still use SteamID64.
 - An account with no mapping gets a 403 page: "You are signed in, but this account has no Quasar role." Its buttons are **Sign out** (an antiforgery-protected `POST /logout`) and **Retry Steam sign-in** (`/login?forceSteam=true`).
-- The sign-in cookie is `Quasar.Auth`, HTTP-only, `SameSite=Lax`, valid for 12 hours with sliding renewal. With `RequireHttpsForPublicAccess` enabled it is also always Secure. Through a [hosted panel](HostedPanel.md) its name gets the panel name as a suffix, its path is the panel prefix, and it is always Secure. The cookie is encrypted with keys in `DataProtection-Keys` in the Quasar data directory. Deleting that folder signs everyone out (and makes other secrets encrypted with those keys unreadable).
+- The sign-in cookie is `Quasar.Auth`, HTTP-only, `SameSite=Lax`, valid for 12 hours with sliding renewal. Quasar marks it Secure on HTTPS connections. Through a [hosted panel](HostedPanel.md) its name gets the panel name as a suffix, its path is the panel prefix, and it is always Secure. The cookie is encrypted with keys in `DataProtection-Keys` in the Quasar data directory. Deleting that folder signs everyone out (and makes other secrets encrypted with those keys unreadable).
 - Public browser sign-in, the Steam callback, SDK requests and requests carrying a sign-in cookie require HTTPS. Trusted LAN clients keep the configured bypass.
 - Each Steam sign-in belongs to one panel. Signing out in any tab or switching accounts ends the old login across its tabs, peers and transfers. Other devices signed in separately keep their sessions. Quasar tracks active logins with empty files in `BrowserLogins/` under its data directory. Keep that directory across worker restarts. Clearing it signs out all Steam browsers. On upgrade from tickets without a login ID, Steam users sign in once again.
 - Quasar re-reads the roles from `rbac.json` on every request and reloads open UI sessions when `rbac.json` changes. Granting or removing a role takes effect without signing out. Write actions check the role again when you click, including after a confirmation dialog.
@@ -233,7 +233,7 @@ Quasar watches the file. Saving it while Quasar runs applies the change within m
 
 - **Public panel access**: **Manage access setup** opens the access setup dialog, where you choose self-deployment behind your own reverse proxy or a hosted Nebula panel. Once the installation is enrolled with Nebula, **Manage Nebula hosting and billing** opens the Nebula account page. See [Hosted access](HostedPanel.md).
 - **Auth Provider**: read-only summary of the default provider, Steam login, private-LAN/public-HTTPS mode, trusted loopback, trusted private LAN and trusted proxies, and the path of the `appsettings.json` it writes.
-- **Private LAN and Reverse Proxy**: checkboxes **Trust loopback access**, **Trust private LAN access**, and **Require HTTPS for non-LAN access**, the **Trusted reverse proxies** text box (one IP or CIDR per line, comma or space), **Save Security Settings** and **Apply Public Proxy Preset** (loopback and private LAN on, non-LAN HTTPS required; you still have to save). It writes the corresponding `Quasar:Auth` values in the data directory's `appsettings.json`. The trusted-address checkboxes apply immediately; HTTPS mode and trusted proxy changes need a Quasar restart. An invalid entry fails with "'<value>' is not a valid IP address or CIDR range."
+- **Private LAN and Reverse Proxy** controls loopback and private LAN sign-in bypass and trusted proxy addresses. Bypass changes apply when saved. Restart Quasar after changing trusted proxies.
 - **Data Handling Consent**: the YES/NO data-sharing decision, diagnostic reports, crash dumps and a link to per-server listing controls. See [Diagnostics](Diagnostics.md).
 - **Runtime Subject Role Mappings**: add a mapping with **Provider** (Steam), **SteamID64 or profile URL** and **Role**, then click the plus button. Each add grants one role. The delete button removes a mapping after confirmation ("Remove RBAC mapping?"). Changes are saved to `rbac.json` at once and apply to signed-in users right away.
 
@@ -280,13 +280,13 @@ When a request has no bearer token and no signed-in user, Quasar checks whether 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `AllowLoopback` | `true` | Trust `127.0.0.1` and `::1` |
-| `AllowSameSubnet` | `true` | Trust RFC 1918 private IPv4 ranges, IPv6 ULA (`fc00::/7`), and IPv4 clients on an active local interface subnet |
+| `BypassSignInForPrivateLan` | `true` | Trust RFC 1918 private IPv4 ranges, IPv6 ULA (`fc00::/7`), and IPv4 clients on an active local interface subnet |
 | `TrustedProxies` | `[]` | Reverse proxy IPs or CIDR ranges whose `X-Forwarded-*` headers Quasar accepts; loopback proxies are always trusted |
 | `Roles` | `["admin"]` | Roles given to trusted callers; unknown names fall back to `admin` |
 
 An explicit role list replaces the default. Set `Roles` to `["viewer"]` for read-only trusted access, then restart Quasar. The default `admin` role is not retained.
 
-Treat every trusted address as a full admin unless you reduce `Roles`. Trusted addresses also need an intended destination and same-origin browser context. With `AllowSameSubnet` on (the default), LAN users at an accepted destination can manage Quasar over HTTP without signing in. This includes `192.168.1.10` connecting to `http://192.168.1.80:8080`, all `192.168.x.x`, `10.x.x.x`, `172.16.x.x` through `172.31.x.x`, and private IPv6 ULA addresses. Turn off **Trust private LAN access** to opt out; an explicit `AllowSameSubnet: false` disables LAN bypass. Browser push still requires HTTPS or localhost.
+Treat every trusted address as a full admin unless you reduce `Roles`. Trusted addresses also need an intended destination and same-origin browser context. With `BypassSignInForPrivateLan` on (the default), LAN users at an accepted destination can manage Quasar over HTTP without signing in. This includes `192.168.1.10` connecting to `http://192.168.1.80:8080`, all `192.168.x.x`, `10.x.x.x`, `172.16.x.x` through `172.31.x.x`, and private IPv6 ULA addresses. Turn off **Skip Steam sign-in for private LAN clients** to opt out; an explicit `BypassSignInForPrivateLan: false` requires Steam sign-in on LAN. Existing `AllowSameSubnet` overrides still apply. Browser push still requires HTTPS or localhost.
 
 Quasar checks the destination twice: the original Host and scheme before proxy forwarding, and the effective destination after it. Both must be an accepted destination: the public BaseUrl (`QUASAR_PUBLIC_BASE_URL`, legacy `MAGNETAR_WEB_BASE_URL`), a concrete listener URL, or `localhost`, a loopback address or the socket's own destination IP at the socket's local port. A wildcard listener (`0.0.0.0`) does not accept arbitrary DNS names. To keep passwordless access through a DNS name, set the public BaseUrl to the URL browsers use.
 
@@ -297,11 +297,11 @@ Requests through a [hosted panel](HostedPanel.md) never get the bypass, even tho
 ### Behind a reverse proxy
 
 - Quasar accepts `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` only from loopback and from `TrustedProxies` entries, one proxy hop deep. The proxy must send all three so Steam returns the browser to the right public URL.
-- Quasar defaults to private LAN HTTP mode with `RequireHttpsForPublicAccess=false` and same-subnet bypass enabled. Keep its port behind a firewall. The public proxy preset enables HTTPS enforcement but retains loopback and same-subnet exceptions. After trusted forwarding, non-LAN public clients must use HTTPS and sign in; direct LAN clients retain HTTP and trusted-network access. Auth and Steam correlation cookies are always Secure while HTTPS enforcement is on.
+- Public clients always require HTTPS. LAN and loopback clients can use HTTP with Steam sign-in or the configured bypass. Steam correlation and sign-in cookies are Secure on HTTPS.
 - Trusted bypass requires a known original socket peer, an accepted original backend Host, one valid `X-Forwarded-For` address and fully consumed `X-Forwarded-*` values. The proxy must replace incoming forwarding values. `Forwarded`, `X-Real-IP`, ambiguous or unconsumed values and client-supplied `X-Original-*` do not establish bypass trust. The user can still sign in with Steam.
 - Behind a trusted proxy, Quasar checks the forwarded client address, so remote browsers have to sign in even when the proxy runs on the same machine.
 
-The checklist under **Safely expose Quasar to the internet** on the **Security** page: put Quasar behind an HTTPS reverse proxy, keep the Quasar port closed on the router, apply the public proxy preset, add the proxy's IP or Docker bridge CIDR if it is on another host, send the three `X-Forwarded-*` headers, restart Quasar, then test from an outside network and expect the Steam sign-in.
+The checklist under **Safely expose Quasar to the internet** on the **Security** page: put Quasar behind an HTTPS reverse proxy, keep the Quasar port closed on the router, add the proxy's IP or Docker bridge CIDR if it is on another host, send the three `X-Forwarded-*` headers, restart Quasar, then test from an outside network and expect the Steam sign-in.
 
 ## API authentication for automation
 
@@ -394,7 +394,7 @@ All under `Quasar:Auth` in `appsettings.json`. These are read at startup; restar
 | Key | Default | Notes |
 | --- | --- | --- |
 | `Enabled` | `true` | See [Turning authentication off](#turning-authentication-off) |
-| `RequireHttpsForPublicAccess` | `false` | Trusted LAN HTTP is allowed. Dashboard authentication requires HTTPS for public clients. Enable the setting to extend enforcement to other public web routes. |
+| `RequireHttpsForPublicAccess` (retired) | — | Public access always requires HTTPS. Loopback and private LAN clients may use HTTP. |
 | `DefaultProvider` | `Steam` | Only `Steam` has a sign-in |
 | `Steam:Enabled` | `true` | `false` disables `/login` |
 | `TrustedNetworkBypass:*` | see above | Also editable on the **Security** page |
@@ -403,7 +403,7 @@ All under `Quasar:Auth` in `appsettings.json`. These are read at startup; restar
 
 The machine endpoint lists are under `Quasar:MachineEndpoints` instead, see [Machine endpoints](#machine-endpoints).
 
-Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDNETWORKBYPASS__ALLOWSAMESUBNET=false`.
+Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDNETWORKBYPASS__BYPASSSIGNINFORPRIVATELAN=false`.
 
 ## Common problems
 
@@ -411,7 +411,7 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 | --- | --- |
 | "this account has no Quasar role" after Steam sign-in | No mapping for that SteamID64. Add it on **Security** or in `rbac.json`. |
 | Steam sign-in works locally but remote users land on the wrong URL | The reverse proxy does not send `X-Forwarded-Host`/`X-Forwarded-Proto`, or its address is not in `TrustedProxies` (restart after adding). |
-| Everyone on the LAN can change settings without signing in | `AllowSameSubnet` is on. Turn it off on **Security**. |
+| Everyone on the LAN can change settings without signing in | `BypassSignInForPrivateLan` is on. Turn it off on **Security**. |
 | Local browser is asked to sign in | The request went through a proxy with a non-LAN forwarded address, used a host name that is not an accepted destination, came from another site's page, or the matching LAN trust option is off. |
 | Plain text "HTTPS is required for non-LAN Quasar access." (HTTP 400) | A public client used HTTP for dashboard authentication or another route covered by HTTPS enforcement. Use the HTTPS proxy URL. |
 | Agent, Host enrollment or Host connection gets 403 | The machine endpoint policy refused it: the source address or the `Host` header is not listed under `Quasar:MachineEndpoints`, or the client sent an `Origin` header. See [Machine endpoints](#machine-endpoints). |

@@ -20,15 +20,6 @@ namespace Quasar.Tests;
 public sealed class PublicEndpointSecurityTests
 {
     [Fact]
-    public void PrivateLanHttpModeIsTheDefault()
-    {
-        var options = new QuasarAuthOptions();
-
-        Assert.False(options.RequireHttpsForPublicAccess);
-        Assert.True(options.TrustedNetworkBypass.AllowSameSubnet);
-    }
-
-    [Fact]
     public void ActiveSameSubnetAddressIsTrustedByDefault()
     {
         var localAddress = NetworkInterface.GetAllNetworkInterfaces()
@@ -75,32 +66,33 @@ public sealed class PublicEndpointSecurityTests
             "http://+:8080");
 
     [Theory]
-    [InlineData("203.0.113.10", "http", null, null, "/", true, 400)]
-    [InlineData("127.0.0.1", "http", null, null, "/", true, 204)]
-    [InlineData("::ffff:127.0.0.1", "http", null, null, "/", true, 204)]
-    [InlineData("192.168.1.10", "http", null, null, "/", true, 204)]
-    [InlineData("10.23.45.67", "http", null, null, "/", true, 204)]
-    [InlineData("172.16.5.10", "http", null, null, "/", true, 204)]
-    [InlineData("fd12::10", "http", null, null, "/", true, 204)]
-    [InlineData("::ffff:192.168.1.10", "http", null, null, "/", true, 204)]
-    [InlineData("203.0.113.10", "https", null, null, "/", true, 204)]
-    [InlineData("203.0.113.10", "http", null, null, "/", false, 204)]
-    [InlineData("203.0.113.10", "http", null, null, "/login", false, 400)]
-    [InlineData("203.0.113.10", "http", null, null, "/signin-steam", false, 400)]
-    [InlineData("203.0.113.10", "http", null, null, "/_quasar/sdk/v1/session", false, 400)]
-    [InlineData("192.168.1.20", "http", null, null, "/_quasar/sdk/v1/session", false, 204)]
-    [InlineData("192.0.2.20", "http", "203.0.113.10", "https", "/signin-steam", false, 204)]
-    [InlineData("203.0.113.10", "http", null, null, "/ws/agent", true, 204)]
-    [InlineData("192.0.2.20", "http", "203.0.113.10", "https", "/", true, 204)]
-    [InlineData("192.168.1.20", "http", "203.0.113.10", "http", "/", true, 400)]
-    [InlineData("203.0.113.10", "http", "127.0.0.1", "https", "/", true, 400)]
+    [InlineData("203.0.113.10", "http", null, null, "/", 400)]
+    [InlineData("127.0.0.1", "http", null, null, "/", 204)]
+    [InlineData("::ffff:127.0.0.1", "http", null, null, "/", 204)]
+    [InlineData("192.168.1.10", "http", null, null, "/", 204)]
+    [InlineData("10.23.45.67", "http", null, null, "/", 204)]
+    [InlineData("172.16.5.10", "http", null, null, "/", 204)]
+    [InlineData("fd12::10", "http", null, null, "/", 204)]
+    [InlineData("::ffff:192.168.1.10", "http", null, null, "/", 204)]
+    [InlineData("203.0.113.10", "https", null, null, "/", 204)]
+    [InlineData("203.0.113.10", "http", null, null, "/login", 400)]
+    [InlineData("203.0.113.10", "http", null, null, "/signin-steam", 400)]
+    [InlineData("203.0.113.10", "http", null, null, "/_quasar/sdk/v1/session", 400)]
+    [InlineData("192.168.1.20", "http", null, null, "/_quasar/sdk/v1/session", 204)]
+    [InlineData("192.0.2.20", "http", "203.0.113.10", "https", "/signin-steam", 204)]
+    [InlineData("203.0.113.10", "http", null, null, "/ws/agent", 400)]
+    [InlineData("192.0.2.20", "http", "203.0.113.10", "https", "/", 204)]
+    [InlineData("192.168.1.20", "http", "203.0.113.10", "http", "/", 400)]
+    [InlineData("203.0.113.10", "http", "127.0.0.1", "https", "/", 400)]
+    [InlineData("172.18.44.2", "http", null, null, "/login", 204)]
+    [InlineData("::ffff:192.168.10.9", "http", null, null, "/signin-steam", 204)]
+    [InlineData("10.81.11.3", "http", null, null, "/logout", 204)]
     public async Task PublicHttpRequiresEffectiveHttpsAfterTrustedForwarding(
         string peer,
         string scheme,
         string? forwardedFor,
         string? forwardedProto,
         string path,
-        bool requireHttps,
         int expectedStatus)
     {
         var builder = WebApplication.CreateBuilder();
@@ -116,10 +108,7 @@ public sealed class PublicEndpointSecurityTests
         forwarding.KnownProxies.Add(IPAddress.Parse("192.0.2.20"));
         forwarding.KnownProxies.Add(IPAddress.Parse("192.168.1.20"));
         app.UseForwardedHeaders(forwarding);
-        app.Use((context, next) => PublicAccessSecurity.InvokeAsync(
-            context,
-            next,
-            new QuasarAuthOptions { RequireHttpsForPublicAccess = requireHttps }));
+        app.Use(PublicAccessSecurity.InvokeAsync);
         app.MapGet("/{**path}", () => Results.NoContent());
         await app.StartAsync();
 

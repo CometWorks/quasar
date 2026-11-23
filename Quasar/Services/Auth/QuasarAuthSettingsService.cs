@@ -15,12 +15,10 @@ public sealed class QuasarAuthSettingsService
 
     private readonly QuasarAuthOptions _options;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private bool _pendingRequireHttpsForPublicAccess;
 
     public QuasarAuthSettingsService(QuasarAuthOptions options)
     {
         _options = options;
-        _pendingRequireHttpsForPublicAccess = options.RequireHttpsForPublicAccess;
     }
 
     public string SettingsPath => Path.Combine(MagnetarPaths.GetQuasarDirectory(), "appsettings.json");
@@ -30,9 +28,8 @@ public sealed class QuasarAuthSettingsService
         var bypass = _options.TrustedNetworkBypass;
         return new QuasarTrustedNetworkSettings
         {
-            RequireHttpsForPublicAccess = _pendingRequireHttpsForPublicAccess,
             AllowLoopback = bypass.AllowLoopback,
-            AllowSameSubnet = bypass.AllowSameSubnet,
+            BypassSignInForPrivateLan = bypass.BypassSignInForPrivateLan,
             TrustedProxies = bypass.TrustedProxies.ToList(),
         };
     }
@@ -52,9 +49,10 @@ public sealed class QuasarAuthSettingsService
             var auth = GetOrCreateObject(quasar, "Auth");
             var bypass = GetOrCreateObject(auth, "TrustedNetworkBypass");
 
-            auth["RequireHttpsForPublicAccess"] = settings.RequireHttpsForPublicAccess;
+            auth.Remove("RequireHttpsForPublicAccess");
             bypass["AllowLoopback"] = settings.AllowLoopback;
-            bypass["AllowSameSubnet"] = settings.AllowSameSubnet;
+            bypass.Remove("AllowSameSubnet");
+            bypass["BypassSignInForPrivateLan"] = settings.BypassSignInForPrivateLan;
 
             var proxies = new JsonArray();
             foreach (var proxy in normalizedProxies)
@@ -67,9 +65,8 @@ public sealed class QuasarAuthSettingsService
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            _pendingRequireHttpsForPublicAccess = settings.RequireHttpsForPublicAccess;
             _options.TrustedNetworkBypass.AllowLoopback = settings.AllowLoopback;
-            _options.TrustedNetworkBypass.AllowSameSubnet = settings.AllowSameSubnet;
+            _options.TrustedNetworkBypass.BypassSignInForPrivateLan = settings.BypassSignInForPrivateLan;
             _options.TrustedNetworkBypass.TrustedProxies = normalizedProxies;
         }
         finally
@@ -92,7 +89,7 @@ public sealed class QuasarAuthSettingsService
         if (string.IsNullOrWhiteSpace(text))
             return new JsonObject();
 
-        return JsonNode.Parse(text)?.AsObject() ?? new JsonObject();
+        return JsonNode.Parse(text, new JsonNodeOptions { PropertyNameCaseInsensitive = true })?.AsObject() ?? new JsonObject();
     }
 
     private static List<string> NormalizeTrustedProxies(IEnumerable<string>? values)

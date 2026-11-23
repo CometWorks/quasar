@@ -116,9 +116,7 @@ public class Program
                     options.CookieManager = new HostedPanelCookieManager();
                     options.Cookie.HttpOnly = true;
                     options.Cookie.SameSite = SameSiteMode.Lax;
-                    options.Cookie.SecurePolicy = authOptions.RequireHttpsForPublicAccess
-                        ? CookieSecurePolicy.Always
-                        : CookieSecurePolicy.SameAsRequest;
+                    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
                     options.SlidingExpiration = true;
                     ConfigureDashboardLogin(options);
                     options.Events.OnRedirectToLogin = context =>
@@ -140,9 +138,7 @@ public class Program
                 {
                     options.SignInScheme = QuasarAuthSchemes.Cookie;
                     options.CorrelationCookie.SameSite = SameSiteMode.Lax;
-                    options.CorrelationCookie.SecurePolicy = authOptions.RequireHttpsForPublicAccess
-                        ? CookieSecurePolicy.Always
-                        : CookieSecurePolicy.SameAsRequest;
+                    options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
 
                     options.Events.OnAuthenticated = async context =>
                     {
@@ -402,7 +398,7 @@ public class Program
                 }
                 return next(context);
             });
-            app.Use((context, next) => PublicAccessSecurity.InvokeAsync(context, next, authOptions));
+            app.Use(PublicAccessSecurity.InvokeAsync);
             if (!webServiceOptions.Headless)
                 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
             app.UseRouting();
