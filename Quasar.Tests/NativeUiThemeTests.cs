@@ -14,6 +14,7 @@ using Magnetar.Protocol.Transport;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Components.Pages;
+using Quasar.Client.Formatting;
 using Quasar.Components.Shared;
 using Quasar.Client.Components;
 using Quasar.Client.Fleet;
@@ -351,8 +352,8 @@ public sealed class NativeAppearanceTests : IDisposable
         Assert.Contains("slot", page.Find(".analytics-node-legend").TextContent);
         Assert.DoesNotContain("epoch", page.Markup);
         Assert.DoesNotContain("same-slot-name", page.Markup);
-        Assert.Contains("Total process CPU: 40.0%", page.Find(".analytics-chip-row").TextContent);
-        Assert.Contains("Total process memory: 2048 MB", page.Find(".analytics-chip-row").TextContent);
+        Assert.Contains($"Total process CPU: {NumberText.Display(40.0, "0.0")}%", page.Find(".analytics-chip-row").TextContent);
+        Assert.Contains($"Total process memory: {NumberText.Display(2048, "0")} MB", page.Find(".analytics-chip-row").TextContent);
         Assert.DoesNotContain("Players:", page.Find(".analytics-chip-row").TextContent);
         // Check the actual browser request, which also drives the analytics HTTP endpoints.
         await page.WaitForAssertionAsync(() => Assert.NotEmpty(context.JSInterop.Invocations["quasarCharts.sync"]));
@@ -542,7 +543,7 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddSingleton(new ClusterReconciler(clusters, gateway, null!, null!, NullLogger<ClusterReconciler>.Instance));
         var page = context.Render<Home>();
         var totals = page.FindAll(".quasar-metric-value").Select(x => x.TextContent).ToArray();
-        Assert.Equal(new[] { "5/ 6 running", "47/ 120 slots", "0.98×", "38.4GiB" }, totals);
+        Assert.Equal(new[] { "5/ 6 running", "47/ 120 slots", NumberText.Display(0.98, "0.00") + "×", NumberText.Display(38.4, "0.0") + "GiB" }, totals);
         Assert.Equal(6, page.FindAll(".quasar-server-name-cell").Count);
         Assert.Equal(5, page.FindAll(".quasar-activity li").Count);
         Assert.Single(context.JSInterop.Invocations["quasarCharts.sync"]);

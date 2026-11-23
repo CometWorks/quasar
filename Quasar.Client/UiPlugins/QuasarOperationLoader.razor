@@ -1,5 +1,6 @@
 @namespace Quasar.Components.Shared
 @using System.Diagnostics
+@using Quasar.Client.Formatting
 @implements IDisposable
 
 <section class="quasar-operation-loader" aria-label="@Title">
@@ -13,7 +14,7 @@
     </div>
     @if (Percent is { } percent)
     {
-        <span class="quasar-muted quasar-caption">@Math.Clamp(percent, 0, 100).ToString("0", System.Globalization.CultureInfo.InvariantCulture)%</span>
+        <span class="quasar-muted quasar-caption">@NumberText.Display(Math.Clamp(percent, 0, 100), "0")%</span>
     }
     @if (_elapsed.Elapsed.TotalSeconds >= 30)
     {

@@ -1,5 +1,6 @@
 @implements IAsyncDisposable
 @using Admin = CometWorks.ClusterGateway.AdminContract.V1
+@using Quasar.Client.Formatting
 @inject DashboardSdk Sdk
 @inject IDialogService Dialogs
 @inject ViewerTimeZone ViewerTime
@@ -44,7 +45,7 @@
                                 }
                                 else
                                 {
-                                    <p class="quasar-text quasar-type-body2">Sim speed @telemetry.Metrics?.SimSpeed.ToString("0.00") · Memory @telemetry.Metrics?.MemoryWorkingSetMb MB</p>
+                                    <p class="quasar-text quasar-type-body2">Sim speed @(telemetry.Metrics is { } metrics ? NumberText.Display(metrics.SimSpeed, "0.00") : "—") · Memory @telemetry.Metrics?.MemoryWorkingSetMb MB</p>
                                 }
                             }
                             @if (telemetry.ReadinessVerified == false) { <p class="quasar-text quasar-type-body1 quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">Deployment not ready</p> }

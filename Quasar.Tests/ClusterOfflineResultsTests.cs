@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Bunit;
 using Quasar.Client.Clusters;
+using Quasar.Client.Formatting;
 using CometWorks.ClusterGateway.AdminContract.V1;
 using Xunit;
 
@@ -33,9 +34,9 @@ public sealed class ClusterOfflineResultsTests
         Assert.Contains(confidence, panel.Markup);
         Assert.Contains("1 game hours", panel.Markup);
         Assert.Contains("Capped; excess time", panel.Markup);
-        Assert.Contains("Stored energy change: -0.25 MWh", panel.Markup);
+        Assert.Contains($"Stored energy change: {NumberText.Display(-0.25, "0.######")} MWh", panel.Markup);
         Assert.Contains("MyObjectBuilder_Ingot/Uranium", panel.Markup);
-        Assert.Contains("0.08", panel.Markup);
+        Assert.Contains(NumberText.Display(-0.08m, "+0.######;-0.######;0"), panel.Markup);
         Assert.Contains("109", panel.Markup);
         Assert.Contains("chips exhausted", panel.Markup);
         Assert.Contains("activation remaining 120 seconds", panel.Markup);

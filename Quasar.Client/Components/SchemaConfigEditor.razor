@@ -5,6 +5,7 @@
 @using System.Text.Json.Nodes
 
 @using MudBlazor.Utilities
+@using Quasar.Client.Formatting
 @using Quasar.Services.PluginSdk
 
 @if (_envelope is null)
@@ -469,7 +470,7 @@ else
                     <MudExpansionPanel Expanded="@(index == 0)">
                         <TitleContent>
                             <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3">
-                                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1" style="@($"padding-left:{entry.Depth * 1.25:0.##}rem")">
+                                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1" style="@IndentStyle(entry.Depth)">
                                     @if (treeContext is not null)
                                     {
                                         <MudIcon Icon="@Icons.Material.Filled.AccountTree" />
@@ -1169,6 +1170,9 @@ else
     }
 
     private void MarkDirty() => _dirty = true;
+
+    private static string IndentStyle(int depth) =>
+        $"padding-left:{NumberText.Invariant(depth * 1.25, "0.##")}rem";
 
     private static string ToJsonKey(string name)
         => string.IsNullOrEmpty(name) ? name : char.ToLowerInvariant(name[0]) + name[1..];

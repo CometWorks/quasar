@@ -2,6 +2,7 @@
 @using MudBlazor
 @using Quasar.Services
 @using Quasar.Services.Analytics
+@using Quasar.Client.Formatting
 @using Quasar.Client.Operations.Analytics
 @using System.Text.Json
 @implements IDisposable
@@ -274,7 +275,7 @@
 <div class="quasar-layout quasar-layout-row quasar-gap-1 mb-4 analytics-chip-row">
     @foreach (var chip in _summaryChips)
     {
-        <MudChip T="string" Color="MudBlazor.Color.Primary" Variant="Variant.Outlined">@chip.Label: @chip.Value</MudChip>
+        <MudChip T="string" Color="MudBlazor.Color.Primary" Variant="Variant.Outlined">@chip.Label: @SummaryValue(chip)</MudChip>
     }
 </div>
 
@@ -356,6 +357,10 @@ else
 
     private readonly List<ChartCard> _chartCards = [];
     private readonly List<SummaryChipModel> _summaryChips = [];
+
+    // The worker sends raw numbers, so format them here with the viewer's culture.
+    private static string SummaryValue(SummaryChipModel chip) =>
+        chip.Number is { } number ? NumberText.Display(number, chip.Format ?? "0") + chip.Suffix : chip.Text ?? "-";
     private AnalyticsViewConfig _config = new();
     private AnalyticsPageState? _state;
     private long _generation;

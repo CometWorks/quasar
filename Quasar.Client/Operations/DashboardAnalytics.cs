@@ -13,7 +13,16 @@ public sealed record ProfilerView(
         bool HasDefinition,
         bool IsConnected);
 
-public sealed record SummaryChipModel(string Label, string Value);
+/// <summary>
+/// One analytics summary chip. A chip is either preformatted text or a raw
+/// number that the browser formats with the viewer's culture.
+/// </summary>
+/// <param name="Label">Visible chip label.</param>
+/// <param name="Text">Text for non-numeric values and missing data.</param>
+/// <param name="Number">Raw numeric value; when set, it takes precedence.</param>
+/// <param name="Format">Numeric format applied in the browser.</param>
+/// <param name="Suffix">Unit appended after the formatted number.</param>
+public sealed record SummaryChipModel(string Label, string? Text = null, double? Number = null, string? Format = null, string? Suffix = null);
 
 
 public sealed record MetricPanel(string Key, string Title, string Subtitle, bool Profiler, bool Extensive);

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Bunit;
 using Quasar.Client.Clusters;
+using Quasar.Client.Formatting;
 using Quasar.Host.Contract.V1;
 using Quasar.Models;
 using Quasar.Services;
@@ -57,7 +58,7 @@ public sealed class ClusterHealthOverviewTests
         Assert.Single(panel.FindAll(".cluster-spare-label"));
         Assert.Equal(28, panel.FindAll(".cluster-cpu-bars > span").Count);
         Assert.Contains("553%", panel.Find(".cluster-health-totals").TextContent);
-        Assert.Contains("42.4 GB", panel.Find(".cluster-health-totals").TextContent);
+        Assert.Contains(NumberText.Display(42.4, "0.0") + " GB", panel.Find(".cluster-health-totals").TextContent);
         Assert.Contains("62", panel.Find(".cluster-health-totals").TextContent);
         Assert.Contains("119", panel.Find(".cluster-health-totals").TextContent);
         Assert.Contains("18 routed players", panel.Markup);
@@ -124,7 +125,7 @@ public sealed class ClusterHealthOverviewTests
         {
             Assert.Equal("Idle", card.QuerySelector(".cluster-health-badge")!.TextContent);
             Assert.Contains("Waiting for work", card.TextContent);
-            Assert.Contains("1.0 GB RAM", card.TextContent);
+            Assert.Contains(NumberText.Display(1.0, "0.0") + " GB RAM", card.TextContent);
             Assert.Contains("CPU chart paused while idle", card.TextContent);
             Assert.DoesNotContain("Simulation speed", card.TextContent);
             Assert.Empty(card.QuerySelectorAll(".cluster-cpu-bars"));
@@ -132,7 +133,7 @@ public sealed class ClusterHealthOverviewTests
         Assert.Contains("Hot spare", spare.TextContent);
         var slowActive = panel.Find("article[data-node='node-1']");
         Assert.Equal("Active", slowActive.QuerySelector(".cluster-health-badge")!.TextContent);
-        Assert.Contains("Simulation speed 0.07", slowActive.TextContent);
+        Assert.Contains($"Simulation speed {NumberText.Display(0.07, "0.00")}", slowActive.TextContent);
         Assert.Single(slowActive.QuerySelectorAll(".cluster-cpu-bars"));
         Assert.Single(panel.Find("article[data-node='world-authority']").QuerySelectorAll(".cluster-cpu-bars"));
         Assert.Contains("553%", panel.Find(".cluster-health-totals").TextContent); // Real idle overhead still costs CPU.
@@ -226,7 +227,7 @@ public sealed class ClusterHealthOverviewTests
         if (cpu == 553)
         {
             Assert.Contains("553% CPU", panel.Markup);
-            Assert.Contains("+1.5 cores", panel.Markup);
+            Assert.Contains("+" + NumberText.Display(1.5, "0.0") + " cores", panel.Markup);
             Assert.All(panel.FindAll("i"), bar => Assert.Equal("height:100%", bar.GetAttribute("style")));
         }
     }

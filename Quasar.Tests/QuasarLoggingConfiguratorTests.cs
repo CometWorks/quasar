@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using NLog;
 using NLog.Config;
@@ -42,6 +43,40 @@ public sealed class QuasarLoggingConfiguratorTests
         {
             Console.SetOut(stdout);
             Environment.SetEnvironmentVariable("QUASAR_CONSOLE_LOGGING", previous);
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void LogTimestampLayoutStaysInvariantAcrossCultures()
+    {
+        // A German worker culture must not turn log timestamps into 23.11.2026;
+        // reviewers and log tools expect the same fixed shape everywhere.
+        var previousCulture = CultureInfo.CurrentCulture;
+        var previousUiCulture = CultureInfo.CurrentUICulture;
+        string directory = Path.Combine(Path.GetTempPath(), "quasar-log-format-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("de-DE");
+            var configuration = (LoggingConfiguration)typeof(QuasarLoggingConfigurator)
+                .GetMethod("BuildConfiguration", BindingFlags.NonPublic | BindingFlags.Static)!
+                .Invoke(null, [new WebServiceOptions { LoggingDirectory = directory }])!;
+            var fileTarget = configuration.AllTargets.OfType<AsyncTargetWrapper>()
+                .Select(wrapper => wrapper.WrappedTarget).OfType<FileTarget>()
+                .Single(target => target.Name == "quasar-file");
+            var line = fileTarget.Layout.Render(new LogEventInfo(LogLevel.Warn, "Quasar.Test", "message")
+            {
+                TimeStamp = new DateTime(2026, 11, 23, 10, 3, 30, 530),
+            });
+
+            Assert.StartsWith("2026-11-23 10:03:30.5300 [WARN]", line);
+            Assert.DoesNotContain("23.11.2026", line);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }

@@ -10,11 +10,19 @@ public sealed class ViewerTimeZone
 {
     private const string StorageKey = "quasar.timeZone";
 
-    // Non-breaking hyphens and spaces keep the timestamp together in UI text.
+    // Non-breaking hyphens and spaces keep the machine-readable timestamp together.
     private const string DatePattern = "yyyy\u2011MM\u2011dd";
     private const string TimePattern = "HH:mm:ss";
+
+    /// <summary>
+    /// Invariant timestamp pattern for logs, configs and machine-readable output.
+    /// The UI display uses the viewer's culture instead.
+    /// </summary>
     public const string Pattern = DatePattern + "\u00A0" + TimePattern;
-    private const string StackedPattern = DatePattern + "\n" + TimePattern;
+
+    private const string DisplayFormat = "G";
+    private const string DisplayDatePattern = "d";
+    private const string DisplayTimePattern = "T";
 
     public TimeZoneInfo? Zone { get; private set; }
     public string? PreferredId { get; private set; }
@@ -67,9 +75,18 @@ public sealed class ViewerTimeZone
         return true;
     }
 
+    /// <summary>
+    /// Formats a timestamp in the viewer's culture and selected zone for display.
+    /// Logs, configs and API payloads must not use this formatter.
+    /// </summary>
     public string Format(DateTimeOffset value) => Format(value, Zone);
 
-    public string FormatStacked(DateTimeOffset value) => Format(value, Zone, StackedPattern);
+    /// <summary>
+    /// Formats a timestamp as a date line and a time line for dense tables.
+    /// The visible text follows the viewer's culture; machine-readable output
+    /// keeps the invariant pattern.
+    /// </summary>
+    public string FormatStacked(DateTimeOffset value) => FormatStacked(value, Zone);
 
     public string Format(DateTimeOffset? value, string missing) =>
         value is { } time ? Format(time) : missing;
@@ -100,14 +117,20 @@ public sealed class ViewerTimeZone
             : new DateTimeOffset(unspecified, zone.GetUtcOffset(unspecified)).ToUniversalTime();
     }
 
-    internal static string Format(
-        DateTimeOffset value,
-        TimeZoneInfo? zone,
-        string pattern = Pattern
-    ) =>
-        zone is null
-            ? value.UtcDateTime.ToString(pattern, CultureInfo.InvariantCulture) + "\u00A0UTC"
-            : TimeZoneInfo.ConvertTime(value, zone).ToString(pattern, CultureInfo.InvariantCulture);
+    internal static string Format(DateTimeOffset value, TimeZoneInfo? zone)
+    {
+        var local = zone is null ? value.UtcDateTime : TimeZoneInfo.ConvertTime(value, zone).DateTime;
+        return local.ToString(DisplayFormat, CultureInfo.CurrentCulture) + (zone is null ? "\u00A0UTC" : "");
+    }
+
+    internal static string FormatStacked(DateTimeOffset value, TimeZoneInfo? zone)
+    {
+        var local = zone is null ? value.UtcDateTime : TimeZoneInfo.ConvertTime(value, zone).DateTime;
+        var text = local.ToString(DisplayDatePattern, CultureInfo.CurrentCulture)
+            + "\n"
+            + local.ToString(DisplayTimePattern, CultureInfo.CurrentCulture);
+        return text + (zone is null ? "\u00A0UTC" : "");
+    }
 
     /// <summary>
     /// The IANA zone the browser named, or a fixed offset when this machine does not know that zone.

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json;
@@ -937,11 +938,14 @@ public sealed class QuasarAgentAuditTests : IDisposable
         );
         Assert.Contains("Undo of " + new ViewerTimeZone().Format(change.Time), rows[1].TextContent);
         var timestamp = rows[2].QuerySelector("time")!;
+        // The visible timestamp follows the viewer's culture; the datetime
+        // attribute stays ISO for tools and accessibility.
         Assert.Equal(change.Time.ToString("O"), timestamp.GetAttribute("datetime"));
-        Assert.Matches(
-            @"^\d{4}\u2011\d{2}\u2011\d{2}\n\d{2}:\d{2}:\d{2}\u00A0UTC$",
-            timestamp.TextContent
-        );
+        var expectedTimestamp = change.Time.UtcDateTime.ToString("d", CultureInfo.CurrentCulture)
+            + "\n"
+            + change.Time.UtcDateTime.ToString("T", CultureInfo.CurrentCulture)
+            + "\u00A0UTC";
+        Assert.Equal(expectedTimestamp, timestamp.TextContent);
         Assert.Contains("Undone", rows[2].TextContent);
         Assert.DoesNotContain(
             "Undo",

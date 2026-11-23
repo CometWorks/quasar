@@ -5,6 +5,7 @@
 @using Microsoft.JSInterop
 @using Quasar.Client
 @using Quasar.Client.Fleet
+@using Quasar.Client.Formatting
 @using Quasar.Components.Shared
 @using Quasar.Services
 @inject DashboardSdk Sdk
@@ -466,12 +467,12 @@
     </div>
     <div class="quasar-metric @(fleet.HealthWarnings > 0 ? "quasar-metric-warning" : null)">
         <span class="quasar-metric-label">Average sim speed<QuasarIcon Icon="@QuasarIcons.QueryStats" /></span>
-        <strong class="quasar-metric-value">@(fleet.AverageSimSpeed?.ToString("0.00") ?? "—")<small>×</small></strong>
+        <strong class="quasar-metric-value">@(fleet.AverageSimSpeed is { } simSpeed ? NumberText.Display(simSpeed, "0.00") : "—")<small>×</small></strong>
         <span class="quasar-metric-note">@fleet.SimulationProcesses active game processes · @fleet.HealthWarnings warnings · @fleet.HealthErrors errors</span>
     </div>
     <div class="quasar-metric @(fleet.HealthErrors > 0 ? "quasar-metric-error" : null)">
         <span class="quasar-metric-label">Game process memory<QuasarIcon Icon="@QuasarIcons.Memory" /></span>
-        <strong class="quasar-metric-value">@(fleet.MemoryGiB?.ToString("0.0") ?? "—")<small>GiB</small></strong>
+        <strong class="quasar-metric-value">@(fleet.MemoryGiB is { } memoryGiB ? NumberText.Display(memoryGiB, "0.0") : "—")<small>GiB</small></strong>
         <span class="quasar-metric-note">@fleet.MemoryProcesses server and node processes reporting</span>
     </div>
 </section>

@@ -6,7 +6,14 @@ Quasar runs and manages Space Engineers 1 (SE1) dedicated servers. This page say
 
 Quasar is a supervisor with a browser dashboard (Blazor WebAssembly) and a REST API. One Quasar install manages several dedicated servers on the same machine. It starts, stops, restarts and health-checks them, edits their configuration, downloads and updates the server software, keeps backups, and shows telemetry, chat and players. Admins open the UI in a browser, by default on port 8080.
 
-The UI shows timestamps as `YYYY-MM-DD HH:MM:SS` in the browser's local time by default. To use a different zone, open **Settings → Display**, select a time zone such as `Europe/Stockholm`, and click **Save**. The preference is saved in that browser. **Use browser time** restores the default. Recent activity and dense tables put the date above the time. If Quasar can't determine the browser's time zone or offset, it labels timestamps `UTC`. Schedule settings, such as backup and restart times, use the Quasar machine's local time.
+The UI shows timestamps in the viewer's culture and the browser's local time by
+default. To use a different zone, open **Settings → Display**, select a time
+zone such as `Europe/Stockholm`, and click **Save**. The preference is saved in
+that browser. **Use browser time** restores the default. Recent activity and
+dense tables put the date above the time. If Quasar can't determine the
+browser's time zone or offset, it labels timestamps `UTC`. Logs, saved data and
+API payloads keep the standard ISO 8601 form. Schedule settings, such as backup
+and restart times, use the Quasar machine's local time.
 
 It runs on Linux and Windows as a native service: a systemd unit on Linux and a Windows Service on Windows, each with a second, small updater service next to it. It also runs from a terminal in the foreground, and as a Docker image on Linux AMD64. Installations from before 1.4.1 ran a Bootstrap launcher instead, as a systemd unit or a Windows Scheduled Task. They migrate to native services using the current complete package; no intermediate release is required. See [Updates](Updates.md#direct-installation-and-upgrades).
 
