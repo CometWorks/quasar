@@ -3,7 +3,41 @@ using Quasar.Plugin.Abstractions.Operations;
 
 namespace Quasar.Services.Plugins;
 
-/// <summary>Bounded, single-use transfer leases. No file or socket is opened until a lease is claimed.</summary>
+/// <summary>
+/// Tracks the short-lived, single-use transfer leases used by the browser SDK.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A transfer moves through three states:
+/// </para>
+/// <list type="number">
+///   <item><description>
+///   <c>POST /resources/{plugin}/{operation}</c> creates it and binds it to one
+///   browser session and owner.
+///   </description></item>
+///   <item><description>
+///   <c>GET</c> or <c>PUT /resources/{id}</c> claims it once and streams the
+///   read or upload.
+///   </description></item>
+///   <item><description>
+///   The streaming adapter removes it when the transfer finishes, or the
+///   browser's cleanup <c>DELETE</c> releases it early.
+///   </description></item>
+/// </list>
+/// <para>
+/// Cleanup is best effort. A completed read normally removes its own lease
+/// before the browser's <c>DELETE</c> arrives, and navigation can race the two.
+/// Release therefore has to be idempotent; see
+/// <see cref="Cancel(QuasarBrowserSession, string)"/>. No file or socket is
+/// opened until a lease is claimed.
+/// </para>
+/// <para>
+/// Cancellation and disposal run after the registry lock is released.
+/// Cancellation callbacks run inline and can take other locks, so holding the
+/// registry lock while cancelling would serialize unrelated requests and risks
+/// a re-entrant deadlock.
+/// </para>
+/// </remarks>
 public sealed class QuasarTransferRegistry(QuasarBrowserSessions sessions) : IDisposable
 {
     public const int PerSessionLimit = 4;
@@ -13,18 +47,43 @@ public sealed class QuasarTransferRegistry(QuasarBrowserSessions sessions) : IDi
     public static readonly TimeSpan ActiveLifetime = TimeSpan.FromMinutes(10);
     private readonly object _gate = new();
     private readonly Dictionary<string, Transfer> _transfers = new(StringComparer.Ordinal);
+    private bool _disposed;
 
     public Transfer Create(QuasarBrowserSession binding, string plugin, string operation, QuasarOperationKind kind, JsonElement request)
     {
         sessions.Verify(binding);
         var owner = binding.Owner;
         var session = binding.Id;
+
+        Transfer[] stale;
         lock (_gate)
         {
-            foreach (var stale in _transfers.Values.Where(item => !item.Claimed && item.Token.IsCancellationRequested).ToArray()) Remove(stale);
-            if (_transfers.Count >= TotalLimit || _transfers.Values.Count(item => item.Session == session) >= PerSessionLimit
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            stale = _transfers.Values
+                .Where(item => !item.Claimed && item.Token.IsCancellationRequested)
+                .ToArray();
+            foreach (var item in stale)
+                _transfers.Remove(item.Id);
+        }
+
+        // Release stale leases before taking the lock again. Cancellation
+        // callbacks run arbitrary code and must never run under the registry
+        // lock; doing this first also prevents a callback failure from leaving
+        // a newly created transfer behind.
+        foreach (var item in stale)
+            Release(item, dispose: true);
+
+        lock (_gate)
+        {
+            // Dispose can run while the stale leases are released outside the
+            // lock. Re-check before adding, so a transfer cannot outlive the
+            // registry that is supposed to cancel it.
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_transfers.Count >= TotalLimit
+                || _transfers.Values.Count(item => item.Session == session) >= PerSessionLimit
                 || _transfers.Values.Count(item => item.Owner == owner) >= PerUserLimit)
                 throw new QuasarOperationException(429, "Too many active SDK transfers. Close an existing transfer first.");
+
             var transfer = new Transfer(binding, plugin, operation, kind, request.Clone());
             _transfers.Add(transfer.Id, transfer);
             return transfer;
@@ -49,11 +108,19 @@ public sealed class QuasarTransferRegistry(QuasarBrowserSessions sessions) : IDi
         }
     }
 
+    /// <summary>
+    /// Releases a transfer owned by the current browser session. An unknown,
+    /// expired, or foreign id is a no-op, so the SDK cleanup <c>DELETE</c> can
+    /// return 204 without turning ordinary navigation into a failed request.
+    /// </summary>
     public void Cancel(QuasarBrowserSession binding, string id)
     {
         sessions.Verify(binding);
+        Transfer? transfer;
         lock (_gate)
-            if (FindOwned(binding, id) is { } transfer) Cancel(transfer);
+            transfer = FindOwned(binding, id);
+        if (transfer is not null)
+            Cancel(transfer);
     }
 
     private Transfer? FindOwned(QuasarBrowserSession binding, string id) =>
@@ -62,23 +129,53 @@ public sealed class QuasarTransferRegistry(QuasarBrowserSessions sessions) : IDi
 
     public void Remove(Transfer transfer)
     {
+        bool removed;
         lock (_gate)
-            if (_transfers.Remove(transfer.Id)) { transfer.Stop.Cancel(); transfer.Stop.Dispose(); }
+            removed = _transfers.Remove(transfer.Id);
+        if (removed)
+            Release(transfer, dispose: true);
     }
 
     public void Cancel(Transfer transfer)
     {
+        bool claimed;
         lock (_gate)
         {
-            if (!_transfers.ContainsKey(transfer.Id)) return;
-            if (transfer.Claimed) transfer.Stop.Cancel();
-            else Remove(transfer);
+            if (!_transfers.ContainsKey(transfer.Id))
+                return;
+            claimed = transfer.Claimed;
+            if (!claimed)
+                _transfers.Remove(transfer.Id);
         }
+        Release(transfer, dispose: !claimed);
+    }
+
+    /// <summary>
+    /// Releases a lease after the registry lock is released. A claimed lease
+    /// may already have been removed and disposed by its streaming request;
+    /// that is a completed release, so a disposed source is treated as done.
+    /// </summary>
+    private static void Release(Transfer transfer, bool dispose)
+    {
+        try { transfer.Stop.Cancel(); }
+        catch (ObjectDisposedException) { }
+        finally { if (dispose) transfer.Stop.Dispose(); }
     }
 
     public void Dispose()
     {
-        lock (_gate) foreach (var transfer in _transfers.Values.ToArray()) Remove(transfer);
+        Transfer[] transfers;
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            transfers = _transfers.Values.ToArray();
+            _transfers.Clear();
+        }
+
+        foreach (var transfer in transfers)
+            Release(transfer, dispose: true);
     }
 
     public sealed class Transfer
