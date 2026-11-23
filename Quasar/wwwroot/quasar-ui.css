@@ -471,7 +471,11 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-preview-bar strong { font-family: "Manrope", system-ui, sans-serif; }
 
 /* Shared visual treatment while behavioral Mud components are migrated.
-   Providers live inside the shell so dialogs and popovers inherit all 29 tokens. */
+   Mud paper (including menus) and dialogs read these tokens from the shell. */
+.quasar-shell {
+    --mud-palette-surface: var(--quasar-palette-surface);
+    --mud-palette-text-primary: var(--quasar-palette-text-primary);
+}
 .quasar-shell .mud-paper { box-shadow: none; }
 .quasar-shell :is(.mud-table, .mud-card, .mud-tabs-outlined) { border: 1px solid var(--quasar-palette-lines-default); border-radius: 6px; }
 .quasar-shell .mud-card { background: var(--quasar-palette-surface); }

@@ -21,6 +21,30 @@ function observeDashboard(context, circuits, errors) {
     context.on("page", page => page.on("websocket", record));
 }
 
+async function checkPopupSurfaces(page) {
+    const { surface, menu, restart } = await page.evaluate(() => {
+        const shell = document.getElementById("quasar-wasm-shell");
+        const reference = document.createElement("div");
+        reference.style.backgroundColor = "var(--quasar-palette-surface)";
+        const menu = document.createElement("div");
+        menu.className = "mud-popover mud-popover-open mud-paper";
+        shell.append(reference, menu);
+        quasarConfigs.showRestartFeedback();
+        const colors = {
+            surface: getComputedStyle(reference).backgroundColor,
+            menu: getComputedStyle(menu).backgroundColor,
+            restart: getComputedStyle(document.querySelector(".quasar-restart-feedback-panel")).backgroundColor
+        };
+        quasarConfigs.clearRestartFeedback();
+        reference.remove();
+        menu.remove();
+        return colors;
+    });
+    assert.notEqual(surface, "rgba(0, 0, 0, 0)");
+    assert.equal(menu, surface, "Mud menu surface");
+    assert.equal(restart, surface, "Restart feedback surface");
+}
+
 for (const browserType of [chromium, firefox]) {
     const browser = await browserType.launch(browserType === chromium ? { executablePath: process.env.CHROME_PATH } : {});
     try {
@@ -117,8 +141,10 @@ for (const browserType of [chromium, firefox]) {
                 const theme = page.getByRole("combobox", {name: "Color theme"});
                 await page.waitForFunction(() => document.getElementById("quasar-wasm-theme").value === "dark");
                 assert.equal(await shell.getAttribute("data-theme"), "dark");
+                await checkPopupSurfaces(page);
                 await theme.selectOption("system");
                 assert.equal(await shell.getAttribute("data-theme"), "light");
+                await checkPopupSurfaces(page);
                 await page.emulateMedia({ colorScheme: "dark" });
                 await page.waitForFunction(() => document.getElementById("quasar-wasm-shell").dataset.theme === "dark");
             }

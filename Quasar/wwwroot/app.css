@@ -498,7 +498,7 @@ td.quasar-actions-column > .plugin-actions {
     align-items: center;
     justify-content: center;
     padding: 1rem;
-    color: var(--mud-palette-text-primary);
+    color: var(--quasar-palette-text-primary, CanvasText);
     background: rgba(0, 0, 0, 0.58);
 }
 
@@ -508,9 +508,9 @@ td.quasar-actions-column > .plugin-actions {
     gap: 1rem;
     width: min(100%, 32rem);
     padding: 1.25rem;
-    border: 1px solid var(--mud-palette-lines-default);
-    border-radius: calc(var(--mud-default-borderradius) + 2px);
-    background: var(--mud-palette-surface);
+    border: 1px solid var(--quasar-palette-lines-default, ButtonBorder);
+    border-radius: 6px;
+    background: var(--quasar-palette-surface, Canvas);
     box-shadow: var(--mud-elevation-8);
 }
 
@@ -534,11 +534,7 @@ td.quasar-actions-column > .plugin-actions {
 
 .quasar-restart-feedback-message,
 .quasar-restart-feedback-step {
-    color: var(--mud-palette-text-secondary);
-}
-
-.quasar-restart-feedback-status {
-    color: var(--mud-palette-text-primary);
+    color: var(--quasar-palette-text-secondary, CanvasText);
 }
 
 .quasar-restart-feedback-steps {
@@ -565,7 +561,7 @@ td.quasar-actions-column > .plugin-actions {
 }
 
 .quasar-restart-feedback-step-active {
-    color: var(--mud-palette-primary);
+    color: var(--quasar-palette-primary, CanvasText);
     font-weight: 600;
 }
 

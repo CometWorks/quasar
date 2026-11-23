@@ -53,12 +53,18 @@ test('restart feedback shows completed stages in an accessible progress bar', ()
         replaceChildren() { this.children = []; },
         setAttribute(key, value) { this.attributes[key] = value; }
     });
-    const document = { body: { appendChild() {}, contains: () => true }, createElement: element };
+    const shell = element('div');
+    const document = {
+        body: { contains: child => shell.children.includes(child) },
+        createElement: element,
+        getElementById: id => id === 'quasar-wasm-shell' ? shell : null
+    };
     const events = [];
     const window = { setTimeout() {}, dispatchEvent(event) { events.push(event.type); } };
     vm.runInNewContext(script, { window, document, URL, Event });
     window.quasarConfigs.showRestartFeedback();
     const state = window.quasarRestartFeedback;
+    assert.deepEqual(shell.children, [state.root]);
     assert.equal(state.progress.tag, 'progress');
     assert.equal(state.progress.attributes['aria-label'], 'Restart steps completed');
     assert.equal(state.progress.max, 4);
