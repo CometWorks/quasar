@@ -66,6 +66,7 @@ async function check(browser, prefix) {
         // Native dialog and toast host through the public UI contract.
         await page.goto("https://panel.invalid" + prefix + "?ui=1");
         await page.getByText("UI fixture (test plugin)").waitFor({ timeout: 15000 });
+        await page.getByText("Native inline notice rendered by the fixture plugin.").waitFor({ timeout: 10000 });
         await page.getByRole("button", { name: "Open basic dialog" }).click();
         const surface = page.locator("dialog.quasar-dialog").first();
         await surface.waitFor({ state: "visible", timeout: 10000 });
@@ -85,6 +86,24 @@ async function check(browser, prefix) {
         assert.notEqual(surfaceColors.actual, "rgba(0, 0, 0, 0)");
         await page.keyboard.press("Escape");
         await surface.waitFor({ state: "hidden", timeout: 10000 });
+
+        await page.getByRole("button", { name: "Open message box" }).click();
+        await surface.waitFor({ state: "visible", timeout: 10000 });
+        assert.equal(await surface.getAttribute("aria-label"), "Delete backup?");
+        const description = await surface.evaluate(element => {
+            const id = element.getAttribute("aria-describedby");
+            const target = id ? document.getElementById(id) : null;
+            return {
+                id,
+                owned: target?.hasAttribute("data-quasar-dialog-description") ?? false,
+                text: target?.textContent ?? null,
+            };
+        });
+        assert.ok(description.id);
+        assert.equal(description.owned, true);
+        assert.equal(description.text, "Permanently delete it?");
+        await page.getByRole("button", { name: "Delete", exact: true }).click();
+        await page.getByText("Message box: True").waitFor({ timeout: 5000 });
 
         await page.getByRole("button", { name: "Open sync dialog" }).click();
         await surface.waitFor({ state: "visible", timeout: 10000 });

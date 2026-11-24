@@ -36,6 +36,10 @@
     const minDialogWidth = 280;
     const minDialogHeight = 180;
 
+    // Dialog descriptions are DOM elements inside the rendered dialog. The
+    // host assigns an id once so aria-describedby can point at the message.
+    let nextDescriptionId = 0;
+
     /**
      * Locks page scrolling for a modal dialog. The CSS class also reserves the
      * scrollbar gutter so the layout does not jump when the scrollbar hides.
@@ -416,6 +420,19 @@
         }
 
         states.set(dialog, state);
+
+        const description = dialog.querySelector("[data-quasar-dialog-description]");
+        if (description) {
+            if (!description.id || document.getElementById(description.id) !== description) {
+                let id;
+                do {
+                    id = "quasar-dialog-description-" + (++nextDescriptionId);
+                } while (document.getElementById(id));
+                description.id = id;
+            }
+            if (!dialog.hasAttribute("aria-describedby"))
+                dialog.setAttribute("aria-describedby", description.id);
+        }
 
         if (modal) {
             if (options.lockScroll !== false) {

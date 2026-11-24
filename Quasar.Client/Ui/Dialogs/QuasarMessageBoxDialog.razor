@@ -1,0 +1,68 @@
+@namespace Quasar.Client.Ui.Dialogs
+@using Microsoft.AspNetCore.Components.Web
+@using Quasar.Ui
+
+@*
+    Native message box used by IQuasarDialogService.ShowMessageBoxAsync.
+
+    This component is an implementation detail of Quasar.Client. Plugins call
+    the service method and never reference this component. Quasar.Ui.Abstractions
+    contains the service contract and the shared QuasarInlineNotice component;
+    this message box and its rendering stay in the host client.
+
+    The footer order is Cancel, No, Yes. The No and Cancel buttons are omitted
+    when the caller did not provide their labels. Escape, a backdrop click, or
+    navigation still produce a canceled result (null for the caller), matching
+    the service method's documented behavior.
+*@
+@if (!string.IsNullOrWhiteSpace(Dialog?.Title))
+{
+    <header class="quasar-dialog-header">
+        <h2 class="quasar-dialog-title">@Dialog?.Title</h2>
+    </header>
+}
+<div class="quasar-dialog-content">
+    <p class="quasar-text" data-quasar-dialog-description>@Message</p>
+</div>
+<footer class="quasar-dialog-actions">
+    @if (!string.IsNullOrWhiteSpace(CancelText))
+    {
+        <button type="button" class="quasar-button" @onclick="Cancel">@CancelText</button>
+    }
+    @if (!string.IsNullOrWhiteSpace(NoText))
+    {
+        <button type="button" class="quasar-button" @onclick="No">@NoText</button>
+    }
+    <button type="button" class="quasar-button quasar-button-primary" @onclick="Yes">@YesText</button>
+</footer>
+
+@code {
+    /// <summary>
+    /// Cascaded by <c>QuasarDialogInstanceHost</c>. The component only requests
+    /// closure; the caller owns the result task.
+    /// </summary>
+    [CascadingParameter] private IQuasarDialogInstance? Dialog { get; set; }
+
+    /// <summary>Plain-text message. It is rendered as text, not HTML.</summary>
+    [Parameter] public string Message { get; set; } = string.Empty;
+
+    /// <summary>Label for the primary button.</summary>
+    [Parameter] public string YesText { get; set; } = "OK";
+
+    /// <summary>Optional secondary button label. Hidden when blank.</summary>
+    [Parameter] public string? NoText { get; set; }
+
+    /// <summary>Optional cancel button label. Hidden when blank.</summary>
+    [Parameter] public string? CancelText { get; set; }
+
+    private void Yes() => Close(QuasarDialogResult.Ok(true));
+
+    private void No() => Close(QuasarDialogResult.Ok(false));
+
+    private void Cancel() => RequiredDialog.Cancel();
+
+    private void Close(QuasarDialogResult? result) => RequiredDialog.Close(result);
+
+    private IQuasarDialogInstance RequiredDialog => Dialog
+        ?? throw new InvalidOperationException("QuasarMessageBoxDialog must be rendered by QuasarDialogInstanceHost.");
+}

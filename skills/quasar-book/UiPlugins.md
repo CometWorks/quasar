@@ -29,7 +29,11 @@ worker's `Quasar.Ui.Abstractions.dll`. The plugin browser project references tha
 DLL (QuasarHub passes `QuasarUiAbstractionsAssembly`), injects
 `IQuasarDialogService` or `IQuasarToastService`, and gets focus-managed native
 dialogs, accessible toasts, and the active palette without a MudBlazor or
-`Quasar.Client` reference. `Modal = false` gives a modeless dialog that leaves
+`Quasar.Client` reference. The same assembly provides the `QuasarInlineNotice`
+component; add `@using Quasar.Components.Shared` and use it for inline page
+notices in core pages or plugin pages.
+
+`Modal = false` gives a modeless dialog that leaves
 the page interactive and shows a keyboard-operable drag handle by default;
 `Resizable = false` removes its standard bottom-right resize grip.
 A cancellation token supplied to `Show`/`ShowAsync` is observed for the dialog's
@@ -46,6 +50,10 @@ autocomplete lists, tooltips and date pickers render their popovers at shell
 level, so they cannot appear above a native modal. Keep those Mud controls in a
 modeless dialog or a legacy Mud dialog until Quasar provides a dialog-local
 popover provider. Native controls work inside either dialog mode.
+
+For simple confirmations, `IQuasarDialogService.ShowMessageBoxAsync` uses the
+same native host and returns `bool?`: `true` for Yes, `false` for No, and
+`null` for Cancel or dismissal.
 
 A modeless panel with `CloseOnNavigation = false` stays open while the admin
 moves between pages. A plugin can feed it live data from its worker half through
@@ -321,6 +329,8 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar.Ui.Abstractions/Dialogs/QuasarDialogOptions.cs`
 - `Quasar.Ui.Abstractions/Toasts/IQuasarToastService.cs`
 - `Quasar.Ui.Abstractions/Toasts/QuasarToastOptions.cs`
+- `Quasar.Ui.Abstractions/Components/QuasarInlineNotice.razor`
+- `Quasar.Ui.Abstractions/Components/QuasarInlineNoticeVariant.cs`
 - `Quasar.Client/Components/Shared/QuasarDialogHost.razor`
 - `Quasar.Client/Components/Shared/QuasarDialogInstanceHost.razor`
 - `Quasar.Client/Components/Shared/QuasarDialogContentHost.razor`
@@ -331,6 +341,7 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar.Client/Ui/Dialogs/QuasarDialogService.cs`
 - `Quasar.Client/Ui/Dialogs/QuasarDialogEntry.cs`
 - `Quasar.Client/Ui/Dialogs/QuasarDialogCancellation.cs`
+- `Quasar.Client/Ui/Dialogs/QuasarMessageBoxDialog.razor`
 - `Quasar.Client/Ui/Toasts/QuasarToastService.cs`
 - `Quasar/Components/Layout/PluginNavItems.razor`
 - `Quasar/Services/Plugins/QuasarNavIconSanitizer.cs`

@@ -157,7 +157,7 @@
     <Error Condition="'$(PublishSingleFile)' == 'true' and !Exists('$(_QuasarUiAbstractionsPublishFile)')"
            Text="Quasar.Ui.Abstractions.dll was not staged beside the single-file worker. Quasar UI plugin hub installs require this file." />
     <Warning Condition="!Exists('$(_QuasarUiAbstractionsPublishXml)')"
-             Text="Quasar.Ui.Abstractions.xml was not staged; plugin IntelliSense for the native dialog/toast contract will be unavailable." />
+             Text="Quasar.Ui.Abstractions.xml was not staged; plugin IntelliSense for the native dialog/toast/notice contract will be unavailable." />
   </Target>
 
 </Project>

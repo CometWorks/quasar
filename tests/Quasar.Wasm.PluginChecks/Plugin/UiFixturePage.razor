@@ -1,6 +1,7 @@
 @page "/fixture/ui"
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Web
+@using Quasar.Components.Shared
 @using Quasar.Ui
 @attribute [Authorize(Policy = "CanView")]
 @implements IDisposable
@@ -16,6 +17,9 @@
     </header>
 
     <div class="quasar-layout quasar-gap-3">
+        <QuasarInlineNotice Severity="QuasarSeverity.Info">
+            Native inline notice rendered by the fixture plugin.
+        </QuasarInlineNotice>
         <div class="quasar-row">
             <button type="button" class="quasar-button" @onclick="OpenBasicAsync">Open basic dialog</button>
             <button type="button" class="quasar-button" @onclick="OpenSync">Open sync dialog</button>
@@ -25,6 +29,7 @@
             <button type="button" class="quasar-button" @onclick="OpenCustomAsync">Open custom dialog</button>
             <button type="button" class="quasar-button" @onclick="OpenLongAsync">Open long dialog</button>
             <button type="button" class="quasar-button" @onclick="OpenTwoAsync">Open two dialogs</button>
+            <button type="button" class="quasar-button" @onclick="OpenMessageBoxAsync">Open message box</button>
         </div>
 
         <div class="quasar-row">
@@ -97,6 +102,20 @@
         _lastResult = "Two dialogs opened; awaiting results.";
         StateHasChanged();
         _ = first;
+    }
+
+    private async Task OpenMessageBoxAsync()
+    {
+        var result = await Dialogs.ShowMessageBoxAsync(
+            "Delete backup?",
+            "Permanently delete it?",
+            "Delete",
+            "Keep",
+            "Cancel");
+        if (_disposed)
+            return;
+        _lastResult = $"Message box: {result}";
+        await InvokeAsync(StateHasChanged);
     }
 
     private void Toast(QuasarSeverity severity) => Toasts.Add($"Native {severity} toast from the fixture plugin.", severity);

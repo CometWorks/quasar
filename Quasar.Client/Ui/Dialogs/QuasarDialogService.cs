@@ -156,6 +156,44 @@ internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
         CancellationToken cancellationToken = default) =>
         Task.FromResult<IQuasarDialogReference>(ShowCore(componentType, title, parameters, options, cancellationToken));
 
+    /// <inheritdoc />
+    public async Task<bool?> ShowMessageBoxAsync(
+        string title,
+        string message,
+        string yesText = "OK",
+        string? noText = null,
+        string? cancelText = null,
+        QuasarDialogOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ArgumentNullException.ThrowIfNull(message);
+
+        // Normalize optional labels once. Empty labels mean "hide that button";
+        // the component applies the same rule when it renders the footer.
+        var parameters = new QuasarDialogParameters<QuasarMessageBoxDialog>
+        {
+            { dialog => dialog.Message, message },
+            { dialog => dialog.YesText, string.IsNullOrWhiteSpace(yesText) ? "OK" : yesText.Trim() },
+            { dialog => dialog.NoText, string.IsNullOrWhiteSpace(noText) ? null : noText.Trim() },
+            { dialog => dialog.CancelText, string.IsNullOrWhiteSpace(cancelText) ? null : cancelText.Trim() },
+        };
+
+        var reference = await ShowAsync<QuasarMessageBoxDialog>(title, parameters, options, cancellationToken);
+
+        // ShowCore observes the cancellation token for the dialog's lifetime, so
+        // a pre-canceled token returns a completed canceled result and canceling
+        // an open box requests the native close. Either path maps to null.
+        var result = await reference.Result;
+
+        // The built-in message box closes with a bool payload. Any canceled path
+        // (Escape, backdrop, navigation, token) maps to null, preserving the
+        // familiar bool? result shape. The token stays authoritative even if a
+        // confirmation was already recorded but the native close has not
+        // completed yet.
+        return result.Canceled || cancellationToken.IsCancellationRequested ? null : result.Data is true;
+    }
+
     /// <summary>An immutable snapshot of the open entries, oldest first.</summary>
     internal IReadOnlyList<QuasarDialogEntry> Entries
     {

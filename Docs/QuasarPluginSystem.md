@@ -1038,14 +1038,23 @@ Quasar 1.7.1 adds a native dialog and toast host with a public contract in
   `-p:QuasarUiAbstractionsAssembly=<worker>/Quasar.Ui.Abstractions.dll`; a source
   checkout can use a project reference instead.
 - Inject `IQuasarDialogService` or `IQuasarToastService` in a browser component.
-  `Show<TComponent>` returns the dialog reference immediately and
-  `ShowAsync<TComponent>` is the awaitable convenience overload. Both render the
+  `Show<TComponent>` returns the dialog reference immediately;
+  `ShowAsync<TComponent>` returns the same reference as an awaitable task.
+  Await `reference.Result` for the dialog result. Both render the
   plugin component in a native modal `<dialog>`; the component can inject
   `IQuasarDialogInstance` to close with a `QuasarDialogResult`. A supplied
   cancellation token is observed for the dialog's lifetime: canceling before it
   opens returns a canceled result, and canceling while it is open closes it with
   a canceled result. Toasts support severity, duration, actions, icons, and
   interaction-required mode.
+- `ShowMessageBoxAsync(title, message, yesText, noText, cancelText, options)`
+  returns `Task<bool?>`: `true` for Yes, `false` for No, and `null` for
+  Cancel, Escape, a backdrop click, navigation, or a canceled token. Omit
+  `noText` or `cancelText` to hide that button. It renders the built-in native
+  message box and does not reference MudBlazor. Keep `Modal` and
+  `CloseOnNavigation` enabled for a blocking confirmation; the primary button is
+  always shown. A canceled token also closes a box that is already open. Use
+  `ShowAsync<TComponent>` for rich content or more than three choices.
 - The host supplies focus trapping, focus return, Escape/backdrop policy, top-layer
   stacking, scroll locking, accessible roles, and the active palette.
 - Set `QuasarDialogOptions.Modal = false` for a modeless dialog. It uses the
@@ -1063,6 +1072,10 @@ Quasar 1.7.1 adds a native dialog and toast host with a public contract in
 - `IQuasarDialogService` is implemented by the Quasar host. New members are a
   breaking change only for third-party implementations; plugins should consume
   the interface, not implement it.
+- `QuasarInlineNotice` is also in `Quasar.Ui.Abstractions.dll`, so dashboard and
+  plugin browser pages use the same native notice component. It supports
+  `Severity`, `Variant` (Outlined/Filled/Text), `Dense`, `Class`, `Style`, and
+  automatic `status`/`alert` roles. Add `@using Quasar.Components.Shared` to use it.
 
 A native modal uses `showModal()`, which makes everything outside the dialog
 inert. MudBlazor selects, menus, autocomplete lists, tooltips, and date pickers
@@ -1088,7 +1101,8 @@ Customization is a documented contract, not a fixed look:
   `--quasar-dialog-max-width`, `--quasar-dialog-drag-handle-height`,
   `--quasar-dialog-resize-handle-size`, `--quasar-toast-surface`,
   `--quasar-toast-text`, `--quasar-toast-border`, `--quasar-toast-radius`,
-  `--quasar-toast-shadow`, `--quasar-toast-width`, and `--quasar-toast-z`.
+  `--quasar-toast-shadow`, `--quasar-toast-width`, `--quasar-toast-z`, and
+  `--quasar-notice-accent`.
 - `--quasar-dialog-backdrop` styles the modal backdrop, which covers the whole
   viewport while that dialog is open. It is not scoped to the dialog surface;
   use the neutral default unless the plugin intentionally tints the page for
@@ -1097,7 +1111,10 @@ Customization is a documented contract, not a fixed look:
   `.quasar-dialog-title`, `.quasar-dialog-content`, `.quasar-dialog-actions`,
   `.quasar-dialog-modeless`, `.quasar-dialog-resizable`,
   `.quasar-dialog-drag-handle`, `.quasar-dialog-resize-handle`, `.quasar-toast`,
-  `.quasar-toast-icon`, `.quasar-toast-content`, and `.quasar-toast-close`.
+  `.quasar-toast-icon`, `.quasar-toast-content`, `.quasar-toast-close`,
+  `.quasar-notice`, `.quasar-notice-info`, `.quasar-notice-success`,
+  `.quasar-notice-warning`, `.quasar-notice-error`, `.quasar-notice-filled`,
+  `.quasar-notice-text`, and `.quasar-notice-dense`.
   Plugins that prefer complete control can render native `<dialog>` markup with
   these classes and inherit the same tokens.
 - The contract is additive-only within a major host version. QuasarHub builds a

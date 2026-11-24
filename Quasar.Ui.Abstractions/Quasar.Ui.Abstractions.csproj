@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Razor">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -7,7 +7,7 @@
     <AssemblyName>Quasar.Ui.Abstractions</AssemblyName>
     <RootNamespace>Quasar.Ui</RootNamespace>
     <PackageId>Quasar.Ui.Abstractions</PackageId>
-    <Description>Public dialog and toast contracts for Quasar dashboard components and UI plugins.</Description>
+    <Description>Public native dialog, toast, and notice primitives for Quasar dashboard components and UI plugins.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 

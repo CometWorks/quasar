@@ -1,0 +1,63 @@
+@namespace Quasar.Components.Shared
+@using Quasar.Ui
+
+<div class="quasar-notice @VariantClass @SeverityClass @(Dense ? "quasar-notice-dense" : null) @Class"
+     style="@Style" role="@AriaRole" aria-atomic="true">@ChildContent</div>
+
+@code {
+    /// <summary>
+    /// Severity controls the accent colour and whether the notice is announced
+    /// politely (<c language="html">role="status"</c>) or immediately
+    /// (<c language="html">role="alert"</c>).
+    /// </summary>
+    [Parameter] public QuasarSeverity Severity { get; set; }
+
+    /// <summary>Visual treatment. Defaults to <see cref="QuasarInlineNoticeVariant.Outlined"/>.</summary>
+    [Parameter] public QuasarInlineNoticeVariant Variant { get; set; }
+
+    /// <summary>Uses tighter padding and spacing.</summary>
+    [Parameter] public bool Dense { get; set; }
+
+    /// <summary>The notice body. Razor content is encoded as usual.</summary>
+    /// <remarks>
+    /// Plain text and Razor markup are encoded. A caller that passes
+    /// <see cref="Microsoft.AspNetCore.Components.MarkupString"/> or builds raw
+    /// markup takes responsibility for that content. Encoding does not validate
+    /// URL schemes; do not place untrusted values in <c>href</c> or <c>src</c>.
+    /// </remarks>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Additional class applied to the notice element.</summary>
+    /// <remarks>
+    /// The value is trusted CSS from the caller. Do not pass untrusted input;
+    /// global classes can change layout or presentation.
+    /// </remarks>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Optional inline style applied to the notice element.</summary>
+    /// <remarks>
+    /// The value is trusted CSS from the caller. Do not pass untrusted input;
+    /// CSS can load external URLs and reposition content.
+    /// </remarks>
+    [Parameter] public string? Style { get; set; }
+
+    private string? VariantClass => Variant switch
+    {
+        QuasarInlineNoticeVariant.Filled => "quasar-notice-filled",
+        QuasarInlineNoticeVariant.Text => "quasar-notice-text",
+        _ => null,
+    };
+
+    private string? SeverityClass => Severity switch
+    {
+        QuasarSeverity.Info => "quasar-notice-info",
+        QuasarSeverity.Success => "quasar-notice-success",
+        QuasarSeverity.Warning => "quasar-notice-warning",
+        QuasarSeverity.Error => "quasar-notice-error",
+        _ => null,
+    };
+
+    private string AriaRole => Severity is QuasarSeverity.Warning or QuasarSeverity.Error
+        ? "alert"
+        : "status";
+}
