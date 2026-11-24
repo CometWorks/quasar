@@ -125,7 +125,7 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
                 // StopServerAsync marks the process Stopping before its first await. Do that before
                 // publishing Off so reconciliation cannot start a competing stop with a kill timeout.
                 var stopping = supervisor.IsServerProcessActive(request.Server)
-                    ? supervisor.StopServerAsync(request.Server, forceAfter: null, cancellationToken: deadline.Token)
+                    ? supervisor.StopServerAsync(request.Server, returnAfter: null, cancellationToken: deadline.Token)
                     : Task.CompletedTask;
                 try
                 {

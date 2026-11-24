@@ -241,12 +241,15 @@ namespace Quasar.Agent
                                Error = "Companion plugin returned no response.",
                            };
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                // The connection is closing; there is nobody left to answer.
                 throw;
             }
             catch (Exception exception)
             {
+                // Includes a plugin's own timeout or cancellation: that fails this request only,
+                // it must not take down the agent's connection to Quasar.
                 response = new CompanionPluginResponse
                 {
                     CorrelationId = request.CorrelationId,

@@ -39,7 +39,7 @@
     <section class="pa-4 quasar-panel quasar-section">
         <div class="quasar-stack">
             <h2>Notification preferences</h2>
-            <p>Choose which update and instance notices appear here, in the bell, and in browser push. Preferences apply to your account across browsers. Instance alerts are off by default.</p>
+            <p>Choose which update and instance notices appear here, in the bell, and in browser push. Preferences apply to your account across browsers. Instance alerts are off by default, except servers that need an admin.</p>
             @if (_preferences is not null)
             {
                 <form @onsubmit="SavePreferencesAsync" @onsubmit:preventDefault><fieldset class="quasar-fieldset" disabled="@_saving">
@@ -48,6 +48,7 @@
                         @if (_canManage) { <label class="quasar-check"><input type="checkbox" @bind="_preferences.UiPluginUpdates" />Quasar UI plugin updates</label> }
                         <label class="quasar-check"><input type="checkbox" @bind="_preferences.Crashes" />Instance crashes and failures (including automatic crash recovery)</label>
                         <label class="quasar-check"><input type="checkbox" @bind="_preferences.HealthRestarts" />Restarts caused by health checks or agent attach failures</label>
+                        <label class="quasar-check"><input type="checkbox" @bind="_preferences.NeedsAttention" />Servers that need an admin: a stop that isn't finishing, or health restarts paused after repeated failures</label>
                         <div class="quasar-detail-metrics">
                             <div class="quasar-detail-metric">
                                 <label class="quasar-check"><input type="checkbox" @bind="_preferences.LowSimSpeed" />Low simulation speed</label>

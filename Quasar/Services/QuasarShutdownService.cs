@@ -132,7 +132,7 @@ public sealed class QuasarShutdownService
         {
             if (setGoalStateOff)
                 await _supervisor.SetGoalStateAsync(snapshot.UniqueName, DedicatedServerGoalState.Off, reconcile: false, cancellationToken);
-            await _supervisor.StopServerAsync(snapshot.UniqueName, forceAfter: null, cancellationToken);
+            await _supervisor.StopServerAsync(snapshot.UniqueName, returnAfter: null, cancellationToken);
         })).Concat(clusters.Select(cluster =>
         {
             var label = string.IsNullOrWhiteSpace(cluster.DisplayName) ? cluster.UniqueName : cluster.DisplayName;

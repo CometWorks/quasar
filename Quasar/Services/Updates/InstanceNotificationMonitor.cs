@@ -35,7 +35,7 @@ internal sealed class InstanceNotificationMonitor
             var changed = account.Notices.RemoveAll(n => now - n.At >= TimeSpan.FromHours(24)) > 0;
             foreach (var server in servers)
             {
-                var current = new Lifecycle(server.State, server.StoppedAtUtc, server.LastRestart?.RequestedAtUtc);
+                var current = new Lifecycle(server.State, server.StoppedAtUtc, server.LastRestart?.RequestedAtUtc, server.AttentionAtUtc);
                 if (account.Servers.TryGetValue(server.UniqueName, out var previous))
                 {
                     var restart = server.LastRestart;
@@ -47,6 +47,8 @@ internal sealed class InstanceNotificationMonitor
                     if (options.HealthRestarts && newRestart && restart!.Cause is
                         DedicatedServerRestartCause.HealthPolicy or DedicatedServerRestartCause.AgentAttachRecovery)
                         Add("health-restart", server.UniqueName, "Instance health restart", restart.Reason, "/");
+                    if (options.NeedsAttention && server.AttentionAtUtc is not null && server.AttentionAtUtc != previous.AttentionAt)
+                        Add("attention", server.UniqueName, "Instance needs an admin", server.AttentionMessage, "/");
                 }
                 account.Servers[server.UniqueName] = current;
             }
@@ -141,7 +143,7 @@ internal sealed class InstanceNotificationMonitor
         }
     }
 
-    private sealed record Lifecycle(DedicatedServerProcessState State, DateTimeOffset? StoppedAt, DateTimeOffset? RestartAt);
+    private sealed record Lifecycle(DedicatedServerProcessState State, DateTimeOffset? StoppedAt, DateTimeOffset? RestartAt, DateTimeOffset? AttentionAt);
     private sealed record Incident(DateTimeOffset At, string? Cluster, UpdateNotice Notice);
     private sealed class AccountState
     {

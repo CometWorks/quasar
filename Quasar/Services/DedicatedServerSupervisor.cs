@@ -21,7 +21,14 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private static readonly TimeSpan RestartCounterResetWindow = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan DefaultGracefulStopTimeout = TimeSpan.FromSeconds(30);
+    // How long a stop or restart waits for the process before returning to its caller.
+    // Quasar never kills a server for taking longer; only an admin's Kill does that.
+    private static readonly TimeSpan StopWaitBeforeReturn = TimeSpan.FromSeconds(30);
+    // A server still running this long after its stop request gets an admin notice.
+    internal static readonly TimeSpan StopAttentionDelay = TimeSpan.FromMinutes(3);
+    // At most this many health-policy restarts per window; then they pause for an admin.
+    internal const int HealthRestartLimit = 3;
+    internal static readonly TimeSpan HealthRestartWindow = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan ProcessTeardownTimeout = TimeSpan.FromSeconds(30);
     private const string ReniceHelperPath = "/usr/local/bin/quasar-renice";
     private const string RestoreInProgressMessage = "Start deferred: a backup restore is in progress for this server.";
@@ -141,7 +148,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         {
             try
             {
-                await StopServerAsync(uniqueName, forceAfter: null, CancellationToken.None);
+                await StopServerAsync(uniqueName, returnAfter: null, CancellationToken.None);
             }
             catch (Exception exception)
             {
@@ -342,14 +349,19 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     }
 
     public Task StopServerAsync(string uniqueName, CancellationToken cancellationToken = default) =>
-        StopServerAsync(uniqueName, DefaultGracefulStopTimeout, cancellationToken);
+        StopServerAsync(uniqueName, StopWaitBeforeReturn, cancellationToken);
 
-    public Task StopServerAsync(string uniqueName, TimeSpan? forceAfter, CancellationToken cancellationToken = default) =>
-        StopServerAsync(uniqueName, forceAfter, string.Empty, cancellationToken);
+    /// <summary>
+    /// Asks the server to save and stop, and waits up to <paramref name="returnAfter"/> for it to
+    /// exit (null waits until it does). A server that takes longer keeps stopping in the
+    /// background; it is never killed.
+    /// </summary>
+    public Task StopServerAsync(string uniqueName, TimeSpan? returnAfter, CancellationToken cancellationToken = default) =>
+        StopServerAsync(uniqueName, returnAfter, string.Empty, cancellationToken);
 
     private async Task StopServerAsync(
         string uniqueName,
-        TimeSpan? forceAfter,
+        TimeSpan? returnAfter,
         string agentLifecycleMessage,
         CancellationToken cancellationToken)
     {
@@ -392,53 +404,139 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         NotifyChanged();
 
-        await TryRequestGracefulStopAsync(uniqueName, agentLifecycleMessage, cancellationToken);
-
         if (process is null)
             return;
 
+        // The watch outlives this call: it keeps redelivering the save and stop to a
+        // reconnecting agent until the process exits, however long that takes.
+        var watch = Task.Run(() => WatchStopAsync(uniqueName, process, agentLifecycleMessage), CancellationToken.None);
+        if (returnAfter is null)
+        {
+            await watch.WaitAsync(cancellationToken);
+            return;
+        }
+
         try
         {
-            if (forceAfter is null)
-            {
-                await WaitForExitAsync(process, cancellationToken);
-            }
-            else
-            {
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeout.CancelAfter(forceAfter.Value);
-                await WaitForExitAsync(process, timeout.Token);
-            }
+            await watch.WaitAsync(returnAfter.Value, cancellationToken);
         }
-        catch (OperationCanceledException) when (forceAfter is not null && !cancellationToken.IsCancellationRequested)
+        catch (TimeoutException)
         {
-            if (IsProcessActive(process))
-            {
-                _logger.LogWarning("Server {UniqueName} did not stop gracefully. Killing process tree.", uniqueName);
-                try
-                {
-                    process.Kill(entireProcessTree: true);
-                    await WaitForExitAsync(process, CancellationToken.None);
-                }
-                catch (InvalidOperationException)
-                {
-                    // The process exited on its own between the active check and the
-                    // kill; nothing left to stop.
-                }
-            }
+            _logger.LogWarning(
+                "Server {UniqueName} is still stopping after {Seconds}s. Quasar keeps waiting and does not kill it.",
+                uniqueName,
+                (int)returnAfter.Value.TotalSeconds);
         }
-        catch (InvalidOperationException)
+    }
+
+    /// <summary>
+    /// Waits for a stopping server to exit. Each time a Quasar.Agent connection is available
+    /// that hasn't had the request yet, it asks the agent to save and stop, so an agent that
+    /// was offline when the stop began still saves the world once it reconnects. The process
+    /// is never killed here; after <see cref="StopAttentionDelay"/> admins get a notice.
+    /// </summary>
+    private async Task WatchStopAsync(string uniqueName, Process process, string agentLifecycleMessage)
+    {
+        var startedAtUtc = DateTimeOffset.UtcNow;
+        string? deliveredConnectionId = null;
+        var reportedMissingAgent = false;
+        var raisedAttention = false;
+
+        while (IsProcessActive(process))
         {
-            // "No process is associated with this object." — the process already
-            // exited and was disposed while we were waiting on it. That is the
-            // normal outcome of a stop, not an error worth surfacing.
+            lock (_sync)
+            {
+                if (!_states.TryGetValue(uniqueName, out var current) || !ReferenceEquals(current.Process, process))
+                    break;
+            }
+
+            var agent = FindConnectedAgent(uniqueName);
+            if (agent is not null && !string.Equals(agent.ConnectionId, deliveredConnectionId, StringComparison.Ordinal))
+            {
+                deliveredConnectionId = agent.ConnectionId;
+                if (reportedMissingAgent)
+                    _logger.LogInformation("Quasar.Agent for server {UniqueName} reconnected; sending the save and stop request.", uniqueName);
+                await RequestGracefulStopAsync(uniqueName, agent, agentLifecycleMessage, CancellationToken.None);
+                SetLastMessageIfStopping(uniqueName, process, "Stopping process.");
+            }
+            else if (agent is null && deliveredConnectionId is null && !reportedMissingAgent)
+            {
+                reportedMissingAgent = true;
+                _logger.LogWarning(
+                    "Quasar.Agent for server {UniqueName} is not connected, so it can't save and stop yet. Quasar waits for it to reconnect and does not kill the server.",
+                    uniqueName);
+                SetLastMessageIfStopping(uniqueName, process, "Waiting for Quasar.Agent to reconnect to save and stop.");
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            if (!raisedAttention && now - startedAtUtc >= StopAttentionDelay)
+            {
+                raisedAttention = true;
+                var reason = deliveredConnectionId is null
+                    ? "Quasar.Agent never reconnected, so the save and stop request could not be delivered."
+                    : "The save and stop request was delivered, but the process is still running.";
+                RaiseAttention(uniqueName, process,
+                    $"Still running {(int)StopAttentionDelay.TotalMinutes} minutes after Quasar asked it to stop. {reason} Quasar won't kill it. Use Kill if it is stuck; unsaved changes are lost.");
+            }
+
+            try
+            {
+                using var poll = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+                await WaitForExitAsync(process, poll.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (InvalidOperationException)
+            {
+                // Disposed by the exit handler: it's gone.
+                break;
+            }
         }
 
         if (!IsProcessActive(process))
             await HandleProcessExitedAsync(uniqueName, process);
     }
 
-    public async Task KillStartingServerAsync(string uniqueName, CancellationToken cancellationToken = default)
+    private void SetLastMessageIfStopping(string uniqueName, Process process, string message)
+    {
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out var state) || !ReferenceEquals(state.Process, process) ||
+                state.State != DedicatedServerProcessState.Stopping ||
+                string.Equals(state.LastMessage, message, StringComparison.Ordinal))
+                return;
+            state.LastMessage = message;
+        }
+
+        NotifyChanged();
+    }
+
+    private void RaiseAttention(string uniqueName, Process process, string message)
+    {
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out var state) || !ReferenceEquals(state.Process, process))
+                return;
+            SetAttention(state, message, DateTimeOffset.UtcNow);
+        }
+
+        _logger.LogWarning("Server {UniqueName} needs an admin: {Message}", uniqueName, message);
+        NotifyChanged();
+    }
+
+    private static void SetAttention(ManagedServerState state, string message, DateTimeOffset now)
+    {
+        state.AttentionMessage = message;
+        state.AttentionAtUtc = now;
+        state.LastMessage = message;
+    }
+
+    /// <summary>
+    /// The admin's Kill: force-ends a server that is starting, restarting or stuck stopping,
+    /// and sets its goal Off. The only way Quasar kills a running world; unsaved changes are lost.
+    /// </summary>
+    public async Task KillServerAsync(string uniqueName, CancellationToken cancellationToken = default)
     {
         ManagedServerState? state;
         Process? process;
@@ -450,7 +548,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (!_states.TryGetValue(uniqueName, out state))
                 return;
 
-            if (state.State is not (DedicatedServerProcessState.Starting or DedicatedServerProcessState.Restarting))
+            if (state.State is not (DedicatedServerProcessState.Starting
+                or DedicatedServerProcessState.Restarting
+                or DedicatedServerProcessState.Stopping))
                 return;
 
             process = state.Process;
@@ -461,7 +561,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             state.StartCancellation?.Cancel();
             state.State = DedicatedServerProcessState.Stopping;
             state.LastMessage = IsProcessActive(process)
-                ? "Killing starting process."
+                ? "Killing process at an admin's request."
                 : "Cancelling start.";
             if (CompletePendingRestart(state, DedicatedServerRestartOutcome.Failed, DateTimeOffset.UtcNow))
                 cancelledRestart = Clone(state.LastRestart!);
@@ -495,7 +595,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             }
             catch (Exception exception)
             {
-                _logger.LogWarning(exception, "Failed killing starting server {UniqueName}.", uniqueName);
+                _logger.LogWarning(exception, "Failed killing server {UniqueName}.", uniqueName);
                 throw;
             }
 
@@ -601,8 +701,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         var agentLifecycleMessage = cause == DedicatedServerRestartCause.HealthPolicy
             ? $"Quasar health policy requested a restart: {reason}"
             : string.Empty;
-        await StopServerAsync(uniqueName, DefaultGracefulStopTimeout, agentLifecycleMessage, cancellationToken);
+        await StopServerAsync(uniqueName, StopWaitBeforeReturn, agentLifecycleMessage, cancellationToken);
 
+        var oldProcessStillRunning = false;
         lock (_sync)
         {
             if (_states.TryGetValue(uniqueName, out var state) &&
@@ -612,12 +713,18 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 state.IsRestartPending = true;
                 MarkExpectedDiagnosticExit(state);
                 state.State = DedicatedServerProcessState.Restarting;
-                state.LastMessage = BuildRestartMessage(state.LastRestart);
+                // The exit handler hasn't taken the old process yet. It relaunches the
+                // server when that process exits, so starting here would run two copies.
+                oldProcessStillRunning = state.Process is not null;
+                state.LastMessage = oldProcessStillRunning
+                    ? BuildRestartMessage(state.LastRestart) + " Waiting for the server to save and exit."
+                    : BuildRestartMessage(state.LastRestart);
             }
         }
 
         NotifyChanged();
-        await StartServerAsync(uniqueName, cancellationToken);
+        if (!oldProcessStillRunning)
+            await StartServerAsync(uniqueName, cancellationToken);
     }
 
     public async Task<bool> ClearErrorStatusAsync(string uniqueName, CancellationToken cancellationToken = default)
@@ -730,6 +837,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         List<(string UniqueName, string Affinity, string Phase)> affinityActions = new();
         List<(string UniqueName, DedicatedServerDefinition Definition)> agentDeploymentChecks = new();
         List<(string UniqueName, DedicatedServerRestartInfo Restart)> recoveredRestarts = new();
+        List<(string UniqueName, string Message)> pausedHealthRestarts = new();
         var agents = BuildAgentLookup();
         var now = DateTimeOffset.UtcNow;
         RefreshStartupLogActivity(agents, now);
@@ -772,11 +880,22 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     healthChanged = true;
                 }
 
+                if (agent?.Snapshot is not null)
+                    state.LastAgentTelemetryUtc = agent.LastSnapshotReceivedUtc;
+                else if (processActive && state.State == DedicatedServerProcessState.Running)
+                    state.LastAgentTelemetryUtc ??= now;
+
+                // An admin stopping the server is the acknowledgement that resumes paused restarts.
+                if (!processActive && goalState == DedicatedServerGoalState.Off)
+                    ResumeHealthRestarts(state);
+
                 var health = EvaluateHealth(
                     state,
                     agent,
                     now,
                     _options.DisableServerHealthMonitoring);
+                if (state.HealthRestartsPaused && health.State == DedicatedServerHealthState.Unhealthy)
+                    health = health with { Summary = health.Summary + " " + HealthRestartsPausedText };
 
                 if (state.HealthState != health.State ||
                     !string.Equals(state.HealthSummary, health.Summary, StringComparison.Ordinal))
@@ -869,14 +988,25 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                              state.Definition.AutoRestartOnUnhealthy &&
                              !state.AwaitingAdoptedAgent &&
                              state.State == DedicatedServerProcessState.Running &&
+                             !state.HealthRestartsPaused &&
                              CanScheduleHealthRestart(state, now))
                     {
-                        state.LastHealthRecoveryActionUtc = now;
-                        actions.Add(new(
-                            state.UniqueName,
-                            ReconcileAction.Restart,
-                            health.Summary,
-                            DedicatedServerRestartCause.HealthPolicy));
+                        if (TryReserveHealthRestart(state, now))
+                        {
+                            state.LastHealthRecoveryActionUtc = now;
+                            actions.Add(new(
+                                state.UniqueName,
+                                ReconcileAction.Restart,
+                                health.Summary,
+                                DedicatedServerRestartCause.HealthPolicy));
+                        }
+                        else
+                        {
+                            var message = $"Quasar restarted this server {HealthRestartLimit} times in {(int)HealthRestartWindow.TotalMinutes} minutes for failing health checks and has paused automatic health restarts. Last problem: {health.Summary} Check the server, then restart or stop it yourself to resume them.";
+                            SetAttention(state, message, now);
+                            pausedHealthRestarts.Add((state.UniqueName, message));
+                            healthChanged = true;
+                        }
                     }
                     else if (processActive &&
                              state.State == DedicatedServerProcessState.Running &&
@@ -925,6 +1055,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         if (healthChanged)
             NotifyChanged();
+
+        foreach (var (uniqueName, message) in pausedHealthRestarts)
+            _logger.LogWarning("Server {UniqueName} needs an admin: {Message}", uniqueName, message);
 
         foreach (var (uniqueName, restart) in recoveredRestarts)
         {
@@ -1328,6 +1461,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 current.LastStartupLogActivityKind = string.Empty;
                 current.StoppedAtUtc = null;
                 current.LastExitCode = null;
+                current.AttentionMessage = string.Empty;
+                current.AttentionAtUtc = null;
                 current.LastMessage = restartPending
                     ? BuildRestartMessage(current.LastRestart!)
                     : "Process started; waiting for server online signal.";
@@ -2076,26 +2211,17 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
     }
 
-    private async Task TryRequestGracefulStopAsync(
-        string uniqueName,
-        string agentLifecycleMessage,
-        CancellationToken cancellationToken)
-    {
-        var agent = _registry.GetAgents().FirstOrDefault(current =>
+    private AgentRuntimeState? FindConnectedAgent(string uniqueName) =>
+        _registry.GetAgents().FirstOrDefault(current =>
             current.IsConnected && !current.IsCluster &&
             string.Equals(current.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
 
-        if (agent is null)
-        {
-            if (!string.IsNullOrWhiteSpace(agentLifecycleMessage))
-            {
-                _logger.LogWarning(
-                    "Could not deliver health-policy restart reason to Quasar.Agent for server {UniqueName} because no connected agent is available; reason remains available in Quasar logs and UI.",
-                    uniqueName);
-            }
-            return;
-        }
-
+    private async Task RequestGracefulStopAsync(
+        string uniqueName,
+        AgentRuntimeState agent,
+        string agentLifecycleMessage,
+        CancellationToken cancellationToken)
+    {
         try
         {
             await _registry.SendCommandAndWaitAsync(new ServerCommandEnvelope
@@ -2947,11 +3073,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         if (agent is null || !agent.IsConnected)
         {
             if (!state.AgentWatchSinceUtc.HasValue && state.State == DedicatedServerProcessState.Running)
-            {
-                return new ServerHealthAssessment(
-                    DedicatedServerHealthState.Unhealthy,
+                return EvaluateMissingTelemetry(state, now,
+                    "Quasar.Agent disconnected; waiting for it to reconnect.",
                     "Quasar.Agent disconnected.");
-            }
 
             // Count startup monitoring from when we started watching for the agent
             // (adoption time for a re-adopted process), not the original start. An
@@ -2965,11 +3089,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         if (agent.Snapshot is null)
         {
             if (!state.AgentWatchSinceUtc.HasValue && state.State == DedicatedServerProcessState.Running)
-            {
-                return new ServerHealthAssessment(
-                    DedicatedServerHealthState.Unhealthy,
+                return EvaluateMissingTelemetry(state, now,
+                    "Waiting for Quasar.Agent telemetry after it reconnected.",
                     "Quasar.Agent telemetry snapshot unavailable.");
-            }
 
             // Hello only proves the socket opened. Keep startup/adoption monitoring
             // in force until the first telemetry snapshot proves the agent can poll
@@ -3022,6 +3144,23 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             state.SimulationProgressScore,
             state.SimulationProgressWindowSeconds,
             state.SimulationFramesAdvanced);
+    }
+
+    // The agent reconnects every 10 s (plus jitter) after a dropped socket, so a running
+    // server gets the heartbeat timeout to come back before a missing agent counts against it.
+    private static ServerHealthAssessment EvaluateMissingTelemetry(
+        ManagedServerState state,
+        DateTimeOffset now,
+        string waitingSummary,
+        string unhealthySummary)
+    {
+        var timeout = TimeSpan.FromSeconds(state.Definition.AgentHeartbeatTimeoutSeconds);
+        var silence = now - (state.LastAgentTelemetryUtc ?? now);
+        return silence <= timeout
+            ? new ServerHealthAssessment(DedicatedServerHealthState.Warning, waitingSummary)
+            : new ServerHealthAssessment(
+                DedicatedServerHealthState.Unhealthy,
+                $"{unhealthySummary} No telemetry for {(int)silence.TotalSeconds}s (heartbeat timeout {state.Definition.AgentHeartbeatTimeoutSeconds}s).");
     }
 
     private static ServerHealthAssessment EvaluateAgentStartupHealth(
@@ -3220,6 +3359,32 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         state.SimulationFramesAdvanced = null;
         state.LastSimulationProgressEvaluatedAtUtc = null;
         state.LastHealthySummary = string.Empty;
+        state.LastAgentTelemetryUtc = null;
+    }
+
+    private const string HealthRestartsPausedText = "Automatic health restarts are paused until an admin restarts or stops this server.";
+
+    /// <summary>
+    /// Counts a health-policy restart against <see cref="HealthRestartLimit"/> per
+    /// <see cref="HealthRestartWindow"/>. False pauses health restarts for this server.
+    /// </summary>
+    private static bool TryReserveHealthRestart(ManagedServerState state, DateTimeOffset now)
+    {
+        state.HealthRestartTimesUtc.RemoveAll(at => now - at >= HealthRestartWindow);
+        if (state.HealthRestartTimesUtc.Count >= HealthRestartLimit)
+        {
+            state.HealthRestartsPaused = true;
+            return false;
+        }
+
+        state.HealthRestartTimesUtc.Add(now);
+        return true;
+    }
+
+    private static void ResumeHealthRestarts(ManagedServerState state)
+    {
+        state.HealthRestartsPaused = false;
+        state.HealthRestartTimesUtc.Clear();
     }
 
     private static bool CanScheduleHealthRestart(ManagedServerState state, DateTimeOffset now)
@@ -3461,6 +3626,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 return;
 
             restart = SetRestartRequested(state, cause, reason, DateTimeOffset.UtcNow);
+            if (cause == DedicatedServerRestartCause.Manual)
+                ResumeHealthRestarts(state);
             state.IsRestartPending = true;
             MarkExpectedDiagnosticExit(state);
             state.State = DedicatedServerProcessState.Restarting;
@@ -3606,6 +3773,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             LastExitCode = state.LastExitCode,
             LastMessage = state.LastMessage,
             LastRestart = state.LastRestart is null ? null : Clone(state.LastRestart),
+            AttentionMessage = state.AttentionMessage,
+            AttentionAtUtc = state.AttentionAtUtc,
             LatestErrorLogLine = state.LatestErrorLogLine,
             LatestErrorLogKind = state.LatestErrorLogKind,
             AgentAttached = agent?.IsConnected == true,
@@ -3675,6 +3844,19 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         // a surviving process is adopted after a worker restart — so startup timeout
         // monitoring counts from adoption, not the (possibly hours-old) original start.
         public DateTimeOffset? AgentWatchSinceUtc { get; set; }
+
+        // When the supervisor last had telemetry from this server's agent. A running server
+        // without an agent counts as unhealthy only once this is older than the heartbeat timeout.
+        public DateTimeOffset? LastAgentTelemetryUtc { get; set; }
+
+        public List<DateTimeOffset> HealthRestartTimesUtc { get; } = [];
+
+        public bool HealthRestartsPaused { get; set; }
+
+        // Set when Quasar stops acting on its own and an admin has to decide; drives the notice.
+        public string AttentionMessage { get; set; } = string.Empty;
+
+        public DateTimeOffset? AttentionAtUtc { get; set; }
 
         public DateTimeOffset? LastStartupLogActivityUtc { get; set; }
 

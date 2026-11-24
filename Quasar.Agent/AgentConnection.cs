@@ -27,6 +27,10 @@ namespace Quasar.Agent
         private readonly Random _rng = new Random();
         private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(2);
         private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
+        // Companion plugin requests run beside the command loop, a few at a time, so a slow
+        // plugin can't hold up lifecycle commands such as save and stop.
+        private readonly SemaphoreSlim _companionSlots = new SemaphoreSlim(MaxConcurrentCompanionRequests, MaxConcurrentCompanionRequests);
+        internal const int MaxConcurrentCompanionRequests = 4;
         private CancellationTokenSource _cancellation;
         private Task _runTask;
         private string _lastPluginConfigJson;
@@ -412,7 +416,13 @@ namespace Quasar.Agent
                 if (message == null)
                     break;
 
-                if (message.Kind == WireMessageKind.Command && message.Command != null)
+                if (message.Kind == WireMessageKind.Command && message.Command != null
+                    && message.Command.CommandType == ServerCommandType.PluginRequest)
+                {
+                    var command = message.Command;
+                    _ = Task.Run(() => RunCompanionRequestAsync(socket, command, cancellationToken));
+                }
+                else if (message.Kind == WireMessageKind.Command && message.Command != null)
                 {
                     var result = await _bridge.ExecuteCommandAsync(message.Command, cancellationToken).ConfigureAwait(false);
                     await SendAsync(socket, new AgentWireMessage
@@ -447,6 +457,39 @@ namespace Quasar.Agent
                         Message = "pong",
                     }, cancellationToken).ConfigureAwait(false);
                 }
+            }
+        }
+
+        private async Task RunCompanionRequestAsync(ClientWebSocket socket, ServerCommandEnvelope command, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _companionSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            try
+            {
+                var result = await _bridge.ExecuteCommandAsync(command, cancellationToken).ConfigureAwait(false);
+                await SendAsync(socket, new AgentWireMessage
+                {
+                    Kind = WireMessageKind.CommandResult,
+                    CommandResult = result,
+                }, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception exception)
+            {
+                Log($"Companion plugin request failed: {exception.Message}");
+            }
+            finally
+            {
+                _companionSlots.Release();
             }
         }
 

@@ -24,9 +24,9 @@ internal static partial class QuasarFleetDashboardOperations
             (caller, input, token) => caller.Services.GetRequiredService<DedicatedServerSupervisor>().ClearErrorStatusAsync(input.UniqueName, token), Change with { Description = "Clears the selected server's recorded failure state." });
         services.AddQuasarOperation<ServerRequest, bool>(PluginId, "fleet.kill", [QuasarPolicyNames.CanControlServers], async (caller, input, token) =>
         {
-            await caller.Services.GetRequiredService<DedicatedServerSupervisor>().KillStartingServerAsync(input.UniqueName, token);
+            await caller.Services.GetRequiredService<DedicatedServerSupervisor>().KillServerAsync(input.UniqueName, token);
             return true;
-        }, Change with { Description = "Force stops a standalone server during startup." });
+        }, Change with { Description = "Force stops a standalone server that is starting, restarting or stuck stopping. Unsaved changes are lost." });
         services.AddQuasarOperation<EmptyRequest, bool>(PluginId, "fleet.warmup.retry", [QuasarPolicyNames.CanEditServers], (caller, _, _) =>
         {
             _ = caller.Services.GetRequiredService<ManagedRuntimeWarmupService>().RetryAsync();
