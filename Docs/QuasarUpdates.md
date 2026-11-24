@@ -123,6 +123,11 @@ restore that complete snapshot, rather than only an old executable.
 A failed operation remains failed after the old service is restored. Correct its
 reported cause, then use **Retry update** or `update --retry`. Do not delete the
 journal, maintenance marker or retained transaction to force another activation.
+During replacement, the journal names the failed step. On Linux, the updater
+waits for systemd's result through the installed unit's 120-second shutdown
+deadline. If systemd reports a failed stop, the updater restarts the current
+release without replacing its files. Check the main and updater journals around
+the operation timestamp for the reason.
 Quasar stops startup if it cannot read the update journal. On Linux, run
 `Quasar update --status` as the configured service account. If a system installer
 left a root-owned journal, stop both services and run the current installer with
@@ -168,6 +173,8 @@ replacement access and query/start/stop rights for the main service. Updater fil
 and installation metadata have separate permissions. The updater remains outside
 the main process and stops it before replacing Windows-locked files. Scheduled
 Tasks are a legacy migration source, not the current supervision mechanism.
+Automatic application updates retain the installed updater executable. To
+upgrade the updater itself, use the full package installer in a maintenance window.
 
 Intentional shutdown exits successfully and stays stopped. A ready update does not
 start an intentionally stopped main service. Foreground/source launches can stage

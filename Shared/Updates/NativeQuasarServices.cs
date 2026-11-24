@@ -124,11 +124,22 @@ internal static class NativeQuasarServices
         return remaining.IsEmpty;
     }
 
-    internal static async Task StopAsync(QuasarServiceInstallation installation, CancellationToken token)
+    internal static async Task StopAsync(QuasarServiceInstallation installation, CancellationToken token, bool requireCleanStop = true)
     {
         if (OperatingSystem.IsWindows())
+        {
             await PowerShellAsync("$s=Get-Service -Name $env:QUASAR_SERVICE_NAME; if($s.Status -ne 'Stopped'){$s.Stop();$s.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(90))}", installation.MainService, token, 100);
-        else await SystemctlAsync(installation, ["stop", installation.MainService], token);
+            return;
+        }
+        // The installed unit allows 120 seconds to stop. Wait for systemd to report the result.
+        await SystemctlAsync(installation, ["stop", installation.MainService], token, timeoutSeconds: 130);
+        if (requireCleanStop)
+        {
+            // The stop job itself can succeed even when systemd kills the service at its deadline.
+            var result = await SystemctlAsync(installation, ["show", installation.MainService, "--property=Result", "--value"], token);
+            if (result.Trim() != "success")
+                throw new InvalidOperationException($"systemd reported '{result.Trim()}' for {installation.MainService}.");
+        }
     }
     internal static async Task StartAsync(QuasarServiceInstallation installation, CancellationToken token)
     {
@@ -142,10 +153,10 @@ internal static class NativeQuasarServices
         var output = await SystemctlAsync(installation, ["show", name, "--no-pager", "--property=MainPID,ActiveState,ExecStart,User,Restart,KillMode,ControlGroup,SuccessExitStatus,RestartPreventExitStatus"], token);
         return output.Split('\n').Where(line => line.Contains('=')).Select(line => line.Split('=', 2)).ToDictionary(parts => parts[0], parts => System.Text.RegularExpressions.Regex.Replace(parts[1], @"\\x([0-9a-fA-F]{2})", m => ((char)Convert.ToInt32(m.Groups[1].Value, 16)).ToString()));
     }
-    private static async Task<string> SystemctlAsync(QuasarServiceInstallation installation, string[] arguments, CancellationToken token)
+    private static async Task<string> SystemctlAsync(QuasarServiceInstallation installation, string[] arguments, CancellationToken token, int timeoutSeconds = 100)
     {
         var args = installation.UserService ? new[] { "--user" }.Concat(arguments) : arguments;
-        var result = await BootstrapUpdateSupport.RunAsync("systemctl", args, token, timeoutSeconds: 100);
+        var result = await BootstrapUpdateSupport.RunAsync("systemctl", args, token, timeoutSeconds: timeoutSeconds);
         if (result.ExitCode != 0) throw new InvalidOperationException(result.Output.Trim());
         return result.Output;
     }

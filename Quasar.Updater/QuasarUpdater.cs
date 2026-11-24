@@ -75,11 +75,13 @@ internal sealed class QuasarUpdater(QuasarServiceInstallation installation, ILog
         }
         // Do not hold the maintenance lease across native Stop: the main service
         // must finish/persist its own shutdown without deadlocking the updater.
+        var step = "stop the current Quasar service";
         try
         {
             await NativeQuasarServices.StopAsync(installation, token);
             if (!operation.RestartOnly)
             {
+                step = "replace the Quasar application and settings";
                 using var lease = await QuasarMaintenanceLease.AcquireAsync(token);
                 if (operation.RestorePrevious)
                 {
@@ -98,8 +100,11 @@ internal sealed class QuasarUpdater(QuasarServiceInstallation installation, ILog
                     QuasarUpdateJournal.WriteText(Path.Combine(installation.DataDirectory, "appsettings.json"), await File.ReadAllTextAsync(operation.ResolvedSettings, token));
                 LauncherReplacement.SetPhase(installation.InstallDirectory, "attempted");
             }
+            step = "start the Quasar service";
             await NativeQuasarServices.StartAsync(installation, token);
+            step = "verify the running Quasar release";
             var healthy = await WaitHealthyAsync(operation.Version, token);
+            step = "record the successful Quasar update";
             using (await QuasarMaintenanceLease.AcquireAsync(token))
             {
                 if (!operation.RestartOnly) LauncherReplacement.SetPhase(installation.InstallDirectory, "committed");
@@ -110,9 +115,10 @@ internal sealed class QuasarUpdater(QuasarServiceInstallation installation, ILog
         }
         catch (Exception exception)
         {
-            using (await QuasarMaintenanceLease.AcquireAsync(CancellationToken.None)) QuasarUpdateJournal.Fail(exception.Message);
-            logger.LogError(exception, "Update {OperationId} failed; restoring the previous application.", operation.Id);
-            await RecoverAsync(CancellationToken.None, exception.Message);
+            var reason = $"Could not {step}. {exception.Message}";
+            using (await QuasarMaintenanceLease.AcquireAsync(CancellationToken.None)) QuasarUpdateJournal.Fail(reason);
+            logger.LogError(exception, "Update {OperationId} could not {UpdateStep}. Recovering the previous application.", operation.Id, step);
+            await RecoverAsync(CancellationToken.None, reason);
         }
     }
 
@@ -166,7 +172,7 @@ internal sealed class QuasarUpdater(QuasarServiceInstallation installation, ILog
             File.Delete(MaintenancePath);
             return;
         }
-        await NativeQuasarServices.StopAsync(installation, token);
+        await NativeQuasarServices.StopAsync(installation, token, requireCleanStop: false);
         using (await QuasarMaintenanceLease.AcquireAsync(token))
         {
             if (phase is "installing" or "ready" or "attempted" || sameTransaction && phase == "committed")

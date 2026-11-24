@@ -61,6 +61,12 @@ internal static class BootstrapUpdateSupport
             await process.WaitForExitAsync(timeout.Token);
             return (process.ExitCode, await stdout + await stderr);
         }
-        catch { try { process.Kill(entireProcessTree: true); } catch { } throw; }
+        catch (Exception exception)
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            if (exception is OperationCanceledException && !token.IsCancellationRequested && timeout.IsCancellationRequested)
+                throw new TimeoutException($"{Path.GetFileName(executable)} did not finish within {timeoutSeconds} seconds.", exception);
+            throw;
+        }
     }
 }
