@@ -29,4 +29,11 @@ public class ServerCommandEnvelope
     public string Payload { get; set; } = string.Empty;
 
     public DateTimeOffset IssuedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    /// How long the sender waits for the result, in milliseconds; 0 when it doesn't wait. The agent drops a
+    /// command still queued for the game thread after this long instead of running it unobserved. Save and
+    /// stop never expire. Older agents ignore it.
+    /// </summary>
+    public int TimeoutMilliseconds { get; set; }
 }

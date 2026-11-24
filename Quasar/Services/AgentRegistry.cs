@@ -352,6 +352,7 @@ public sealed class AgentRegistry
     {
         Func<AgentWireMessage, CancellationToken, Task>? sender;
         var completion = new TaskCompletionSource<ServerCommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        command.TimeoutMilliseconds = (int)Math.Clamp(timeout.TotalMilliseconds, 1, int.MaxValue);
 
         lock (_sync)
         {
@@ -501,6 +502,7 @@ public sealed class AgentRegistry
             SteamId = command.SteamId,
             Payload = command.Payload,
             IssuedAtUtc = command.IssuedAtUtc,
+            TimeoutMilliseconds = command.TimeoutMilliseconds,
         };
     }
 }
