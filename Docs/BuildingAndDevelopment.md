@@ -59,10 +59,10 @@ The solution file is `Quasar.sln`.
 
 ## Build setup
 
-The shared base version in `Directory.Build.props` is `1.6.1`. Stable main-branch
-releases append the number of commits since that base-version bump, producing
-`1.6.1.x`; the bump commit starts at `1.6.1.0`. CI supplies the complete release
-version to packaging. Keep the source base at three components.
+`Directory.Build.props` defines the three-component base version. Stable
+main-branch releases append the number of commits since the last base-version
+bump. The bump commit starts at build zero, for example `1.7.1.0`. CI supplies
+the complete release version to packaging.
 
 Quasar, Bootstrap and Quasar.Host compile the exact current Registry admin contract source pinned under
 `Contracts/ClusterGateway.AdminContract`. `SOURCE.md` records its upstream revision and
