@@ -275,6 +275,34 @@ public sealed class NativeAppearanceTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task FleetActionsUseLifecycleColorsInBothLayouts(bool isList)
+    {
+        await using var context = new QuasarBunitContext();
+        context.Services.AddMudServices();
+        context.Services.AddScoped<Quasar.Client.DashboardSdk>();
+        context.JSInterop.Setup<bool>("quasarSdk.allowed", "ClusterManage").SetResult(true);
+        context.ComponentFactories.AddStub<FleetClusterOverview>();
+        var data = new FleetDashboard(new(4, 2, 0, null, null, 0, null, 0, null, 0, 0, 0),
+            [FleetDashboardTestTransport.Row("starting") with { State = "Starting", Goal = "On" },
+             FleetDashboardTestTransport.Row("running") with { State = "Running", Goal = "On" },
+             FleetDashboardTestTransport.Row("stopped-cluster", cluster: true),
+             FleetDashboardTestTransport.Row("running-cluster", cluster: true) with { State = "Running", Goal = "On" }],
+            [], [], [], [], [], new(), HealthDisabled: false, ConsentNeeded: false, Linux: true,
+            EditServers: false, EditConfigs: false, Control: true, ClusterManage: true, ClusterQuery: false);
+        var page = context.Render<FleetWorkspace>(p => p.Add(c => c.Dashboard, data).Add(c => c.IsList, isList));
+        Assert.Contains("quasar-text-success", page.Find("button[aria-label='Start cluster']").ClassList);
+        foreach (var label in new[] { "Stop server", "Kill starting server", "Gracefully stop cluster", "Delete cluster" })
+        {
+            var buttons = page.FindAll($"button[aria-label='{label}']");
+            Assert.NotEmpty(buttons);
+            Assert.All(buttons, button => Assert.Contains("quasar-text-error", button.ClassList));
+        }
+        Assert.Equal(!isList, page.Find("button[aria-label='Show console output']").ClassList.Contains("quasar-tone-primary"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task AnalyticsSelectsWholeClustersAndIncludesEverySlot(bool migrateLegacySelection)
     {
         await using var context = new OperationsBrowserContext();
