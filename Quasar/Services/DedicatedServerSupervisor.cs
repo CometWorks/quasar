@@ -46,8 +46,14 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Dictionary<string, ManagedServerState> _states = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _persistDebounce;
+    // Persists run in order, each with a fresh snapshot, so an older one never lands last.
+    private readonly SemaphoreSlim _persistLock = new(1, 1);
     private bool _isStopping;
     private bool _preserveManagedServersOnShutdown;
+    // ApplicationStopping fires before any hosted service stops, and the agent
+    // sockets close on it. StopAsync runs later, so until then a disconnected
+    // agent must not look like a failed server.
+    private readonly CancellationToken _hostStopping;
 
     public DedicatedServerSupervisor(
         DedicatedServerCatalog catalog,
@@ -60,9 +66,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         ILogger<DedicatedServerSupervisor> logger,
         DiagnosticCollector? diagnostics = null,
         AgentSocketAuthenticator? agentTokens = null,
-        Players.PlayerAccessCatalog? playerAccess = null)
+        Players.PlayerAccessCatalog? playerAccess = null,
+        IHostApplicationLifetime? lifetime = null)
     {
         _catalog = catalog;
+        _hostStopping = lifetime?.ApplicationStopping ?? CancellationToken.None;
         _playerAccess = playerAccess;
         _registry = registry;
         _runtimePreparer = runtimePreparer;
@@ -92,6 +100,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         File.Exists(Path.Combine(MagnetarPaths.GetQuasarUpdatesDirectory(), "application-maintenance"));
 
     public bool HealthMonitoringDisabled => _options.DisableServerHealthMonitoring;
+
+    // The token reports cancellation before its callbacks close the agent sockets,
+    // so a reconcile that saw an agent drop for shutdown always sees this as true.
+    private bool IsShuttingDown => _isStopping || _hostStopping.IsCancellationRequested;
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -835,7 +847,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
                 if (goalState == DedicatedServerGoalState.On)
                 {
-                    if (!processActive && state.State == DedicatedServerProcessState.Stopped)
+                    if (IsShuttingDown)
+                    {
+                        // Quasar is going down: no starts or automatic restarts. The agents
+                        // have just been disconnected, which would read as unhealthy servers.
+                    }
+                    else if (!processActive && state.State == DedicatedServerProcessState.Stopped)
                     {
                         actions.Add(new(state.UniqueName, ReconcileAction.Start, "goal state is on"));
                     }
@@ -930,7 +947,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         foreach (var request in actions)
         {
-            if (cancellationToken.IsCancellationRequested)
+            if (cancellationToken.IsCancellationRequested || IsShuttingDown)
                 break;
 
             switch (request.Action)
@@ -1355,6 +1372,18 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         _ = PumpStandardOutputAsync(process.StandardOutput, state.UniqueName, _shutdown.Token, diagnosticDirectory);
         _ = DrainStandardErrorAsync(process.StandardError, _shutdown.Token, diagnosticDirectory);
+
+        // Save the new process ID now rather than after the persist debounce. If Quasar
+        // dies before it is on disk, the next worker can't adopt the running server and
+        // starts a second copy of it.
+        try
+        {
+            await PersistStateSnapshotAsync(CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Could not save the process ID of server {UniqueName}.", state.UniqueName);
+        }
     }
 
     private static void ConfigureNativeLibrarySearchPath(
@@ -1891,7 +1920,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
             definition = state.Definition.Clone();
             exitCode = SafeGetExitCode(state.Process);
-            stopRequested = state.StopRequested || _isStopping;
+            stopRequested = state.StopRequested || IsShuttingDown;
             restartRequested = state.IsRestartPending && IsRestartExit(state.State, state.StartedAtUtc, state.LastRestart);
             // The DS gives up a world it can't load by exiting on its own. Quasar.Agent doesn't
             // report that as a stop, so the goal is still On.
@@ -3329,7 +3358,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private void HandleRuntimeWarmupChanged()
     {
-        if (!_runtimeWarmup.IsReady || _isStopping)
+        if (!_runtimeWarmup.IsReady || IsShuttingDown)
             return;
 
         _ = Task.Run(async () =>
@@ -3373,6 +3402,19 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     }
 
     private async Task PersistStateSnapshotAsync(CancellationToken cancellationToken)
+    {
+        await _persistLock.WaitAsync(cancellationToken);
+        try
+        {
+            await PersistStateSnapshotLockedAsync(cancellationToken);
+        }
+        finally
+        {
+            _persistLock.Release();
+        }
+    }
+
+    private async Task PersistStateSnapshotLockedAsync(CancellationToken cancellationToken)
     {
         PersistedSupervisorState persisted;
         lock (_sync)

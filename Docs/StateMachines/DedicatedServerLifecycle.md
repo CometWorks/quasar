@@ -205,6 +205,17 @@ stateDiagram-v2
   logs. If the unhealthy condition includes a missing or disconnected agent,
   Quasar logs that Magnetar-side delivery was unavailable while retaining the
   reason in Quasar's log and UI.
+- Shutdown gate: `ApplicationStopping` closes every agent socket before the
+  supervisor's `StopAsync` runs. From the moment it fires, reconcile queues no
+  starts or automatic restarts and stops executing queued actions, and a
+  process exit counts as requested, so the disconnects it causes never become
+  health-policy or crash restarts. The token reports cancellation before its
+  callbacks close the sockets, so a pass that saw the disconnect also sees the
+  gate.
+- The supervisor writes runtime state (`supervisor-state.json`) on a 150 ms
+  debounce after every change, and immediately after launching a process, so
+  a Quasar crash right after a start still leaves the new PID on disk for
+  adoption. Writes are serialized and each takes a fresh snapshot.
 
 ---
 

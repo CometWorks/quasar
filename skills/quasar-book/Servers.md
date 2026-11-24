@@ -223,6 +223,7 @@ What happens then, with **Auto-restart when unhealthy** on and the goal On:
 
 - During `Starting`, Quasar kills the process, waits the retry delay and launches again ("Quasar.Agent attach timed out (1/3). Retrying in 5s."). After the last attempt the server becomes `Faulted`.
 - During `Running`, Quasar does a graceful restart with cause "Health policy". It does this at most once per 30 seconds (or per restart delay, if longer). When the agent is still connected, the restart reason is also written to the server's Magnetar `info_*.log`.
+- While Quasar itself is shutting down, it starts and restarts nothing. The agents disconnect as Quasar goes down, so a server can show `Unhealthy` ("Quasar.Agent disconnected.") for a moment, but that doesn't count as a failed server. A server that exits in that time isn't restarted either; Quasar handles it on its next start according to the goal.
 
 To turn health monitoring off for the whole Quasar instance, set `Quasar:DisableServerHealthMonitoring` to `true` or `QUASAR_DISABLE_SERVER_HEALTH_MONITORING=true`. New servers then also start with both health checkboxes off.
 
@@ -373,6 +374,10 @@ Quasar launches Magnetar with `-daemon`, which detaches it from Quasar's session
 - Until an adopted server's agent sends authenticated telemetry again, Quasar doesn't restart it on its own: no attach retries, health restarts or scheduled restarts. An old agent that the current Quasar refuses (for example after the DIS-0042 security update) keeps it that way, and the health message adds "Automatic recovery is paused for this adopted process. Save in game before a manual restart." Save in game, then restart the server yourself.
 - With preserve set to `false`, Quasar stops every server gracefully (save, then stop, no kill timeout) before it exits. The Docker image sets `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN=false`.
 
+A crash of Quasar doesn't stop the servers either, whatever the preserve setting says, because Quasar has no chance to stop them. Quasar saves a server's process ID as soon as it starts the server, so after the crash it adopts the server like after a normal restart. The Quasar launcher starts a crashed Quasar worker again, and on Linux systemd (`Restart=on-failure`) also restarts the launcher if it crashes. An adopted server's console output isn't captured again until its next start, because the output pipe ended with the old Quasar process.
+
+Docker is different. If only the Quasar worker crashes, the launcher starts it again and the servers keep running. If the launcher itself (the container's main process) exits, the container stops and every server in it is killed without saving. Docker then starts the container again (`restart: unless-stopped`) and the servers start fresh from their last save.
+
 While Quasar is away, Quasar.Agent keeps the server running and retries the connection every 10 seconds (plus up to 3 seconds of jitter). If Quasar stays unreachable for 3600 seconds after the agent had connected at least once, the agent saves the world and stops the server. Change this with `Quasar:AgentOfflineShutdownSeconds` or `QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS` (0 or negative stops the server as soon as Quasar is gone). Quasar passes the value to each server at launch, so a change applies after the server's next start.
 
 ## Profiler mode
@@ -449,6 +454,8 @@ collisions, limits and the required Magnetar version.
 - `Quasar.Agent/AgentOptions.cs`
 - `Quasar.Agent/OfflineModeNetworkGuard.cs`
 - `Dockerfile`
+- `docker-compose.yml`
+- `Quasar.Bootstrap/Program.cs`
 - `install.sh`
 - `tools/quasar-renice.c`
 - `Quasar/Services/QuasarCommandAliases.cs`
