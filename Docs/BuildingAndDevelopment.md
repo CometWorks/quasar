@@ -695,9 +695,11 @@ data directory inside each fixture process.
 
 The Windows native recovery CI job covers Windows PowerShell 5.1 (`powershell`)
 and PowerShell 7 (`pwsh`), spaced and space-free application paths, and co-located
-and nested data layouts. Use `-SpaceFreePath` for a dedicated folder at the system
-drive root, and `-NestedData` for a separate data subfolder. All runs need elevation
-and the .NET 10 SDK. Each runs the actual installer and repeats supervision repair
+and nested data layouts. The matrix selects the job's default shell for the
+native service fixture. Both installer checks explicitly use `pwsh`. Use
+`-SpaceFreePath` for a dedicated folder at the system drive root, and `-NestedData`
+for a separate data subfolder. All runs need elevation and the .NET 10 SDK.
+Each runs the actual installer and repeats supervision repair
 before exercising replacement/recovery. It checks that SCM retains the exact
 quoted commands and that wrong accounts and process ownership fail verification.
 Space-free runs then set equivalent legacy unquoted commands and use those through
