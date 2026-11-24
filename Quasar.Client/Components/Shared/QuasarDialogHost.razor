@@ -1,0 +1,58 @@
+@namespace Quasar.Components.Shared
+@using Microsoft.AspNetCore.Components.Routing
+@using Quasar.Client.Ui.Dialogs
+@inject QuasarDialogService Dialogs
+@inject NavigationManager Navigation
+@implements IDisposable
+
+@*
+    Renders every dialog tracked by the scoped QuasarDialogService.
+
+    Place this component exactly once in the application shell, outside the
+    routed page. The shell owns it, so dialogs survive page navigation and a
+    modeless dialog can remain open while the user visits other pages.
+
+    The @key is the dialog identifier. It keeps each dialog's component
+    instance and JS interop state attached to the same entry while sibling
+    dialogs open and close.
+*@
+@foreach (var entry in Dialogs.Entries)
+{
+    <QuasarDialogInstanceHost @key="entry.Id" Entry="entry" />
+}
+
+@code {
+    /// <summary>
+    /// Subscribes to the service and to navigation. The service raises
+    /// <c>Changed</c> for open, close-request, and finish-close events.
+    /// </summary>
+    protected override void OnInitialized()
+    {
+        Dialogs.Changed += OnChanged;
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    /// <summary>
+    /// Re-renders on the Blazor synchronization context. The service may raise
+    /// the event from a timer or JS callback thread.
+    /// </summary>
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    /// <summary>
+    /// Asks the service to close dialogs that opted into
+    /// <see cref="QuasarDialogOptions.CloseOnNavigation"/>. Modeless dialogs
+    /// with <c>CloseOnNavigation = false</c> stay open.
+    /// </summary>
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args) =>
+        Dialogs.RequestCloseOnNavigation();
+
+    /// <summary>
+    /// Detaches the handlers. The service itself is scoped and disposed by the
+    /// container, not by this component.
+    /// </summary>
+    public void Dispose()
+    {
+        Dialogs.Changed -= OnChanged;
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+}

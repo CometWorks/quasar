@@ -1,0 +1,34 @@
+@using Microsoft.AspNetCore.Components.Web
+@using Quasar.Ui
+
+<header class="quasar-dialog-header">
+    <h2 class="quasar-dialog-title">@Dialog.Title</h2>
+</header>
+<div class="quasar-dialog-content">
+    <div class="quasar-layout quasar-gap-3">
+        <p class="quasar-text">@Message</p>
+        @if (LongContent)
+        {
+            @for (var i = 1; i <= 40; i++)
+            {
+                <p class="quasar-text">Long-content line @i. The dialog content should scroll while its actions remain reachable.</p>
+            }
+        }
+    </div>
+</div>
+<footer class="quasar-dialog-actions">
+    <button type="button" class="quasar-button" @onclick="Cancel">Cancel</button>
+    <button type="button" class="quasar-button quasar-button-primary" @onclick="Confirm">Confirm</button>
+</footer>
+
+@code {
+    [CascadingParameter] private IQuasarDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter] public string Message { get; set; } = "Fixture dialog content.";
+
+    [Parameter] public bool LongContent { get; set; }
+
+    private void Confirm() => Dialog.Close(QuasarDialogResult.Ok("confirmed"));
+
+    private void Cancel() => Dialog.Cancel();
+}

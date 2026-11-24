@@ -242,7 +242,7 @@ else
     </div>;
     private RenderFragment MoreActions(FleetRow r) => @<text>
             @if(Dashboard.EditServers||Dashboard.EditConfigs||Dashboard.ClusterManage){
-            <button class="quasar-icon-button" aria-label="@("More actions for "+r.DisplayName)" title="More server actions" popovertarget="@Menu(r)" style="anchor-name:@("--"+Menu(r))"><QuasarIcon Icon="@Icons.Material.Filled.MoreVert" /></button>
+            <button class="quasar-icon-button" aria-label="@("More actions for "+r.DisplayName)" title="More server actions" popovertarget="@Menu(r)" style="anchor-name:@("--"+Menu(r))"><QuasarIcon Icon="@Icons.Material.Filled.MoreVert" TrustedMarkup="true" /></button>
             <div id="@Menu(r)" popover="auto" class="quasar-server-menu" style="position-anchor:@("--"+Menu(r))"><strong>@r.DisplayName</strong>
                 @if(Dashboard.ClusterManage){<QuasarIconButton Label="Convert to cluster" ShowLabel="true" Icon="@QuasarIcons.AccountTree" Href="@("servers/"+Uri.EscapeDataString(r.UniqueName)+"/convert-to-cluster")" />}
                 @if(Dashboard.EditServers){

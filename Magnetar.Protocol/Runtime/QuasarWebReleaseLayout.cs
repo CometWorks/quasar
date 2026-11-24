@@ -25,6 +25,12 @@ public static class QuasarWebReleaseLayout
         "wwwroot/app.css",
         "wwwroot/quasar-configs.js",
         "wwwroot/quasar-charts.js",
+        "wwwroot/quasar-sdk.js",
+        "wwwroot/quasar-push.js",
+        "wwwroot/quasar-ui.css",
+        "wwwroot/quasar-ui.js",
+        "wwwroot/ui-plugins.css",
+        "wwwroot/_quasar/sdk/v1/boot.js",
         "wwwroot/lib/uplot/uPlot.min.css",
         "wwwroot/lib/uplot/uPlot.iife.min.js",
     ];

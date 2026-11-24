@@ -480,6 +480,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell {
     --mud-palette-surface: var(--quasar-palette-surface);
     --mud-palette-text-primary: var(--quasar-palette-text-primary);
+    --mud-palette-overlay-dark: rgb(0 0 0 / 50%);
 }
 .quasar-shell .mud-paper { box-shadow: none; }
 .quasar-shell :is(.mud-table, .mud-card, .mud-tabs-outlined) { border: 1px solid var(--quasar-palette-lines-default); border-radius: 6px; }
@@ -777,3 +778,395 @@ textarea.world-text-input { min-height: 88px; resize: vertical; }
 .quasar-wasm-spinner { width: 1rem; height: 1rem; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: quasar-wasm-spin .8s linear infinite; }
 @keyframes quasar-wasm-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .quasar-wasm-spinner { animation: none; } }
+
+/* ------------------------------------------------------------------
+   Native dialogs and toasts.
+
+   These classes and custom properties are part of the plugin UI contract.
+   Plugins may read or override them per call through QuasarDialogOptions or
+   QuasarToastOptions. The defaults use the active dashboard palette, so the
+   same markup works in light and dark themes.
+
+   Dialog tokens:
+     --quasar-dialog-surface          dialog background
+     --quasar-dialog-text             primary text color
+     --quasar-dialog-border           outer border color
+     --quasar-dialog-divider          header/footer divider color
+     --quasar-dialog-actions-surface  footer background
+     --quasar-dialog-backdrop         dim color for modal dialogs
+     --quasar-dialog-radius           outer corner radius
+     --quasar-dialog-shadow           outer shadow
+     --quasar-dialog-max-width        computed from QuasarDialogWidth
+     --quasar-dialog-z                stacking order for modeless dialogs
+     --quasar-dialog-drag-handle-height  modeless drag bar height
+     --quasar-dialog-resize-handle-size  modeless corner grip size
+
+   Toast tokens:
+     --quasar-toast-surface  toast background
+     --quasar-toast-text     toast text color
+     --quasar-toast-border   outer border color
+     --quasar-toast-radius   corner radius
+     --quasar-toast-shadow   outer shadow
+     --quasar-toast-width    stack width on wide screens
+     --quasar-toast-z        stacking order
+
+   A per-dialog override looks like:
+     Style = "--quasar-dialog-surface:#3a2f5c;--quasar-dialog-radius:22px;"
+   ------------------------------------------------------------------ */
+.quasar-shell {
+    --quasar-dialog-surface: var(--quasar-palette-surface);
+    --quasar-dialog-text: var(--quasar-palette-text-primary);
+    --quasar-dialog-border: var(--quasar-palette-lines-default);
+    --quasar-dialog-divider: var(--quasar-palette-divider);
+    --quasar-dialog-actions-surface: color-mix(in srgb, var(--quasar-palette-background-gray) 30%, var(--quasar-palette-surface));
+    --quasar-dialog-backdrop: rgb(0 0 0 / 50%);
+    --quasar-dialog-radius: 8px;
+    --quasar-dialog-shadow: 0 24px 80px #0005;
+    --quasar-dialog-max-width: 600px;
+    --quasar-dialog-z: 1500;
+    --quasar-dialog-drag-handle-height: 18px;
+    --quasar-dialog-resize-handle-size: 18px;
+    --quasar-toast-surface: var(--quasar-palette-surface);
+    --quasar-toast-text: var(--quasar-palette-text-primary);
+    --quasar-toast-border: var(--quasar-palette-lines-default);
+    --quasar-toast-radius: 5px;
+    --quasar-toast-shadow: 0 8px 24px #0003;
+    --quasar-toast-width: 380px;
+    --quasar-toast-z: 1600;
+}
+
+/* Applied while at least one modal dialog holds a scroll lock. The gutter keeps
+   the page from shifting horizontally when the scrollbar disappears. */
+html.quasar-dialog-open {
+    overflow: hidden;
+    scrollbar-gutter: stable;
+}
+
+/* The native dialog element is a flex column: a fixed header, a scrollable
+   body, and a fixed footer. Plugins can use these classes without any extra
+   stylesheet import. */
+.quasar-dialog {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: fit-content;
+    max-width: min(calc(100% - 2rem), var(--quasar-dialog-max-width));
+    max-height: calc(100dvh - 2rem);
+    margin: auto;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--quasar-dialog-border);
+    border-radius: var(--quasar-dialog-radius);
+    background: var(--quasar-dialog-surface);
+    color: var(--quasar-dialog-text);
+    box-shadow: var(--quasar-dialog-shadow);
+    color-scheme: inherit;
+}
+
+/* ::backdrop only paints for showModal(). Modeless dialogs use show(), so they
+   have no backdrop even though this rule exists. */
+.quasar-dialog::backdrop {
+    background: var(--quasar-dialog-backdrop, rgb(0 0 0 / 50%));
+}
+
+/* Author display:flex would otherwise override the browser's
+   dialog:not([open]) display:none rule, leaving a closed element laid out. */
+.quasar-dialog:not([open]) {
+    display: none;
+}
+
+.quasar-dialog[open] {
+    animation: quasar-dialog-in .12s cubic-bezier(.39, .575, .565, 1);
+}
+
+/* Width classes mirror QuasarDialogWidth and remain available to plugin CSS.
+   The inline --quasar-dialog-max-width set by the host controls the size. */
+.quasar-dialog-width-xs { --quasar-dialog-max-width: 444px; }
+.quasar-dialog-width-sm { --quasar-dialog-max-width: 600px; }
+.quasar-dialog-width-md { --quasar-dialog-max-width: 960px; }
+.quasar-dialog-width-lg { --quasar-dialog-max-width: 1280px; }
+.quasar-dialog-width-xl { --quasar-dialog-max-width: 1920px; }
+
+/* Modeless dialogs are positioned by quasar-ui.js. They sit in the normal
+   stacking context, not the browser top layer, so their z-index must stay
+   above the dashboard chrome but below toasts. */
+.quasar-dialog-modeless {
+    position: fixed;
+    z-index: var(--quasar-dialog-z);
+    margin: 0;
+}
+
+/* The drag handle is a full-width strip, not a tiny icon: it is easy to grab
+   and it gives keyboard users a stable focus target. touch-action: none keeps
+   a touch drag from scrolling the page instead of moving the dialog. */
+.quasar-dialog-drag-handle {
+    display: flex;
+    flex: 0 0 var(--quasar-dialog-drag-handle-height, 18px);
+    align-items: center;
+    justify-content: center;
+    height: var(--quasar-dialog-drag-handle-height, 18px);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    color: var(--quasar-palette-text-secondary);
+}
+
+.quasar-dialog-drag-handle:active {
+    cursor: grabbing;
+}
+
+.quasar-dialog-drag-handle:focus-visible {
+    outline: 2px solid var(--quasar-palette-primary);
+    outline-offset: -2px;
+}
+
+/* Small visual grip inside the larger, invisible drag target. */
+.quasar-dialog-drag-grip {
+    width: 30px;
+    height: 3px;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: .55;
+}
+
+/* Standard bottom-right resize grip. It is absolutely positioned so it adds no
+   layout height, and its larger hit area is easier to grab than the visible
+   corner lines. touch-action: none keeps a touch resize from scrolling the
+   dialog content. */
+.quasar-dialog-resize-handle {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    z-index: 1;
+    width: var(--quasar-dialog-resize-handle-size, 18px);
+    height: var(--quasar-dialog-resize-handle-size, 18px);
+    cursor: nwse-resize;
+    touch-action: none;
+    color: var(--quasar-palette-text-secondary);
+}
+
+.quasar-dialog-resize-handle:focus-visible {
+    outline: 2px solid var(--quasar-palette-primary);
+    outline-offset: -2px;
+}
+
+/* Two short diagonal strokes form the familiar corner grip. */
+.quasar-dialog-resize-grip {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
+    width: 10px;
+    height: 10px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    opacity: .55;
+}
+
+.quasar-dialog-resize-handle:hover .quasar-dialog-resize-grip,
+.quasar-dialog-resize-handle:focus-visible .quasar-dialog-resize-grip {
+    opacity: 1;
+}
+
+/* Keep footer actions clear of the corner grip when resizing is enabled. */
+.quasar-dialog-resizable .quasar-dialog-actions {
+    padding-right: calc(22px + var(--quasar-dialog-resize-handle-size, 18px));
+}
+
+/* FullWidth uses the whole viewport minus the same gutter as the default
+   width, while still respecting the dialog's maximum. */
+.quasar-dialog-full-width {
+    width: min(calc(100% - 2rem), var(--quasar-dialog-max-width));
+}
+
+/* Header: title and optional close button. It never scrolls, so the close
+   affordance stays reachable in a long dialog. */
+.quasar-dialog-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 0 0 auto;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--quasar-dialog-divider);
+}
+
+.quasar-dialog-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    font: 600 19px/1.25 "Manrope", system-ui, sans-serif;
+    letter-spacing: -.4px;
+    overflow-wrap: anywhere;
+}
+
+.quasar-dialog-close {
+    flex: 0 0 auto;
+}
+
+/* Body: the only scrollable region. overscroll-behavior keeps a trackpad
+   gesture inside the dialog instead of scrolling the page behind it. */
+.quasar-dialog-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 20px 22px;
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+
+/* Footer: stays visible while the body scrolls. The muted surface separates
+   the actions from the content without a hard shadow. */
+.quasar-dialog-actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 22px;
+    border-top: 1px solid var(--quasar-dialog-divider);
+    background: var(--quasar-dialog-actions-surface);
+}
+
+@keyframes quasar-dialog-in {
+    from { opacity: 0; transform: translateY(4px) scale(.99); }
+    to { opacity: 1; transform: none; }
+}
+
+/* Toast host: a fixed stack anchored to one viewport corner. The host ignores
+   pointer events so its empty area never blocks the page; each toast turns
+   pointer events back on. Top positions start below the dashboard top bar. */
+.quasar-toast-host {
+    position: fixed;
+    z-index: var(--quasar-toast-z);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: min(calc(100vw - 2rem), var(--quasar-toast-width));
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    pointer-events: auto;
+}
+
+.quasar-toast-host-topright { top: calc(var(--quasar-topbar-height) + 12px); right: 16px; }
+.quasar-toast-host-topleft { top: calc(var(--quasar-topbar-height) + 12px); left: 16px; }
+.quasar-toast-host-topcenter { top: calc(var(--quasar-topbar-height) + 12px); left: 50%; transform: translateX(-50%); }
+.quasar-toast-host-bottomright { bottom: 16px; right: 16px; }
+.quasar-toast-host-bottomleft { bottom: 16px; left: 16px; }
+.quasar-toast-host-bottomcenter { bottom: 16px; left: 50%; transform: translateX(-50%); }
+
+/* Top-anchored hosts start below the top bar, so their scrollport must not
+   extend past the bottom of the viewport. */
+.quasar-toast-host-topright,
+.quasar-toast-host-topleft,
+.quasar-toast-host-topcenter {
+    max-height: calc(100dvh - var(--quasar-topbar-height) - 2rem);
+}
+
+/* One toast. The severity class supplies the accent used by the left border,
+   the icon, and the action button. Content wraps instead of clipping, so long
+   log messages remain readable. */
+.quasar-toast {
+    --quasar-toast-accent: var(--quasar-palette-info);
+    display: flex;
+    flex-shrink: 0;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    pointer-events: auto;
+    border: 1px solid var(--quasar-toast-border);
+    border-left: 3px solid var(--quasar-toast-accent);
+    border-radius: var(--quasar-toast-radius);
+    background: var(--quasar-toast-surface);
+    color: var(--quasar-toast-text);
+    box-shadow: var(--quasar-toast-shadow);
+    animation: quasar-toast-in .14s ease;
+}
+
+/* Severity accents. Normal has no rule because its default is the neutral
+   info color. */
+.quasar-toast-info { --quasar-toast-accent: var(--quasar-palette-info); }
+.quasar-toast-success { --quasar-toast-accent: var(--quasar-palette-success); }
+.quasar-toast-warning { --quasar-toast-accent: var(--quasar-palette-warning); }
+.quasar-toast-error { --quasar-toast-accent: var(--quasar-palette-error); }
+
+.quasar-toast-icon {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    color: var(--quasar-toast-accent);
+}
+
+.quasar-toast-content {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.quasar-toast-message {
+    overflow-wrap: anywhere;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.quasar-toast-action {
+    min-height: 28px;
+    padding: 3px 8px;
+    font-size: 11px;
+    color: var(--quasar-toast-accent);
+}
+
+.quasar-toast-close {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    padding: 4px;
+}
+
+@keyframes quasar-toast-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 600px) {
+    .quasar-dialog {
+        width: calc(100% - 1rem);
+        max-width: min(calc(100% - 1rem), var(--quasar-dialog-max-width));
+        max-height: calc(100dvh - 1rem);
+    }
+
+    .quasar-dialog-full-width {
+        width: min(calc(100% - 1rem), var(--quasar-dialog-max-width));
+    }
+
+    .quasar-dialog-header,
+    .quasar-dialog-content,
+    .quasar-dialog-actions {
+        padding-inline: 16px;
+    }
+
+    .quasar-toast-host {
+        width: calc(100vw - 1rem);
+    }
+
+    .quasar-toast-host-topright,
+    .quasar-toast-host-topcenter,
+    .quasar-toast-host-topleft {
+        top: calc(var(--quasar-topbar-height) + 8px);
+    }
+
+    .quasar-toast-host-topright,
+    .quasar-toast-host-bottomright { right: 8px; }
+    .quasar-toast-host-topleft,
+    .quasar-toast-host-bottomleft { left: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .quasar-dialog[open],
+    .quasar-toast {
+        animation: none;
+    }
+}

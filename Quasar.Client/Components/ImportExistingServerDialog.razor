@@ -130,7 +130,7 @@
                         <label class="quasar-field" for="@_pathId">Source server folder</label>
                         <div class="world-path-controls">
                             <input id="@_pathId" class="world-text-input mono" @bind="_sourcePath" @bind:event="oninput" disabled="@_busy" aria-describedby="@(_pathId + "-help")" />
-                            <button type="button" class="quasar-button" disabled="@_busy" @onclick="BrowseAsync"><QuasarIcon Icon="@Icons.Material.Filled.FolderOpen" />Browse</button>
+                            <button type="button" class="quasar-button" disabled="@_busy" @onclick="BrowseAsync"><QuasarIcon Icon="@Icons.Material.Filled.FolderOpen" TrustedMarkup="true" />Browse</button>
                         </div>
                         <small id="@(_pathId + "-help")">@(IsTorch ? "Folder on the Quasar machine containing Torch.cfg." : "DS app-data folder on the Quasar machine containing SpaceEngineers-Dedicated.cfg, or its parent.")</small>
                     </div>

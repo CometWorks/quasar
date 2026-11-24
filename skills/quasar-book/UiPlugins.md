@@ -24,6 +24,26 @@ can run independently of its UI.
 
 UI plugins are loaded once per worker start. Install, update, enable, disable and remove all change files on disk only, and take effect after a Quasar restart.
 
+Browser plugins can opt in to Quasar's native dialog and toast hosts through the
+worker's `Quasar.Ui.Abstractions.dll`. The plugin browser project references that
+DLL (QuasarHub passes `QuasarUiAbstractionsAssembly`), injects
+`IQuasarDialogService` or `IQuasarToastService`, and gets focus-managed native
+dialogs, accessible toasts, and the active palette without a MudBlazor or
+`Quasar.Client` reference. `Modal = false` gives a modeless dialog that leaves
+the page interactive and shows a keyboard-operable drag handle by default;
+`Resizable = false` removes its standard bottom-right resize grip.
+Per-call `Class`/`Style`, the documented
+`--quasar-dialog-*` and `--quasar-toast-*` tokens, and the public
+`.quasar-dialog`/`.quasar-toast` classes cover plugin-specific styling. Plugins
+that do not use the shared hosts keep the native HTML/CSS path and need no new
+reference.
+
+A modeless panel with `CloseOnNavigation = false` stays open while the admin
+moves between pages. A plugin can feed it live data from its worker half through
+the browser operation SDK, so a performance or status panel keeps updating on
+the Logs page and elsewhere. The dialog belongs to the shell, not to the page
+that opened it.
+
 ## Browser operation SDK
 
 Plugins can register protected operations with Quasar browser SDK v1. Quasar
@@ -286,6 +306,19 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar/Components/Layout/WasmPageLayout.razor`
 - `Quasar/wwwroot/quasar-configs.js`
 - `Quasar/wwwroot/app.css`
+- `Quasar/wwwroot/quasar-ui.css`
+- `Quasar/wwwroot/quasar-ui.js`
+- `Quasar.Ui.Abstractions/Dialogs/IQuasarDialogService.cs`
+- `Quasar.Ui.Abstractions/Dialogs/QuasarDialogOptions.cs`
+- `Quasar.Ui.Abstractions/Toasts/IQuasarToastService.cs`
+- `Quasar.Ui.Abstractions/Toasts/QuasarToastOptions.cs`
+- `Quasar.Client/Components/Shared/QuasarDialogHost.razor`
+- `Quasar.Client/Components/Shared/QuasarDialogFrame.razor`
+- `Quasar.Client/Components/Shared/QuasarToastHost.razor`
+- `Quasar.Client/Components/Shared/QuasarToastItem.razor`
+- `Quasar.Client/Ui/ServiceCollectionExtensions.cs`
+- `Quasar.Client/Ui/Dialogs/QuasarDialogService.cs`
+- `Quasar.Client/Ui/Toasts/QuasarToastService.cs`
 - `Quasar.Client/UiPlugins/UiPluginsView.razor`
 - `Quasar.Client/UiPlugins/PluginCatalogDescriptionDialog.razor`
 - `Quasar.Client/UiPlugins/PluginCatalogDescriptionDialog.razor.css`

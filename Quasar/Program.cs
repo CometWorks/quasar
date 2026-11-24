@@ -3,6 +3,7 @@ using Quasar.Hosting;
 using Quasar.Models;
 using Quasar.Networking;
 using Quasar.Services;
+using Quasar.Client.Ui;
 using Quasar.Services.Analytics;
 using Quasar.Services.Players;
 using Quasar.Services.Auth;
@@ -96,6 +97,10 @@ public class Program
                 builder.Services.AddSingleton<DashboardReleaseManifest>();
                 builder.Services.AddRazorComponents()
                     .AddInteractiveWebAssemblyComponents();
+                // Scoped dialog/toast services for the browser app. The WASM
+                // service collection also registers them; this covers server
+                // prerendering of the same DI graph.
+                builder.Services.AddQuasarUi();
                 builder.Services.AddCascadingAuthenticationState();
             }
             builder.Services.Configure<HostOptions>(options =>

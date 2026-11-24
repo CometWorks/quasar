@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
@@ -16,6 +17,7 @@ public sealed class QuasarUiPluginHubCatalogService
     private const int CacheSchemaVersion = 1;
     internal const string InstallMetadataFileName = "quasar-ui-plugin-install.json";
     private const string PluginAbstractionsAssemblyFileName = "Quasar.Plugin.Abstractions.dll";
+    private const string UiAbstractionsAssemblyFileName = "Quasar.Ui.Abstractions.dll";
     private const string MagnetarProtocolAssemblyFileName = "Magnetar.Protocol.dll";
     private const string CompanionOutputRelativeDirectory = ".quasar/companions";
     public const string DefaultHubName = "QuasarHub";
@@ -549,6 +551,14 @@ public sealed class QuasarUiPluginHubCatalogService
 
         startInfo.ArgumentList.Add($"-p:QuasarPluginAbstractionsAssembly={abstractionsAssemblyPath}");
 
+        // Optional for compatibility with older workers that predate the
+        // native UI contract. When present, a plugin may reference it; when
+        // absent, its build simply sees no QuasarUiAbstractionsAssembly and
+        // should fall back to its own project reference or skip UI hosts.
+        var uiAbstractionsAssemblyPath = GetUiAbstractionsAssemblyPath();
+        if (!string.IsNullOrWhiteSpace(uiAbstractionsAssemblyPath))
+            startInfo.ArgumentList.Add($"-p:QuasarUiAbstractionsAssembly={uiAbstractionsAssemblyPath}");
+
         await RunProcessAsync(startInfo, "dotnet build", cancellationToken);
     }
 
@@ -604,6 +614,50 @@ public sealed class QuasarUiPluginHubCatalogService
             .Select(directory => Path.Combine(directory, PluginAbstractionsAssemblyFileName))
             .FirstOrDefault(File.Exists)
             ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Finds the <c>Quasar.Ui.Abstractions.dll</c> that matches the running
+    /// host. The path is passed to plugin builds as
+    /// <c>QuasarUiAbstractionsAssembly</c> so a browser plugin compiles against
+    /// the exact contract of the running host.
+    /// </summary>
+    /// <remarks>
+    /// Only the worker directory and the Quasar data directory are searched;
+    /// the working directory and adjacent installs are not trusted. A file
+    /// whose assembly name or version does not match the host is ignored.
+    /// </remarks>
+    /// <returns>The full path, or an empty string on older installs that do not
+    /// ship the contract yet.</returns>
+    private static string GetUiAbstractionsAssemblyPath()
+    {
+        var host = typeof(Quasar.Ui.IQuasarDialogService).Assembly.GetName();
+        foreach (var directory in new[] { AppContext.BaseDirectory, MagnetarPaths.GetQuasarDirectory() })
+        {
+            var path = Path.Combine(directory, UiAbstractionsAssemblyFileName);
+            if (File.Exists(path) && IsMatchingUiAbstractionsAssembly(path, host))
+                return path;
+        }
+
+        return string.Empty;
+    }
+
+    private static bool IsMatchingUiAbstractionsAssembly(string path, AssemblyName host)
+    {
+        try
+        {
+            var candidate = AssemblyName.GetAssemblyName(path);
+            return string.Equals(candidate.Name, host.Name, StringComparison.OrdinalIgnoreCase)
+                && candidate.Version == host.Version;
+        }
+        catch (BadImageFormatException)
+        {
+            return false;
+        }
+        catch (FileLoadException)
+        {
+            return false;
+        }
     }
 
     private static string GetMagnetarProtocolAssemblyPath()

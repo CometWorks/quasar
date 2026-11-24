@@ -1,0 +1,129 @@
+@page "/fixture/ui"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Web
+@using Quasar.Ui
+@attribute [Authorize(Policy = "CanView")]
+@implements IDisposable
+@inject IQuasarDialogService Dialogs
+@inject IQuasarToastService Toasts
+
+<section class="quasar-panel">
+    <header class="quasar-panel-heading">
+        <div>
+            <h1>UI fixture (test plugin)</h1>
+            <p class="quasar-page-description">Exercises the native dialog and toast hosts through <code>Quasar.Ui.Abstractions</code>.</p>
+        </div>
+    </header>
+
+    <div class="quasar-layout quasar-gap-3">
+        <div class="quasar-row">
+            <button type="button" class="quasar-button" @onclick="OpenBasicAsync">Open basic dialog</button>
+            <button type="button" class="quasar-button" @onclick="OpenSync">Open sync dialog</button>
+            <button type="button" class="quasar-button" @onclick="OpenModeless">Open modeless dialog</button>
+            <button type="button" class="quasar-button" @onclick="OpenPersistentModeless">Open persistent modeless</button>
+            <button type="button" class="quasar-button" @onclick="OpenLockedAsync">Open locked dialog</button>
+            <button type="button" class="quasar-button" @onclick="OpenCustomAsync">Open custom dialog</button>
+            <button type="button" class="quasar-button" @onclick="OpenLongAsync">Open long dialog</button>
+            <button type="button" class="quasar-button" @onclick="OpenTwoAsync">Open two dialogs</button>
+        </div>
+
+        <div class="quasar-row">
+            <button type="button" class="quasar-button" @onclick="() => Toast(QuasarSeverity.Normal)">Toast: Normal</button>
+            <button type="button" class="quasar-button" @onclick="() => Toast(QuasarSeverity.Info)">Toast: Info</button>
+            <button type="button" class="quasar-button" @onclick="() => Toast(QuasarSeverity.Success)">Toast: Success</button>
+            <button type="button" class="quasar-button" @onclick="() => Toast(QuasarSeverity.Warning)">Toast: Warning</button>
+            <button type="button" class="quasar-button" @onclick="() => Toast(QuasarSeverity.Error)">Toast: Error</button>
+        </div>
+
+        <div class="quasar-row">
+            <button type="button" class="quasar-button" @onclick="ToastWithAction">Toast with action</button>
+            <button type="button" class="quasar-button" @onclick="ToastRequireInteraction">Toast: require interaction</button>
+            <button type="button" class="quasar-button" @onclick="Toasts.Clear">Clear toasts</button>
+        </div>
+
+        @if (_lastResult is not null)
+        {
+            <p class="quasar-notice" role="status">Last dialog result: @_lastResult</p>
+        }
+    </div>
+</section>
+
+@code {
+    private string? _lastResult;
+    private bool _disposed;
+
+    private async Task OpenBasicAsync() =>
+        await RecordAsync(await Dialogs.ShowAsync<UiFixtureDialog>("UI fixture dialog",
+            new QuasarDialogParameters<UiFixtureDialog> { { dialog => dialog.Message, "Basic dialog opened from the fixture plugin." } }));
+
+    private void OpenSync() =>
+        _ = RecordAsync(Dialogs.Show<UiFixtureDialog>("Sync dialog",
+            new QuasarDialogParameters<UiFixtureDialog> { { dialog => dialog.Message, "Show returned a reference immediately; the result is still asynchronous." } }));
+
+    private void OpenModeless() =>
+        _ = RecordAsync(Dialogs.Show<UiFixtureDialog>("Modeless dialog",
+            new QuasarDialogParameters<UiFixtureDialog> { { dialog => dialog.Message, "This dialog is modeless: the page stays interactive. Drag the small bar at the top to move it." } },
+            new QuasarDialogOptions { Modal = false }));
+
+    private void OpenPersistentModeless() =>
+        _ = RecordAsync(Dialogs.Show<UiFixtureDialog>("Persistent modeless dialog",
+            new QuasarDialogParameters<UiFixtureDialog> { { dialog => dialog.Message, "This modeless dialog stays open when you navigate to another page. Close it with Cancel or Confirm." } },
+            new QuasarDialogOptions { Modal = false, CloseOnNavigation = false }));
+
+    private async Task OpenLockedAsync() =>
+        await RecordAsync(await Dialogs.ShowAsync<UiFixtureDialog>("Locked dialog",
+            new QuasarDialogParameters<UiFixtureDialog> { { dialog => dialog.Message, "Escape and backdrop clicks are disabled." } },
+            new QuasarDialogOptions { CloseOnEscapeKey = false, BackdropClick = false }));
+
+    private async Task OpenCustomAsync() =>
+        await RecordAsync(await Dialogs.ShowAsync<UiFixtureDialog>("Custom dialog",
+            new QuasarDialogParameters<UiFixtureDialog> { { dialog => dialog.Message, "The plugin supplied a unique class and CSS variables: violet surface, yellow border and 22px radius." } },
+            new QuasarDialogOptions
+            {
+                Class = "ui-fixture-dialog-accent",
+                Style = "--quasar-dialog-surface:#3a2f5c;--quasar-dialog-text:#f5f0ff;--quasar-dialog-border:#facc15;--quasar-dialog-divider:#8b6fd6;--quasar-dialog-actions-surface:#2d2448;--quasar-dialog-radius:22px;",
+            }));
+
+    private async Task OpenLongAsync() =>
+        await RecordAsync(await Dialogs.ShowAsync<UiFixtureDialog>("Long dialog",
+            new QuasarDialogParameters<UiFixtureDialog> { { dialog => dialog.Message, "Scroll the content; the footer must stay visible." }, { dialog => dialog.LongContent, true } }));
+
+    private async Task OpenTwoAsync()
+    {
+        var first = await Dialogs.ShowAsync<UiFixtureDialog>("First dialog",
+            new QuasarDialogParameters<UiFixtureDialog> { { dialog => dialog.Message, "This is the lower dialog." } });
+        _ = RecordAsync(await Dialogs.ShowAsync<UiFixtureDialog>("Second dialog",
+            new QuasarDialogParameters<UiFixtureDialog> { { dialog => dialog.Message, "This is the top dialog. Escape closes this one first." } }));
+        _lastResult = "Two dialogs opened; awaiting results.";
+        StateHasChanged();
+        _ = first;
+    }
+
+    private void Toast(QuasarSeverity severity) => Toasts.Add($"Native {severity} toast from the fixture plugin.", severity);
+
+    private void ToastWithAction() => Toasts.Add("This toast has an action button.", QuasarSeverity.Info, options =>
+    {
+        options.ActionText = "Acknowledge";
+        options.OnAction = async () =>
+        {
+            _lastResult = "Toast action ran.";
+            await InvokeAsync(StateHasChanged);
+        };
+    });
+
+    private void ToastRequireInteraction() => Toasts.Add("This toast stays until dismissed.", QuasarSeverity.Warning, options =>
+    {
+        options.RequireInteraction = true;
+    });
+
+    private async Task RecordAsync(IQuasarDialogReference reference)
+    {
+        var result = await reference.Result;
+        if (_disposed)
+            return;
+        _lastResult = result.Canceled ? "Canceled" : result.Data?.ToString() ?? "OK";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose() => _disposed = true;
+}

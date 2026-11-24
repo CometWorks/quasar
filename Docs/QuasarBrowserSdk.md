@@ -322,6 +322,10 @@ have an unknown result, so callers must not blindly replay it. Responses are
 private no-store. Use the streaming API for large binary data rather than
 base64-encoding bytes into control JSON.
 
+For a Razor plugin that opens a modeless dialog and polls an operation across
+page navigation, see the
+[Quasar plugin template](https://github.com/CometWorks/quasar-plugin-template).
+
 ## Reads, uploads and subscriptions
 
 Register feature-owned resource definitions, never browser-supplied filesystem

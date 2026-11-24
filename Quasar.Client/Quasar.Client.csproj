@@ -6,6 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Contracts/ClusterGateway.AdminContract/ClusterGateway.AdminContract.csproj" />
+    <ProjectReference Include="../Quasar.Ui.Abstractions/Quasar.Ui.Abstractions.csproj" />
     <PackageReference Include="MudBlazor" Version="9.4.0" />
     <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.14" />
     <InternalsVisibleTo Include="Quasar" />

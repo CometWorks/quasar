@@ -10,6 +10,8 @@
 *.userosscache
 *.sln.docstates
 .quasar-install-dir
+# Legacy local build file; the build no longer auto-imports it.
+Directory.Build.props.user
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

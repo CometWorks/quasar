@@ -1,0 +1,91 @@
+@namespace Quasar.Components.Shared
+@using Quasar.Ui
+
+@*
+    Optional layout helper for plugin dialogs.
+
+    A dialog component is free to render its own markup. This component supplies
+    the standard native dialog structure and the public classes that plugins and
+    Quasar styles target:
+      quasar-dialog-header   title row and optional close button
+      quasar-dialog-title    accessible heading
+      quasar-dialog-content  scrollable body
+      quasar-dialog-actions  right-aligned footer
+
+    Titles come from TitleContent, then Title, then the IQuasarDialogInstance
+    cascaded by the host. The close button requests a cancel through the
+    cascaded instance, so the component does not need a reference to its caller.
+*@
+<header class="quasar-dialog-header">
+    @if (TitleContent is not null)
+    {
+        @TitleContent
+    }
+    else if (TitleText is not null)
+    {
+        <h2 class="quasar-dialog-title">@TitleText</h2>
+    }
+    @if (ShowClose)
+    {
+        <QuasarIconButton Label="Close dialog" Icon="@CloseIcon"
+                          TrustedMarkup="@(CloseIcon == QuasarIcons.Close)"
+                          OnClick="CloseAsync" Class="quasar-dialog-close" />
+    }
+</header>
+<div class="quasar-dialog-content">@ChildContent</div>
+@if (Actions is not null)
+{
+    <footer class="quasar-dialog-actions">@Actions</footer>
+}
+
+@code {
+    // Cascaded by the host. It is null when the layout is used outside a dialog.
+    [CascadingParameter] private IQuasarDialogInstance? Dialog { get; set; }
+
+    /// <summary>Plain-text title. Ignored when <see cref="TitleContent"/> is set.</summary>
+    [Parameter] public string? Title { get; set; }
+
+    /// <summary>Custom title markup, for example a title plus a status badge.</summary>
+    [Parameter] public RenderFragment? TitleContent { get; set; }
+
+    /// <summary>Scrollable dialog body.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Footer content, normally the Cancel and Confirm buttons.</summary>
+    [Parameter] public RenderFragment? Actions { get; set; }
+
+    /// <summary>Shows a close button in the header. Defaults to <c>false</c>.</summary>
+    [Parameter] public bool ShowClose { get; set; }
+
+    /// <summary>
+    /// Built-in Quasar icon or icon-font name for the header close button. A
+    /// custom SVG value is rendered as text rather than trusted markup.
+    /// </summary>
+    [Parameter] public string CloseIcon { get; set; } = QuasarIcons.Close;
+
+    /// <summary>Runs after the header close button requests cancellation.</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>
+    /// Resolves the visible title: an explicit non-blank parameter first, then
+    /// the title supplied by the caller of the dialog service.
+    /// </summary>
+    private string? TitleText
+    {
+        get
+        {
+            var title = string.IsNullOrWhiteSpace(Title) ? Dialog?.Title : Title;
+            return string.IsNullOrWhiteSpace(title) ? null : title;
+        }
+    }
+
+    /// <summary>
+    /// Requests cancellation and then runs the caller's callback. Cancellation
+    /// is requested first so the dialog closes even if the callback throws.
+    /// </summary>
+    private async Task CloseAsync()
+    {
+        Dialog?.Cancel();
+        await OnClose.InvokeAsync();
+    }
+}

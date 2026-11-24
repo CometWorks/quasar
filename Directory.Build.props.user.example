@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <!-- Copy this file outside the repository and pass its path as
+         -p:QuasarLocalBuildProps=<file>, or set the QuasarLocalBuildProps
+         environment variable. The build never auto-imports a file from the
+         working tree. -->
+
+    <!-- Folder containing SpaceEngineersDedicated.exe and the VRage/Sandbox
+         assemblies used by Quasar.Agent and Quasar.Tests. -->
+    <DS64>E:\Torch\DedicatedServer64</DS64>
+
+    <!-- Folder containing PluginSdk.dll from the Magnetar build or installation. -->
+    <MagnetarBin>C:\Development\Development\Public\magnetar\Legacy\bin\Release\net10.0</MagnetarBin>
+  </PropertyGroup>
+</Project>

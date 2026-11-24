@@ -1,0 +1,93 @@
+@namespace Quasar.Components.Shared
+@using Microsoft.AspNetCore.Components.Routing
+@using Quasar.Client.Ui.Toasts
+@using Quasar.Ui
+@inject QuasarToastService Toasts
+@inject QuasarToastHostOptions Options
+@inject NavigationManager Navigation
+@implements IDisposable
+
+@*
+    Renders the tracked toasts in a fixed corner of the viewport.
+
+    Place this component once in the application shell. It is independent of
+    the routed page, so a toast raised by a worker operation or a background
+    task stays visible when the user navigates. The host element itself ignores
+    pointer events; each toast re-enables them, so the empty area around the
+    stack never blocks the page. The host itself takes pointer events so its
+    scroll track remains usable when the stack overflows.
+
+    A toast raised while a modal dialog is open is outside the top layer: it is
+    hidden behind the modal, excluded from the accessibility tree, and its timer
+    continues. Use RequireInteraction or raise it after the dialog closes.
+
+    The host renders at most MaxVisibleToasts entries. The service already
+    bounds its list, but the host repeats the limit so a runtime options change
+    cannot overflow the stack. NewestOnTop controls only visual order: the DOM
+    stays oldest first so adding a toast never moves an existing focused node,
+    and the flex order puts the newest toast first.
+*@
+<div class="quasar-toast-host @PositionClass">
+    @{
+        var visible = GetVisibleToasts();
+    }
+    @for (var index = 0; index < visible.Count; index++)
+    {
+        var toast = visible[index];
+        <QuasarToastItem @key="toast.Id" Toast="toast"
+                         Order="@(Options.NewestOnTop ? -index : 0)" />
+    }
+</div>
+
+@code {
+    /// <summary>
+    /// Maps the configured enum to the public host-position class, for example
+    /// <c>quasar-toast-host-bottomright</c>.
+    /// </summary>
+    private string PositionClass => "quasar-toast-host-" + Options.Position.ToString().ToLowerInvariant();
+
+    /// <summary>
+    /// Returns the newest slice of the snapshot in DOM order (oldest first).
+    /// A new array is returned only when the slice is smaller than the snapshot.
+    /// </summary>
+    private IReadOnlyList<QuasarToast> GetVisibleToasts()
+    {
+        var snapshot = Toasts.Snapshot;
+        var max = Math.Max(1, Options.MaxVisibleToasts);
+        return snapshot.Count <= max ? snapshot : snapshot.Skip(snapshot.Count - max).ToArray();
+    }
+
+    /// <summary>
+    /// Subscribes to toast changes and navigation. The options object is a
+    /// singleton, so its values are stable for the host's lifetime.
+    /// </summary>
+    protected override void OnInitialized()
+    {
+        Toasts.Changed += OnChanged;
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    /// <summary>
+    /// Re-renders on the Blazor synchronization context. Toast timers can fire
+    /// on a thread-pool thread.
+    /// </summary>
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    /// <summary>
+    /// Optionally clears the stack on navigation. The default keeps toasts, so
+    /// a message about a background operation is not lost when the user moves
+    /// to another page to inspect it.
+    /// </summary>
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        if (Options.ClearAfterNavigation)
+            Toasts.Clear();
+    }
+
+    /// <summary>Detaches the handlers; the scoped service is disposed by the container.</summary>
+    public void Dispose()
+    {
+        Toasts.Changed -= OnChanged;
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+}

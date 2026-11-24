@@ -146,11 +146,18 @@ content in overlays inherits the palette. The shell also maps its surface and
 primary text colors to the MudBlazor tokens used by paper-backed menus and
 dialogs. Native secondary text, inset panels, and log output use the shell's
 palette and shared stylesheet. The Discord, server, and cluster consoles
-share the log surface styles and keep their own reading layouts. The JavaScript
-restart overlay mounts in the same shell and uses the
-native palette while the worker is offline. The server console interior uses
-native log-source buttons, file selectors, downloads, and error/refresh controls;
-existing log loading, history, auto-refresh, and keyboard rollover are retained.
+share the log surface styles and keep their own reading layouts. The native
+dialog and toast hosts are mounted in the same shell. They use native
+`<dialog>` top-layer behavior, focus return, configurable Escape and backdrop
+dismissal, scroll locking, and the same palette tokens. Their public contracts
+live in `Quasar.Ui.Abstractions`, so browser plugins can opt in to the shared
+hosts without a reference to `Quasar.Client`. Per-call classes, inline style
+variables, and documented `--quasar-dialog-*`/`--quasar-toast-*` tokens cover
+plugin-specific customization. The JavaScript restart overlay mounts in the
+same shell and uses the native palette while the worker is offline. The server
+console interior uses native log-source buttons, file selectors, downloads,
+and error/refresh controls; existing log loading, history, auto-refresh, and
+keyboard rollover are retained.
 
 The sidebar brand row and top bar share an inset separator so their horizontal
 edges meet consistently at fractional browser zoom levels.
@@ -180,8 +187,10 @@ each SVG's fill and stroke. Do not force paint onto descendant paths: Material
 icons can include transparent canvas paths, and plugin dialogs nested in a row
 remain descendants even when displayed in the browser's top layer.
 
-Core Mud assets/providers, dialog/snackbar services, color parsing, and some
-helper enum types remain during migration. This is not complete dependency removal.
+Mud assets/providers remain for the tables, inputs, tabs, and unmigrated dialog
+and snackbar call sites. The native dialog and toast hosts are the preferred
+target for new UI and for plugin integrations; the Mud dependency is removed
+only after the remaining consumers and installed plugin binaries migrate.
 
 Focused verification passes 36 core component/service tests, including exact-default
 palette migration, custom-color preservation, live fleet totals, view switching,
@@ -201,7 +210,7 @@ need an explicitly requested smoketest.
 
 | Area | Work remaining |
 | --- | --- |
-| Shared infrastructure | Native host dialogs/confirmations and toast notifications; migrate consumers in services as well as components. |
+| Shared infrastructure | Native dialog and toast hosts, `Quasar.Ui.Abstractions`, and plugin build wiring are delivered; migrate the remaining `IDialogService`/`ISnackbar` consumers and installed plugins. |
 | Server management | Replace remaining behavioral Mud controls and dialog host in creation/edit/clone/deletion/import, world/template/profile dialogs, filesystem picker, and the native console. |
 | Configuration | Profiles, world templates, Workshop credentials, pending changes, PluginSdk schema editor, and plugin logs. |
 | Clusters and hosts | Guided setup/conversion/enrollment, cluster route/console/remove dialogs, deployment/content/fleet panels, and recovery workflows. |
