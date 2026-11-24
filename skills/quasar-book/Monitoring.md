@@ -27,6 +27,8 @@ Cluster totals reuse the background Registry observations collected for Players,
 
 The **Cards** and **List** buttons switch the server view. List is the default. The choice is stored per browser (`quasar.dashboard.serverView` in local storage), and `?view=cards` or `?view=list` in the URL selects it too. List view shows one row per server or cluster. Expand a row to see its details. Card view shows one card per server and one per cluster.
 
+Both views use the theme's success color for **Start** and its error color for **Stop**, **Kill**, and **Delete**.
+
 A cluster card shows the gateway and desired state. Its overview shows Cluster Registry and World Authority status. When the goal is On, it also shows players, node capacity and crash recovery readiness. Expand **Cluster details** to see the world, configuration and runtime information. **Manage cluster** opens the full cluster page.
 
 A server card has:
@@ -469,6 +471,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar.Client/Components/FleetClusterOverview.razor`
 - `Quasar.Client/Components/FleetRuntimeDetails.razor`
 - `Quasar.Client/Components/FleetWorkspace.razor`
+- `Quasar.Client/Clusters/ClusterDeleteButton.razor`
 - `Quasar.Client/Components/FleetLiveDetails.razor`
 - `Quasar.Tests/PluginLoadTooltipTests.cs`
 - `Quasar.Client/Components/BrowserFleetChart.razor`

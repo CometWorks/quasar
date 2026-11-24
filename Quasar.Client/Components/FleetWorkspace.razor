@@ -220,9 +220,9 @@ else
     private RenderFragment Actions(FleetRow r, bool card = false) => @<div class="quasar-dashboard-actions">
         @if(r.IsCluster)
         {
-            @if(Dashboard.ClusterManage && r.Goal=="Off"){<QuasarIconButton ShowLabel="card" Text="Start" Label="Start cluster" Icon="@QuasarIcons.PlayArrow" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"cluster.start"))" />}
-            @if(Dashboard.ClusterManage && r.Goal!="Off"){<QuasarIconButton ShowLabel="card" Text="Stop" Label="Gracefully stop cluster" Icon="@QuasarIcons.Stop" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"cluster.stop"))" />}
-            <QuasarIconButton ShowLabel="card" Label="@(card ? "Manage cluster" : "Open cluster details")" Icon="@QuasarIcons.OpenInNew" Href="@ClusterHref(r)" />
+            @if(Dashboard.ClusterManage && r.Goal=="Off"){<QuasarIconButton ShowLabel="card" Text="Start" Label="Start cluster" Class="quasar-text-success" Icon="@QuasarIcons.PlayArrow" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"cluster.start"))" />}
+            @if(Dashboard.ClusterManage && r.Goal!="Off"){<QuasarIconButton ShowLabel="card" Text="Stop" Label="Gracefully stop cluster" Class="quasar-text-error" Icon="@QuasarIcons.Stop" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"cluster.stop"))" />}
+            <QuasarIconButton ShowLabel="card" Label="@(card ? "Manage cluster" : "Open cluster details")" Class="@(card ? "quasar-tone-primary" : null)" Icon="@QuasarIcons.OpenInNew" Href="@ClusterHref(r)" />
             @if(Dashboard.ClusterQuery){<ClusterConsoleButton UniqueName="@r.UniqueName" DisplayName="@r.DisplayName" ShowLabel="card" />}
             @if(!card && Dashboard.ClusterManage){<ClusterDeleteButton UniqueName="@r.UniqueName" DisplayName="@r.DisplayName" />}
         }
@@ -230,10 +230,10 @@ else
         {
             @if(Dashboard.Control && !r.Active){<QuasarIconButton ShowLabel="card" Text="Start" Class="quasar-text-success" Label="@(Dashboard.Warmup.State != ManagedRuntimeWarmupState.Complete ? Dashboard.Warmup.Message : !r.LaunchReady ? "Select a world save containing Sandbox.sbc." : "Start server")" Icon="@QuasarIcons.PlayArrow" Disabled="@(_busy||!r.LaunchReady||Dashboard.Warmup.State!=ManagedRuntimeWarmupState.Complete)" OnClick="@(()=>Lifecycle(r,"servers.start"))" />}
             @if(Dashboard.Control && r.State=="Running"){
-                <QuasarIconButton ShowLabel="card" Text="Stop" Label="Stop server" Icon="@QuasarIcons.Stop" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"servers.stop"))" />
+                <QuasarIconButton ShowLabel="card" Text="Stop" Label="Stop server" Class="quasar-text-error" Icon="@QuasarIcons.Stop" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"servers.stop"))" />
                 <QuasarIconButton ShowLabel="card" Text="Restart" Label="Restart server" Icon="@QuasarIcons.RestartAlt" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"servers.restart"))" /> }
-            @if(Dashboard.Control && r.State is "Starting" or "Restarting"){<QuasarIconButton ShowLabel="card" Text="Kill" Label="Kill starting server" Icon="@QuasarIcons.StopCircle" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"fleet.kill"))" />}
-            <QuasarIconButton ShowLabel="card" Text="Console" Label="Show console output" Icon="@QuasarIcons.Terminal" OnClick="@(()=>ConsoleAsync(r))" />
+            @if(Dashboard.Control && r.State is "Starting" or "Restarting"){<QuasarIconButton ShowLabel="card" Text="Kill" Label="Kill starting server" Class="quasar-text-error" Icon="@QuasarIcons.StopCircle" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"fleet.kill"))" />}
+            <QuasarIconButton ShowLabel="card" Text="Console" Label="Show console output" Class="@(card ? "quasar-tone-primary" : null)" Icon="@QuasarIcons.Terminal" OnClick="@(()=>ConsoleAsync(r))" />
             @if (!card) { @MoreActions(r) }
         }
     </div>;
