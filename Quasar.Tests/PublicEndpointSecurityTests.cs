@@ -3,14 +3,20 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
+using AspNet.Security.OpenId.Steam;
 using Magnetar.Protocol.Discovery;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Quasar.Services;
 using Quasar.Services.Auth;
 using Xunit;
@@ -270,5 +276,54 @@ public sealed class PublicEndpointSecurityTests
         using var signedOut = await client.SendAsync(validPost).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(HttpStatusCode.Redirect, signedOut.StatusCode);
         Assert.Equal("/", signedOut.Headers.Location?.OriginalString);
+    }
+
+    [Fact]
+    public async Task LoginShowsRetryPageWhenSteamIsUnavailable()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddAuthentication(options =>
+            {
+                options.DefaultScheme = QuasarAuthSchemes.Cookie;
+                options.DefaultChallengeScheme = QuasarAuthSchemes.Cookie;
+            })
+            .AddCookie(QuasarAuthSchemes.Cookie, options => options.LoginPath = "/login")
+            .AddScheme<AuthenticationSchemeOptions, UnreachableSteamHandler>(SteamAuthenticationDefaults.AuthenticationScheme, null);
+        builder.Services.AddAuthorization();
+        builder.Services.AddAntiforgery();
+        await using var app = builder.Build();
+        app.UseAuthentication();
+        app.UseAuthorization();
+        Quasar.Program.MapAuthenticationEndpoints(app, new QuasarAuthOptions());
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync("/login").WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Null(response.Headers.Location);
+        Assert.Equal(TimeSpan.FromSeconds(30), response.Headers.RetryAfter?.Delta);
+        Assert.Contains("Steam sign-in is unavailable", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public void ErrorPageIsReachableWhileSignedOut()
+    {
+        // Razor pages require sign-in by default; the error page must not, or a failing
+        // /login re-executes into /Error, which redirects back to /login forever.
+        Assert.NotNull(typeof(Quasar.Components.Pages.Error).GetCustomAttributes(typeof(AllowAnonymousAttribute), inherit: true).SingleOrDefault());
+    }
+
+    private sealed class UnreachableSteamHandler(
+        IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync() => Task.FromResult(AuthenticateResult.NoResult());
+
+        // Mirrors AspNet.Security.OpenId when Steam answers its Yadis discovery with a 503.
+        protected override Task HandleChallengeAsync(AuthenticationProperties properties) =>
+            throw new InvalidOperationException(
+                "IDX20803: Unable to obtain configuration from: 'https://steamcommunity.com/openid/'.\nServer: nginx");
     }
 }

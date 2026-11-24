@@ -664,7 +664,7 @@ public class Program
 
     internal static void MapAuthenticationEndpoints(WebApplication app, QuasarAuthOptions authOptions)
     {
-        app.MapGet("/login", (HttpContext context) =>
+        app.MapGet("/login", async (HttpContext context, ILogger<Program> logger) =>
         {
             if (!authOptions.Enabled)
                 return Results.Redirect(context.Request.PathBase + "/");
@@ -679,11 +679,25 @@ public class Program
                 return Results.Content(CreateLoginUnavailableHtml(), "text/html");
             }
 
-            return Results.Challenge(new AuthenticationProperties
+            try
             {
-                RedirectUri = HostedReturnUrl(context),
-                IsPersistent = true,
-            }, [SteamAuthenticationDefaults.AuthenticationScheme]);
+                // Run the challenge here instead of returning Results.Challenge, so a Steam
+                // OpenID outage becomes a retryable page rather than an unhandled exception.
+                await context.ChallengeAsync(SteamAuthenticationDefaults.AuthenticationScheme, new AuthenticationProperties
+                {
+                    RedirectUri = HostedReturnUrl(context),
+                    IsPersistent = true,
+                });
+                return Results.Empty;
+            }
+            catch (Exception exception) when (!context.Response.HasStarted &&
+                exception is InvalidOperationException or HttpRequestException or AuthenticationFailureException)
+            {
+                logger.LogWarning("Steam sign-in is unavailable: {Reason}", FirstLine(exception.Message));
+                context.Response.Headers.RetryAfter = "30";
+                return Results.Content(CreateSteamUnavailableHtml(context.Request.PathBase.Value), "text/html",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
         }).AllowAnonymous();
 
         app.MapPost("/logout", async (HttpContext context, IAntiforgery antiforgery) =>
@@ -993,6 +1007,29 @@ public class Program
         </body>
         </html>
         """;
+
+    private static string FirstLine(string message)
+    {
+        var end = message.IndexOfAny(['\r', '\n']);
+        var line = end < 0 ? message : message[..end];
+        return line.Length <= 300 ? line : line[..300];
+    }
+
+    private static string CreateSteamUnavailableHtml(string? pathBase)
+    {
+        var prefix = WebUtility.HtmlEncode(pathBase ?? string.Empty);
+        return $$"""
+        <!doctype html>
+        <html lang="en">
+        <head><meta charset="utf-8"><title>Steam sign-in unavailable</title></head>
+        <body>
+        <h1>Steam sign-in is unavailable</h1>
+        <p>Quasar could not reach Steam to sign you in. Steam may be down or under maintenance.</p>
+        <p><a href="{{prefix}}/login">Try again</a></p>
+        </body>
+        </html>
+        """;
+    }
 
     private static string CreateAccessDeniedHtml(string antiforgeryFieldName, string? antiforgeryToken, string? pathBase = null)
     {

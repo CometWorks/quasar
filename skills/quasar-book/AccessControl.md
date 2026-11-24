@@ -106,6 +106,7 @@ recovery and the live OAuth/join acceptance checks still required before product
 - Each Steam sign-in belongs to one panel. Signing out in any tab or switching accounts ends the old login across its tabs, peers and transfers. Other devices signed in separately keep their sessions. Quasar tracks active logins with empty files in `BrowserLogins/` under its data directory. Keep that directory across worker restarts. Clearing it signs out all Steam browsers. On upgrade from tickets without a login ID, Steam users sign in once again.
 - Quasar re-reads the roles from `rbac.json` on every request and reloads open UI sessions when `rbac.json` changes. Granting or removing a role takes effect without signing out. Write actions check the role again when you click, including after a confirmation dialog.
 - If `Quasar:Auth:Steam:Enabled` is `false`, or `Quasar:Auth:DefaultProvider` is not `Steam`, `/login` shows "Login unavailable. Steam is not enabled as the active Quasar auth provider."
+- If Quasar cannot reach Steam (Steam is down or under maintenance), `/login` returns 503 with "Steam sign-in is unavailable" and a **Try again** link, and logs a warning. Wait for Steam to recover and try again. Until then, browsers on the [trusted network](#trusted-network-bypass) still get in without Steam. The error page needs no sign-in, so a failed sign-in shows that page instead of looping through redirects.
 
 ## Roles and permissions
 
@@ -449,6 +450,7 @@ asset transfers continue through the tunnel. Each SDK operation checks current p
 - `Docs/Docker.md`
 - `Quasar/appsettings.json`
 - `Quasar/Program.cs`
+- `Quasar/Components/Pages/Error.razor`
 - `Quasar/Services/Auth/QuasarAuthConstants.cs`
 - `Quasar/Services/Auth/QuasarAuthOptions.cs`
 - `Quasar/Services/Auth/PublicAccessSecurity.cs`
