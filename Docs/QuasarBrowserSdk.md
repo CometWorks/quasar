@@ -390,6 +390,9 @@ resources per session, 16 per user and 64 per worker limit concurrency; unclaime
 leases expire after one minute and active resources after ten minutes. Queues and
 buffers stay bounded. A policy/role change, session expiry, logout, feature
 revocation or cancellation ends active work. The owner must dispose its handle.
+The client skips the cleanup request after a clean read or upload completes.
+HTTP DELETE is idempotent and returns 204 if the current session has no matching
+resource.
 
 `QuasarSdkError.status` includes 400 invalid input/CSRF, 401 unauthenticated/expired,
 403 denied/disabled, 404 missing or foreign resource, 409 already claimed,

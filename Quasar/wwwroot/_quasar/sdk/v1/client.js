@@ -156,6 +156,7 @@ export function createClient({ baseUrl }) {
             if (result.kind !== kind || !/^[a-f0-9]{32}$/.test(id) || url.href !== new URL(`resources/${id}`, root).href)
                 throw new QuasarSdkError(426, "Incompatible SDK resource response.");
             let released = false;
+            entry.complete = () => { released = true; entry.finish(); };
             entry.dispose = async () => {
                 if (released) return;
                 released = true;
@@ -183,7 +184,7 @@ export function createClient({ baseUrl }) {
                 async pull(controller) {
                     try {
                         const result = await reader.read();
-                        if (result.done) { handle.entry.finish(); controller.close(); }
+                        if (result.done) { handle.entry.complete(); controller.close(); }
                         else controller.enqueue(result.value);
                     } catch (error) { handle.entry.finish(); controller.error(error); }
                 },
@@ -211,13 +212,18 @@ export function createClient({ baseUrl }) {
                 if (used) throw new Error("SDK uploads are single-use; never replay an unknown write outcome.");
                 used = true;
                 try {
-                    if (handle.native) return await handle.native.upload(handle.id, body, handle.entry.controller.signal);
-                    const options = { method: "PUT", credentials: "same-origin", redirect: "error", cache: "no-store", signal: handle.entry.controller.signal,
-                        headers: { [handle.tokens.headerName]: handle.tokens.requestToken }, body };
-                    if (body instanceof ReadableStream) options.duplex = "half";
-                    return await (await checked(await fetch(handle.url, options))).json();
+                    let result;
+                    if (handle.native) {
+                        result = await handle.native.upload(handle.id, body, handle.entry.controller.signal);
+                    } else {
+                        const options = { method: "PUT", credentials: "same-origin", redirect: "error", cache: "no-store", signal: handle.entry.controller.signal,
+                            headers: { [handle.tokens.headerName]: handle.tokens.requestToken }, body };
+                        if (body instanceof ReadableStream) options.duplex = "half";
+                        result = await (await checked(await fetch(handle.url, options))).json();
+                    }
+                    handle.entry.complete();
+                    return result;
                 } catch (error) { await handle.entry.dispose(); throw error; }
-                finally { handle.entry.finish(); }
             },
             dispose: handle.entry.dispose,
         };

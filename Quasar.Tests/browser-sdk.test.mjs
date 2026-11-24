@@ -79,6 +79,23 @@ test("binary reads remain pull-driven and dispose their owned lease", async () =
     client.dispose();
 });
 
+test("disposing a completed read sends no cleanup request", async () => {
+    const id = "a".repeat(32);
+    const methods = [];
+    globalThis.fetch = async (url, options) => {
+        methods.push(options.method ?? "GET");
+        if (String(url).endsWith("/session")) return Response.json({ version: 1, headerName: "csrf", requestToken: "token" });
+        if (String(url).endsWith("/example.plugin/file")) return Response.json({ id, kind: "read", url: `/my-panel/_quasar/sdk/v1/resources/${id}` });
+        return new Response("complete");
+    };
+    const client = createClient({ baseUrl: "https://dash.test/my-panel/" });
+    const file = await client.openRead("example.plugin", "file");
+    assert.equal(await new Response(file.body).text(), "complete");
+    await file.dispose();
+    client.dispose();
+    assert.deepEqual(methods, ["GET", "POST", "GET"]);
+});
+
 test("uploads are single-use and carry cancellation and antiforgery", async () => {
     const calls = [];
     const id = "b".repeat(32);
@@ -96,6 +113,8 @@ test("uploads are single-use and carry cancellation and antiforgery", async () =
     assert.equal(calls[2].options.body, bytes);
     assert.equal(calls[2].options.headers.csrf, "token");
     await assert.rejects(upload.write(bytes), /single-use/);
+    await upload.dispose();
+    assert.equal(calls.length, 3);
     client.dispose();
     await assert.rejects(client.request("example.plugin", "read"), /disposed/);
 });

@@ -262,4 +262,4 @@ Before the prepared-inputs checkpoint exists, resume also re-checks the PluginSd
 - `Quasar/Services/ClusterWorkshopModStager.cs`
 - `Quasar/Program.cs`
 - `Quasar.Client/UiPlugins/QuasarOperationLoader.razor`
-- `Quasar.Client/UiPlugins/QuasarOperationLoader.razor.css`
+- `Quasar/wwwroot/quasar-ui.css`

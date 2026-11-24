@@ -2,7 +2,7 @@
     min-width: 0;
     margin: 0;
     padding: 1rem;
-    border: 1px solid var(--mud-palette-lines-default);
+    border: 1px solid var(--quasar-palette-lines-default);
     border-radius: 0.5rem;
 }
 
@@ -21,5 +21,5 @@
 
 .sdk-authorization-policies {
     padding-top: 1rem;
-    border-top: 1px solid var(--mud-palette-lines-default);
+    border-top: 1px solid var(--quasar-palette-lines-default);
 }

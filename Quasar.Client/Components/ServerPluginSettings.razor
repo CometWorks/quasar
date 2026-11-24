@@ -42,7 +42,7 @@ else
     {
         <section class="quasar-panel server-card mb-4 pa-4">
             <h2 class="quasar-text quasar-type-h6">@selectedAgent.Name</h2>
-            <span class="quasar-text quasar-type-caption mud-text-secondary d-block mb-3">@selectedAgent.HostName</span>
+            <span class="quasar-text quasar-type-caption quasar-text-secondary d-block mb-3">@selectedAgent.HostName</span>
             <MudExpansionPanels Class="mb-2" MultiExpansion="true">
                 @foreach (var plugin in selectedAgent.Plugins)
                 {
@@ -86,7 +86,7 @@ else
 }
 
 <h2 class="quasar-text quasar-type-h5 mt-8 mb-2">Plugin logs</h2>
-<p class="quasar-text quasar-type-body2 mb-4 mud-text-secondary">
+<p class="quasar-text quasar-type-body2 mb-4 quasar-text-secondary">
     Structured logs emitted by plugins through the PluginSdk, captured from managed dedicated servers.
 </p>
 

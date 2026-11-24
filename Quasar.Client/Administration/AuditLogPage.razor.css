@@ -14,7 +14,3 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
-
-.audit-undone {
-    color: var(--quasar-palette-text-secondary);
-}

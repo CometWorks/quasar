@@ -366,7 +366,7 @@ Don't delete `operation.json`, `application-maintenance` or `Updates/LauncherTra
 - `Quasar/Components/Layout/NavMenu.razor`
 - `Quasar/Components/Layout/WasmPageLayout.razor`
 - `Quasar.Client/UiPlugins/QuasarOperationLoader.razor`
-- `Quasar.Client/UiPlugins/QuasarOperationLoader.razor.css`
+- `Quasar/wwwroot/quasar-ui.css`
 - `Quasar.Bootstrap/Program.cs`
 - `Quasar.Bootstrap/UpdateCli.cs`
 - `Quasar.Updater/Program.cs`

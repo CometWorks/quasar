@@ -76,7 +76,7 @@ public static class QuasarSdkEndpoints
         sdk.MapDelete("/resources/{id}", async (string id, HttpContext http, QuasarTransferRegistry transfers, IAntiforgery antiforgery, QuasarBrowserSessions sessions) =>
         {
             await antiforgery.ValidateRequestAsync(http);
-            transfers.Cancel(transfers.Get(await sessions.BindHttpSessionAsync(http), id, claim: false));
+            transfers.Cancel(await sessions.BindHttpSessionAsync(http), id);
             return Results.NoContent();
         });
         sdk.MapGet("/settings", async (HttpContext http, QuasarOperationService operations) =>

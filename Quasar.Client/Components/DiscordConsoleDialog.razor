@@ -7,7 +7,7 @@
     <DialogContent>
         <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3 mb-2">
             <div class="quasar-layout quasar-gap-0">
-                <p class="quasar-text quasar-type-body2 mud-text-secondary">@DiscordLogStatusText()</p>
+                <p class="quasar-text quasar-type-body2 quasar-text-secondary">@DiscordLogStatusText()</p>
                 <span>@_logPath</span><MudButton Size="Size.Small" OnClick="CopyPathAsync">Copy path</MudButton>
             </div>
             <div class="quasar-layout quasar-layout-row quasar-gap-1">
@@ -31,7 +31,7 @@
         }
         else
         {
-            <div id="@_scrollContainerId" class="quasar-console-output">
+            <div id="@_scrollContainerId" class="quasar-console-output quasar-console-output-discord">
                 <pre class="quasar-info-log-pre">@_content</pre>
             </div>
         }
@@ -40,32 +40,6 @@
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Close</MudButton>
     </DialogActions>
 </MudDialog>
-
-<style>
-    .quasar-console-output {
-        height: 60vh;
-        overflow-y: auto;
-        outline: none;
-        background: var(--mud-palette-background);
-        border: 1px solid var(--mud-palette-divider);
-        border-radius: 4px;
-        padding: 8px 12px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        font-size: 0.8125rem;
-        line-height: 1.45;
-        white-space: normal;
-        word-break: break-word;
-    }
-
-    .quasar-info-log-pre {
-        margin: 0;
-        white-space: pre-wrap;
-        word-break: break-word;
-        font: inherit;
-        color: var(--mud-palette-text-primary);
-    }
-
-</style>
 
 @code
 {

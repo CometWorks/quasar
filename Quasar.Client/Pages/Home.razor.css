@@ -6,7 +6,7 @@
 
 .setup-wizard-step {
     padding: 0.9rem 0;
-    border-top: 1px solid var(--mud-palette-lines-default);
+    border-top: 1px solid var(--quasar-palette-lines-default);
 }
 
 .setup-wizard-step:first-child {

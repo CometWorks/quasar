@@ -49,6 +49,7 @@ public sealed partial class QuasarSdkTests
         await using var app = await StartAsync();
         using var client = app.GetTestClient();
         client.DefaultRequestHeaders.Add("X-Test-Role", QuasarRoles.Viewer);
+        var tokens = await SessionTokensAsync(client);
         var url = await ResourceAsync(client, "download");
         using (var request = new HttpRequestMessage(HttpMethod.Get, url))
         {
@@ -58,6 +59,8 @@ public sealed partial class QuasarSdkTests
             Assert.Equal(Enumerable.Range(10, 10).Select(value => (byte)value), await response.Content.ReadAsByteArrayAsync());
             Assert.Equal("sample.bin", response.Content.Headers.ContentDisposition?.FileNameStar ?? response.Content.Headers.ContentDisposition?.FileName?.Trim('"'));
         }
+        using (var released = await DeleteResourceAsync(client, url, tokens)) Assert.Equal(HttpStatusCode.NoContent, released.StatusCode);
+        using (var missing = await client.GetAsync(url)) Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
         url = await ResourceAsync(client, "download");
         using var slow = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
         await _reading.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -124,14 +127,13 @@ public sealed partial class QuasarSdkTests
         using (var denied = await SendSdkAsync(client, "/resources/example.plugin/download", "{}")) Assert.Equal(HttpStatusCode.TooManyRequests, denied.StatusCode);
         using var other = app.GetTestClient();
         other.DefaultRequestHeaders.Add("X-Test-Role", QuasarRoles.Viewer);
-        await SessionTokensAsync(other);
+        var otherTokens = await SessionTokensAsync(other);
         using (var denied = await other.GetAsync(urls[0])) Assert.Equal(HttpStatusCode.NotFound, denied.StatusCode);
-        using (var request = new HttpRequestMessage(HttpMethod.Delete, urls[0]))
-        {
-            request.Headers.Add(tokens.GetProperty("headerName").GetString()!, tokens.GetProperty("requestToken").GetString());
-            using var cancelled = await client.SendAsync(request);
-            Assert.Equal(HttpStatusCode.NoContent, cancelled.StatusCode);
-        }
+        using (var ignored = await DeleteResourceAsync(other, urls[0], otherTokens)) Assert.Equal(HttpStatusCode.NoContent, ignored.StatusCode);
+        using (var limited = await SendSdkAsync(client, "/resources/example.plugin/download", "{}")) Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        using (var invalid = await client.DeleteAsync(urls[0])) Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        using (var cancelled = await DeleteResourceAsync(client, urls[0], tokens)) Assert.Equal(HttpStatusCode.NoContent, cancelled.StatusCode);
+        using (var repeated = await DeleteResourceAsync(client, urls[0], tokens)) Assert.Equal(HttpStatusCode.NoContent, repeated.StatusCode);
         using (var missing = await client.GetAsync(urls[0])) Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
         Assert.NotNull(await ResourceAsync(client, "download"));
     }
@@ -207,6 +209,13 @@ public sealed partial class QuasarSdkTests
         using var request = new HttpRequestMessage(HttpMethod.Put, url) { Content = content };
         request.Headers.Add(tokens.GetProperty("headerName").GetString()!, tokens.GetProperty("requestToken").GetString());
         return await client.SendAsync(request, token);
+    }
+
+    private static async Task<HttpResponseMessage> DeleteResourceAsync(HttpClient client, string url, JsonElement tokens)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Delete, url);
+        request.Headers.Add(tokens.GetProperty("headerName").GetString()!, tokens.GetProperty("requestToken").GetString());
+        return await client.SendAsync(request);
     }
 
     private sealed class GeneratedStream(long length, QuasarSdkTests owner) : Stream

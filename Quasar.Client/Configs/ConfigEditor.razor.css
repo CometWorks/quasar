@@ -109,8 +109,8 @@
     height: 80px;
     object-fit: cover;
     border-radius: calc(var(--mud-default-borderradius) + 2px);
-    border: 1px solid var(--mud-palette-lines-default);
-    background: var(--mud-palette-background-gray);
+    border: 1px solid var(--quasar-palette-lines-default);
+    background: var(--quasar-palette-background-gray);
 }
 
 .configs-search-field {
@@ -137,18 +137,9 @@
     gap: 0.5rem;
 }
 
-.configs-world-panels-shell {
-    padding: 0.85rem;
-    border-radius: calc(var(--mud-default-borderradius) + 2px);
-    background: var(--mud-palette-background-gray);
-    border: 1px solid var(--mud-palette-lines-default);
-    max-height: 40rem;
-    overflow-y: auto;
-}
-
 .configs-expansion-panel {
-    background: var(--mud-palette-background);
-    border: 1px solid var(--mud-palette-lines-default);
+    background: var(--quasar-palette-background);
+    border: 1px solid var(--quasar-palette-lines-default);
     border-radius: calc(var(--mud-default-borderradius) + 2px);
     box-shadow: none;
     overflow: hidden;
@@ -171,35 +162,27 @@
 .config-option-card {
     height: 100%;
     scroll-margin-top: 6rem;
-    background: var(--mud-palette-background-gray);
-    border-radius: calc(var(--mud-default-borderradius) + 2px);
     transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .config-option-highlight {
-    background: rgba(250, 204, 21, 0.08);
-    box-shadow: inset 3px 0 0 rgba(250, 204, 21, 0.55);
+    background: color-mix(in srgb, var(--quasar-palette-warning) 8%, transparent);
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--quasar-palette-warning) 55%, transparent);
 }
 
 .config-option-first {
-    box-shadow: inset 4px 0 0 var(--mud-palette-primary);
+    box-shadow: inset 4px 0 0 var(--quasar-palette-primary);
 }
 
 .config-option-focus {
-    box-shadow: 0 0 0 3px rgba(89, 74, 226, 0.22);
-}
-
-.config-selection-row {
-    background: var(--mud-palette-background-gray);
-    border-radius: calc(var(--mud-default-borderradius) + 2px);
-    transition: background-color 0.15s ease;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--quasar-palette-primary) 22%, transparent);
 }
 
 .mod-load-order-table {
-    border: 1px solid var(--mud-palette-lines-default);
+    border: 1px solid var(--quasar-palette-lines-default);
     border-radius: calc(var(--mud-default-borderradius) + 2px);
     overflow: hidden;
-    background: var(--mud-palette-background);
+    background: var(--quasar-palette-background);
 }
 
 .mod-load-order-header,
@@ -213,24 +196,24 @@
 .mod-load-order-header {
     min-height: 2.75rem;
     padding: 0.55rem 0.85rem;
-    color: var(--mud-palette-text-secondary);
+    color: var(--quasar-palette-text-secondary);
     font-size: 0.82rem;
     font-weight: 600;
-    background: var(--mud-palette-background-gray);
-    border-bottom: 1px solid var(--mud-palette-lines-default);
+    background: var(--quasar-palette-background-gray);
+    border-bottom: 1px solid var(--quasar-palette-lines-default);
 }
 
 .mod-load-order-zone,
 ::deep .mod-load-order-zone {
     display: grid;
-    background: var(--mud-palette-surface);
+    background: var(--quasar-palette-surface);
 }
 
 .mod-load-order-row {
     position: relative;
     min-height: 3.5rem;
     padding: 0.55rem 0.85rem;
-    background: var(--mud-palette-surface);
+    background: var(--quasar-palette-surface);
     transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -241,7 +224,7 @@
     right: 0.85rem;
     bottom: 0;
     height: 1px;
-    background: var(--mud-palette-lines-default);
+    background: var(--quasar-palette-lines-default);
     pointer-events: none;
 }
 
@@ -262,13 +245,13 @@
 }
 
 .mod-load-order-drag-icon {
-    color: var(--mud-palette-text-secondary);
+    color: var(--quasar-palette-text-secondary);
     cursor: grab;
 }
 
 .mod-load-order-row-dragging {
     opacity: 0.76;
-    box-shadow: inset 4px 0 0 var(--mud-palette-primary);
+    box-shadow: inset 4px 0 0 var(--quasar-palette-primary);
 }
 
 .mod-dependency-outline-panels {
@@ -277,9 +260,9 @@
 
 .mod-dependency-tree {
     margin: 0;
-    border-top: 1px solid var(--mud-palette-lines-default);
+    border-top: 1px solid var(--quasar-palette-lines-default);
     overflow: hidden;
-    background: var(--mud-palette-surface);
+    background: var(--quasar-palette-surface);
 }
 
 .mod-dependency-tree-row {
@@ -289,7 +272,7 @@
     gap: 0.65rem;
     min-height: 3.1rem;
     padding: 0.55rem 0.75rem;
-    border-bottom: 1px solid var(--mud-palette-lines-default);
+    border-bottom: 1px solid var(--quasar-palette-lines-default);
     overflow-wrap: anywhere;
 }
 
@@ -298,12 +281,12 @@
 }
 
 .mod-dependency-tree-row-muted {
-    color: var(--mud-palette-text-secondary);
+    color: var(--quasar-palette-text-secondary);
 }
 
 .mod-dependency-tree-row-cycle {
-    background: rgba(244, 67, 54, 0.08);
-    box-shadow: inset 3px 0 0 var(--mud-palette-error);
+    background: color-mix(in srgb, var(--quasar-palette-error) 8%, transparent);
+    box-shadow: inset 3px 0 0 var(--quasar-palette-error);
 }
 
 .mod-dependency-tree-guide {
@@ -322,7 +305,7 @@
     bottom: -0.55rem;
     left: 50%;
     width: 1px;
-    background: var(--mud-palette-lines-default);
+    background: var(--quasar-palette-lines-default);
     transform: translateX(-50%);
 }
 
@@ -331,21 +314,21 @@
     z-index: 1;
     width: 1.55rem;
     height: 1.55rem;
-    border: 1px solid var(--mud-palette-lines-default);
+    border: 1px solid var(--quasar-palette-lines-default);
     border-radius: 50%;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: var(--mud-palette-surface);
+    background: var(--quasar-palette-surface);
 }
 
 .mod-dependency-tree-row-muted .mod-dependency-tree-node {
-    background: var(--mud-palette-background-gray);
+    background: var(--quasar-palette-background-gray);
 }
 
 .mod-dependency-tree-row-cycle .mod-dependency-tree-node {
-    border-color: var(--mud-palette-error);
-    background: rgba(244, 67, 54, 0.12);
+    border-color: var(--quasar-palette-error);
+    background: color-mix(in srgb, var(--quasar-palette-error) 12%, transparent);
 }
 
 .mod-dependency-tree-content {
@@ -357,7 +340,7 @@
 }
 
 .mod-dependency-tree-meta {
-    color: var(--mud-palette-text-secondary);
+    color: var(--quasar-palette-text-secondary);
 }
 
 .mod-dependency-tree-name {

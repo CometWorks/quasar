@@ -131,15 +131,18 @@ adapter may use its own framing while preserving these limits and lifecycle.
 
 `POST /_quasar/sdk/v1/resources/<plugin>/<operation>` reserves a resource using
 bounded JSON and CSRF protection. It returns an ID, kind and same-panel URL.
-GET claims reads/subscriptions; PUT claims uploads with CSRF protection; DELETE
-cancels an owned resource with CSRF protection. All responses are private no-store.
+GET claims reads/subscriptions, and PUT claims uploads with CSRF protection.
+DELETE requires CSRF protection and cancels a resource owned by the current browser
+session. It returns 204 even if that session has no matching resource. GET and PUT
+still return 404 for unavailable resources. All responses are private no-store.
 Legacy adopted routes use `IQuasarHttpOperations` and `MapQuasarOperation` so they
 share policies/handlers rather than introducing another authorization path.
 
 The browser client provides `request`, `openRead`, `openWrite`, `subscribe`,
 `download` and `dispose`. Read bodies are Web ReadableStreams; upload accepts
 native Blob/File bodies or supported request streams. Consumers dispose their
-handles; client/page teardown cancels its owned work. Subscriptions are async
+handles. Disposing after a clean read or upload completes requires no cleanup
+request. Client and page teardown cancel unfinished work. Subscriptions are async
 iterables. Native downloads are started through the SDK-owned URL without
 buffering the whole file into JavaScript. No automatic mutation retry occurs.
 
