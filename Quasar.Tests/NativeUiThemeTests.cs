@@ -58,7 +58,7 @@ public sealed class NativeUiThemeTests
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var branding = BrandingSettings.Normalize(null);
         branding.LightPalette.Surface = "#faf0d4";
-        var providers = context.Render<DashboardProviders>(p => p.Add(x => x.Branding, branding));
+        var providers = context.Render<QuasarThemeProvider>(p => p.Add(x => x.Branding, branding));
         var theme = providers.FindComponent<MudThemeProvider>();
         Assert.True(theme.Instance.GetState(x => x.IsDarkMode));
         await providers.InvokeAsync(() => providers.Instance.ApplyTheme(false, null));

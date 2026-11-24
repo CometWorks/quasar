@@ -14,7 +14,7 @@
     [Parameter, EditorRequired] public BrandingSettings Branding { get; set; } = default!;
     private MudTheme _theme = default!;
     private bool _dark = true;
-    private DotNetObjectReference<DashboardProviders>? _listener;
+    private DotNetObjectReference<QuasarThemeProvider>? _listener;
 
     protected override void OnInitialized() => _theme = QuasarTheme.Create(Branding);
 

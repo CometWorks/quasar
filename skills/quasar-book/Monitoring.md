@@ -465,7 +465,7 @@ collisions, limits and the required Magnetar version.
 - `Docs/QuasarArchitecture.md`
 - `Quasar/appsettings.json`
 - `Quasar.Client/Pages/Home.razor`
-- `Quasar.Client/Components/DashboardProviders.razor`
+- `Quasar.Client/Components/QuasarThemeProvider.razor`
 - `Quasar.Client/Components/FleetClusterOverview.razor`
 - `Quasar.Client/Components/FleetRuntimeDetails.razor`
 - `Quasar.Client/Components/FleetWorkspace.razor`
