@@ -12,7 +12,7 @@
             {
                 <fieldset class="sdk-authorization-rule quasar-layout quasar-gap-2">
                     <legend class="mono">@row.Settings.PluginId / @row.Settings.OperationId</legend>
-                    <div class="quasar-layout quasar-gap-1 quasar-type-caption mud-text-secondary">
+                    <div class="quasar-layout quasar-gap-1 quasar-type-caption quasar-text-secondary">
                         <p>Declared policies: @string.Join(", ", row.Settings.DefaultPolicies)</p>
                         <p>Effective policies: @string.Join(", ", row.Settings.EffectiveRule?.RequiredPolicies ?? []) (@(row.Settings.Overridden ? "installation override" : "plugin defaults"))</p>
                     </div>

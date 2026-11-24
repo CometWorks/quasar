@@ -223,6 +223,10 @@ The initial loading bar tracks the browser runtime download. If startup fails,
 use **Reload dashboard** and sign in again if prompted. On hosted dashboards the connection
 indicator can show **Using tunnel** while the panel is fully interactive.
 A successful direct peer changes the indicator to **Connected directly**.
+On older builds, a successful SDK resource GET can be followed by a DELETE with
+status 404 for the same URL. The read completed and Quasar had already released
+the resource. If the panel itself shows **Panel temporarily unavailable**, check
+the hosted connection status in [Hosted access](HostedPanel.md).
 If a connection drops during an upload or another write, check its result
 before starting it again.
 
@@ -311,6 +315,9 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Services/Plugins/QuasarFleetDashboardOperations.cs`
 - `Quasar/Components/App.razor`
 - `Quasar/wwwroot/_quasar/sdk/v1/boot.js`
+- `Quasar/wwwroot/_quasar/sdk/v1/client.js`
+- `Quasar/wwwroot/_quasar/sdk/v1/dashboard.js`
+- `Quasar/Services/Plugins/QuasarSdkEndpoints.cs`
 - `Quasar/Services/WebServiceProbeEndpoints.cs`
 - `Quasar.Agent/AgentConnection.cs`
 - `Quasar.Agent/AdminPlugin.cs`

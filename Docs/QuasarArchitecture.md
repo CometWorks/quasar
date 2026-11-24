@@ -424,10 +424,16 @@ exact old Quasar light/dark palette pair upgrades on normalization. Custom
 palettes and identity/assets survive, as do Midnight, Slate, and High Contrast.
 
 `QuasarTheme.BuildCss` supplies normalized `--quasar-palette-*` tokens to the
-native shell and draft preview. Its Mud theme adapter supplies the same colors
-to existing components and plugins. The existing public theme accessors remain
-available during migration. Native components retain the current Material SVG
-paths and Quasar logos, including separate mode-specific/custom logo paths.
+native shell before WebAssembly starts and to the draft Appearance preview. The
+shell hosts one `QuasarThemeProvider` for its MudBlazor controls, dialogs,
+popovers, and plugin components. Both use the same branding and active mode.
+The existing public theme accessors remain available during migration.
+
+Use Quasar palette tokens for native markup and shared component styles in
+`Quasar/wwwroot/quasar-ui.css`. Reuse the shared panels, text and console
+styles where they fit. Keep component-specific layout and selectors for
+MudBlazor internals in scoped stylesheets. Native components retain the
+current Material SVG paths and mode-specific Quasar logos.
 
 Light, dark, and system preference use the existing `quasar.theme.mode` browser
 storage key and service events (including analytics chart updates). The shell

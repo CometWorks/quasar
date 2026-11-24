@@ -318,7 +318,7 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar.Tests/QuasarManagedDotNetSdkServiceTests.cs`
 - `Quasar.Tests/QuasarUiPluginStateStoreTests.cs`
 - `Quasar.Client/UiPlugins/QuasarOperationLoader.razor`
-- `Quasar.Client/UiPlugins/QuasarOperationLoader.razor.css`
+- `Quasar/wwwroot/quasar-ui.css`
 - `Quasar/Services/WebServiceOptions.cs`
 - `Quasar.Tests/QuasarShutdownTests.cs`
 - `Quasar/Services/Plugins/QuasarCoreOperations.cs`

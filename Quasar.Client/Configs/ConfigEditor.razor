@@ -204,7 +204,7 @@ else
                                                             <div style="@ConfigOptionTooltipStyle">@GetOptionTooltipText(option)</div>
                                                         </TooltipContent>
                                                         <ChildContent>
-                                                            <section class="quasar-panel @optionCardClass" @key="option.PropertyName" id="@GetOptionAnchorId(option)" tabindex="-1">
+                                                            <section class="quasar-panel quasar-panel-inset @optionCardClass" @key="option.PropertyName" id="@GetOptionAnchorId(option)" tabindex="-1">
                                                                 @switch (option.Kind)
                                                                 {
                                                                     case QuasarConfigOptionKind.Boolean:
@@ -333,7 +333,7 @@ else
                                                             <div style="@ConfigOptionTooltipStyle">@GetOptionTooltipText(option)</div>
                                                         </TooltipContent>
                                                         <ChildContent>
-                                                            <section class="quasar-panel @optionCardClass" @key="option.PropertyName" id="@GetOptionAnchorId(option)" tabindex="-1">
+                                                            <section class="quasar-panel quasar-panel-inset @optionCardClass" @key="option.PropertyName" id="@GetOptionAnchorId(option)" tabindex="-1">
                                                                 @switch (option.Kind)
                                                                 {
                                                                     case QuasarConfigOptionKind.Boolean:

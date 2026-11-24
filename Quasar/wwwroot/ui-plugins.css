@@ -4,7 +4,7 @@
 }
 
 .ui-plugin-restart-pending {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--mud-palette-warning) 35%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--quasar-palette-warning) 35%, transparent);
     animation: ui-plugin-restart-pulse 2s ease-in-out infinite;
 }
 
@@ -13,7 +13,7 @@
         box-shadow: 0 0 0 0 transparent;
     }
     50% {
-        box-shadow: 0 0 0 5px color-mix(in srgb, var(--mud-palette-warning) 35%, transparent);
+        box-shadow: 0 0 0 5px color-mix(in srgb, var(--quasar-palette-warning) 35%, transparent);
     }
 }
 
@@ -125,7 +125,7 @@
 }
 
 .ui-plugin-path-menu-label {
-    color: var(--mud-palette-text-secondary);
+    color: var(--quasar-palette-text-secondary);
     font-size: 0.75rem;
     line-height: 1.4;
 }

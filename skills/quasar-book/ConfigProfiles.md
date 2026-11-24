@@ -43,6 +43,8 @@ The profile does not hold the game port, listen IP, server and world names, rest
 
 Expanded sections keep space below the final field and its help text, including
 **Solar Radiation Intensity** and its oxygen pressurization and radiation requirements.
+World option search highlights and mod dependency cycle warnings use colors from
+your active [Appearance palette](Monitoring.md#appearance).
 
 ### Command aliases
 

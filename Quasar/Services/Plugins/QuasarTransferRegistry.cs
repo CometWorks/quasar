@@ -34,11 +34,10 @@ public sealed class QuasarTransferRegistry(QuasarBrowserSessions sessions) : IDi
     public Transfer Get(QuasarBrowserSession binding, string id, bool claim)
     {
         sessions.Verify(binding);
-        var session = binding.Id;
-        var owner = binding.Owner;
         lock (_gate)
         {
-            if (!_transfers.TryGetValue(id, out var transfer) || transfer.Owner != owner || transfer.Session != session || transfer.Token.IsCancellationRequested)
+            var transfer = FindOwned(binding, id);
+            if (transfer is null || transfer.Token.IsCancellationRequested)
                 throw new QuasarOperationException(404, "SDK transfer not found or expired.");
             if (claim)
             {
@@ -49,6 +48,17 @@ public sealed class QuasarTransferRegistry(QuasarBrowserSessions sessions) : IDi
             return transfer;
         }
     }
+
+    public void Cancel(QuasarBrowserSession binding, string id)
+    {
+        sessions.Verify(binding);
+        lock (_gate)
+            if (FindOwned(binding, id) is { } transfer) Cancel(transfer);
+    }
+
+    private Transfer? FindOwned(QuasarBrowserSession binding, string id) =>
+        _transfers.TryGetValue(id, out var transfer) && transfer.Owner == binding.Owner && transfer.Session == binding.Id
+            ? transfer : null;
 
     public void Remove(Transfer transfer)
     {

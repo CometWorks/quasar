@@ -33,9 +33,9 @@
     display: grid;
     gap: 0.65rem;
     padding: 1.25rem;
-    border: 1px solid var(--mud-palette-lines-default);
+    border: 1px solid var(--quasar-palette-lines-default);
     border-radius: var(--mud-default-borderradius);
-    background: var(--mud-palette-background-grey);
+    background: var(--quasar-palette-background-gray);
 }
 
 .access-setup-address {
@@ -45,14 +45,14 @@
 }
 
 .access-setup-note {
-    color: var(--mud-palette-text-secondary);
+    color: var(--quasar-palette-text-secondary);
     font-size: 0.875rem;
 }
 
 .access-setup-progress {
     width: 100%;
     height: 0.65rem;
-    accent-color: var(--mud-palette-primary);
+    accent-color: var(--quasar-palette-primary);
 }
 
 .access-setup-steps {
@@ -60,11 +60,11 @@
     gap: 0.85rem;
     margin: 0;
     padding-left: 1.5rem;
-    color: var(--mud-palette-text-secondary);
+    color: var(--quasar-palette-text-secondary);
 }
 
 .access-setup-steps li[data-complete="true"] {
-    color: var(--mud-palette-success);
+    color: var(--quasar-palette-success);
 }
 
 .access-setup-steps li[data-complete="true"]::marker {

@@ -583,5 +583,4 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/QuasarCommandAliases.cs`
 - `Quasar.Agent/CommandAliasConfiguration.cs`
 - `Quasar.Client/UiPlugins/QuasarOperationLoader.razor`
-- `Quasar.Client/UiPlugins/QuasarOperationLoader.razor.css`
-- `Quasar.Client/Clusters/ClusterConsoleDialog.razor.css`
+- `Quasar/wwwroot/quasar-ui.css`

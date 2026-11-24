@@ -113,7 +113,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-nav-collapsed { grid-template-columns: minmax(0, 1fr); }
 .quasar-nav-collapsed .quasar-sidebar { display: none; }
 .quasar-nav-scrim { display: none; }
-.quasar-skip-link { position: fixed; top: -70px; left: 16px; padding: 12px; z-index: 1500; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); }
+.quasar-skip-link { position: fixed; top: -70px; left: 16px; padding: 12px; z-index: 1500; background: var(--quasar-palette-surface); color: var(--quasar-palette-text-primary); }
 .quasar-skip-link:focus { top: 10px; }
 .quasar-shell :is(a, button, input, select, summary):focus-visible { outline: 2px solid var(--quasar-palette-primary); outline-offset: 3px; }
 .quasar-main:focus { outline: none; }
@@ -121,7 +121,9 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-page-heading h1 { font: 700 32px/1.2 "Manrope", system-ui, sans-serif; letter-spacing: -.8px; margin: 0 0 6px; }
 .quasar-page-heading p, .quasar-page-description, .quasar-form-section p { color: var(--quasar-palette-text-secondary); font-size: 12px; line-height: 1.6; margin: 0; }
 .quasar-eyebrow { font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--quasar-palette-text-secondary); margin-bottom: 7px; }
-.quasar-panel { border: 1px solid var(--quasar-palette-lines-default); background: var(--quasar-palette-surface); border-radius: 6px; overflow: hidden; }
+.quasar-panel, .quasar-operation-loader { border: 1px solid var(--quasar-palette-lines-default); border-radius: 6px; }
+.quasar-panel { background: var(--quasar-palette-surface); overflow: hidden; }
+.quasar-panel-inset { background: var(--quasar-palette-background-gray); }
 .quasar-panel h2 { margin: 0 0 5px; font: 700 15px "Manrope", system-ui, sans-serif; }
 .quasar-panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 15px; border-bottom: 1px solid var(--quasar-palette-divider); }
 .quasar-shell .quasar-panel-heading h2 { margin: 0; }
@@ -278,6 +280,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell h3 { font-size: 12px; font-weight: 650; margin: 14px 0 8px; }
 .quasar-stack p, .quasar-card-heading p { margin: 0; }
 .quasar-caption { font-size: 11px; }
+.quasar-text-secondary { color: var(--quasar-palette-text-secondary); }
 .quasar-tone-primary { --quasar-control-color: var(--quasar-palette-primary); --quasar-control-text: var(--quasar-palette-primary-contrast-text); }
 .quasar-tone-info { color: var(--quasar-palette-info); --quasar-control-color: var(--quasar-palette-info); --quasar-control-text: var(--quasar-palette-info-contrast-text); }
 .quasar-tone-success { --quasar-control-color: var(--quasar-palette-success); --quasar-control-text: var(--quasar-palette-success-contrast-text); }
@@ -296,6 +299,8 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-progress::-webkit-progress-bar { background: var(--quasar-palette-lines-default); border-radius: 3px; }
 .quasar-progress::-webkit-progress-value { background: var(--quasar-palette-primary); border-radius: 3px; }
 .quasar-progress::-moz-progress-bar { background: var(--quasar-palette-primary); border-radius: 3px; }
+.quasar-operation-loader { display: grid; gap: 0.75rem; min-width: 0; padding: 1rem; background: var(--quasar-palette-background); }
+.quasar-operation-loader p { margin: 0; overflow-wrap: anywhere; }
 .quasar-divider { width: 100%; border: 0; border-top: 1px solid var(--quasar-palette-divider); margin: 12px 0; }
 .quasar-error-line { display: block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .quasar-chat-form { display: flex; align-items: end; gap: 8px; margin-top: 14px; }
@@ -600,11 +605,49 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-console-toolbar .quasar-field { min-width: 220px; }
 .quasar-console-meta { min-width: 0; flex: 1; }
 .quasar-console-meta .copyable-path { font-size: 10px; }
-.quasar-console-output { height: 60vh; overflow: auto; background: var(--quasar-palette-background); border: 1px solid var(--quasar-palette-lines-default); border-radius: 0 0 5px 5px; padding: 12px 16px; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.quasar-console-output, .cluster-console-output { overflow: auto; background: var(--quasar-palette-background); border: 1px solid var(--quasar-palette-lines-default); }
+.quasar-console-output { height: 60vh; border-radius: 0 0 5px 5px; padding: 12px 16px; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .quasar-info-log-pre, .quasar-log-line { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--quasar-palette-text-primary); font: inherit; }
+.quasar-console-output-discord { border-color: var(--quasar-palette-divider); border-radius: 4px; padding: 8px 12px; font-size: 0.8125rem; line-height: 1.45; white-space: normal; word-break: break-word; }
 .quasar-log-line { min-height: 1.7em; border-bottom: 1px solid color-mix(in srgb, var(--quasar-palette-divider) 30%, transparent); }
 .quasar-log-line:hover { background: var(--quasar-palette-hover-background); color: var(--quasar-palette-hover-contrast-text); }
 .quasar-console-hint { margin: 10px 0 0; color: var(--quasar-palette-text-secondary); font-size: 10px; }
+
+.cluster-console-output {
+    height: 50vh;
+    padding: 12px;
+    border-color: var(--quasar-palette-divider);
+    border-radius: var(--mud-default-borderradius);
+}
+
+.cluster-console-line {
+    font-family: var(--mud-typography-code-family, monospace);
+    font-size: .8rem;
+    overflow-wrap: anywhere;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--quasar-palette-divider);
+}
+
+.cluster-console-line > div {
+    white-space: pre-wrap;
+}
+
+.cluster-console-event {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: 0.25rem 1.5rem;
+}
+
+.cluster-console-event > div {
+    min-width: 0;
+}
+
+@media (max-width: 800px) {
+    .cluster-console-event {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 @media (max-width: 1100px) {
     .quasar-insights { grid-template-columns: minmax(0, 1fr); }
     .quasar-appearance-grid { grid-template-columns: minmax(0, 1fr) 290px; }

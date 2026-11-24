@@ -84,7 +84,7 @@ else
                 <div class="quasar-layout quasar-gap-1">
                     <h3 class="quasar-text quasar-type-subtitle2">Loaded</h3>
                     <h2 class="quasar-text quasar-type-h4">@State.LoadedPlugins.Count</h2>
-                    <span class="quasar-text quasar-type-caption mud-text-secondary">UI plugin packages</span>
+                    <span class="quasar-text quasar-type-caption quasar-text-secondary">UI plugin packages</span>
                 </div>
             </section>
         </MudItem>
@@ -93,7 +93,7 @@ else
                 <div class="quasar-layout quasar-gap-1">
                     <h3 class="quasar-text quasar-type-subtitle2">Load Errors</h3>
                     <h2 class="quasar-text quasar-type-h4">@State.LoadErrors.Count</h2>
-                    <span class="quasar-text quasar-type-caption mud-text-secondary">Startup failures</span>
+                    <span class="quasar-text quasar-type-caption quasar-text-secondary">Startup failures</span>
                 </div>
             </section>
         </MudItem>
@@ -102,7 +102,7 @@ else
                 <div class="quasar-layout quasar-gap-1">
                     <h3 class="quasar-text quasar-type-subtitle2">Extensions</h3>
                     <h2 class="quasar-text quasar-type-h4">@State.Extensions.Count</h2>
-                    <span class="quasar-text quasar-type-caption mud-text-secondary">Patch contributions</span>
+                    <span class="quasar-text quasar-type-caption quasar-text-secondary">Patch contributions</span>
                 </div>
             </section>
         </MudItem>
@@ -111,7 +111,7 @@ else
                 <div class="quasar-layout quasar-gap-1">
                     <h3 class="quasar-text quasar-type-subtitle2">Nav Items</h3>
                     <h2 class="quasar-text quasar-type-h4">@State.NavItems.Count</h2>
-                    <span class="quasar-text quasar-type-caption mud-text-secondary">Plugin links</span>
+                    <span class="quasar-text quasar-type-caption quasar-text-secondary">Plugin links</span>
                 </div>
             </section>
         </MudItem>
@@ -165,7 +165,7 @@ else
             <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
                 <div class="quasar-layout quasar-gap-1">
                     <h2 class="quasar-text quasar-type-h6">QuasarHub Catalog</h2>
-                    <p class="quasar-text quasar-type-body2 mud-text-secondary">
+                    <p class="quasar-text quasar-type-body2 quasar-text-secondary">
                         Discover, install, update, and remove reviewed Quasar UI plugins from CometWorks/quasar-hub.
                     </p>
                 </div>
@@ -263,7 +263,7 @@ else
                                 <h3 class="quasar-text quasar-type-subtitle2">@GetHubDisplayName(context)</h3>
                                 @if (context.Hidden)
                                 {
-                                    <span class="quasar-text quasar-type-caption mud-text-secondary">Hidden in hub</span>
+                                    <span class="quasar-text quasar-type-caption quasar-text-secondary">Hidden in hub</span>
                                 }
                                 @if (context.Recommended)
                                 {
@@ -273,7 +273,7 @@ else
                                 }
                                 @if (context.ImplicitLoading)
                                 {
-                                    <span class="quasar-text quasar-type-caption mud-text-secondary">
+                                    <span class="quasar-text quasar-type-caption quasar-text-secondary">
                                         @(installState.ImplicitInstallSuppressed ? "Implicit loading suppressed" : "Implicit loading")
                                     </span>
                                 }
@@ -383,8 +383,8 @@ else
                             <div class="quasar-layout quasar-gap-1 ui-plugin-cell-stack">
                                 <div class="quasar-layout quasar-gap-0">
                                     <p class="quasar-text quasar-type-body2 mono ui-plugin-truncate-line">@context.EntryAssembly</p>
-                                    <span class="quasar-text quasar-type-caption mud-text-secondary mono ui-plugin-truncate-line">@context.EntryType</span>
-                                    <span class="quasar-text quasar-type-caption mud-text-secondary mono">@FormatCacheHash(context.ShadowCopyHash)</span>
+                                    <span class="quasar-text quasar-type-caption quasar-text-secondary mono ui-plugin-truncate-line">@context.EntryType</span>
+                                    <span class="quasar-text quasar-type-caption quasar-text-secondary mono">@FormatCacheHash(context.ShadowCopyHash)</span>
                                 </div>
                             </div>
                             @if (context.BuildChanged)
@@ -397,7 +397,7 @@ else
                             {
                                 <div class="quasar-layout quasar-gap-1 ui-plugin-cell-stack">
                                     <p class="quasar-text quasar-type-body2 mono ui-plugin-truncate-line">@context.RequestPath</p>
-                                    <span class="quasar-text quasar-type-caption mud-text-secondary">@FormatDirectoryInfo(context.Paths[context.StaticAssetsDirectory])</span>
+                                    <span class="quasar-text quasar-type-caption quasar-text-secondary">@FormatDirectoryInfo(context.Paths[context.StaticAssetsDirectory])</span>
                                 </div>
                                 @if (context.AssetsChanged)
                                 {
@@ -406,7 +406,7 @@ else
                             }
                             else
                             {
-                                <p class="quasar-text quasar-type-body2 mud-text-secondary">None</p>
+                                <p class="quasar-text quasar-type-body2 quasar-text-secondary">None</p>
                             }
                         </MudTd>
                         <MudTd DataLabel="Stylesheets">
@@ -415,13 +415,13 @@ else
                                 <div class="quasar-layout quasar-gap-0">
                                     @foreach (var stylesheet in context.Stylesheets)
                                     {
-                                        <span class="quasar-text quasar-type-caption mud-text-secondary mono ui-plugin-truncate-line">@stylesheet</span>
+                                        <span class="quasar-text quasar-type-caption quasar-text-secondary mono ui-plugin-truncate-line">@stylesheet</span>
                                     }
                                 </div>
                             }
                             else
                             {
-                                <p class="quasar-text quasar-type-body2 mud-text-secondary">None</p>
+                                <p class="quasar-text quasar-type-body2 quasar-text-secondary">None</p>
                             }
                         </MudTd>
                         <MudTd DataLabel="" Class="quasar-actions-column ui-plugin-loaded-actions-column">
@@ -435,7 +435,7 @@ else
                                     <div class="ui-plugin-path-menu">
                                         <h3 class="quasar-text quasar-type-subtitle2">Plugin paths</h3>
                                         <div class="ui-plugin-path-menu-section">
-                                            <span class="quasar-text quasar-type-caption mud-text-secondary">Entry</span>
+                                            <span class="quasar-text quasar-type-caption quasar-text-secondary">Entry</span>
                                             @RenderPathMenuRow("Source assembly", context.EntryAssemblyPath, FormatFileInfo(context.Paths[context.EntryAssemblyPath]), "Copy source assembly path")
                                             @RenderPathMenuRow("Build output", buildOutputDirectory, FormatDirectoryInfo(context.Paths[buildOutputDirectory]), "Copy source build output path")
                                             @RenderPathMenuRow("Loaded assembly", context.LoadedAssemblyPath, FormatFileInfo(context.Paths[context.LoadedAssemblyPath]), "Copy loaded assembly path")
@@ -443,7 +443,7 @@ else
                                         @if (!string.IsNullOrWhiteSpace(context.StaticAssetsDirectory))
                                         {
                                             <div class="ui-plugin-path-menu-section">
-                                                <span class="quasar-text quasar-type-caption mud-text-secondary">Static assets</span>
+                                                <span class="quasar-text quasar-type-caption quasar-text-secondary">Static assets</span>
                                                 @RenderPathMenuRow("Request path", context.RequestPath, string.Empty, "Copy static asset URL path", "Static asset URL path copied to clipboard.")
                                                 @RenderPathMenuRow("Served snapshot", context.StaticAssetsDirectory, FormatDirectoryInfo(context.Paths[context.StaticAssetsDirectory]), "Copy served static asset path")
                                                 @if (!string.IsNullOrWhiteSpace(context.SourceStaticAssetsDirectory))
@@ -453,7 +453,7 @@ else
                                             </div>
                                         }
                                         <div class="ui-plugin-path-menu-section">
-                                            <span class="quasar-text quasar-type-caption mud-text-secondary">Directories</span>
+                                            <span class="quasar-text quasar-type-caption quasar-text-secondary">Directories</span>
                                             @RenderPathMenuRow("Package", context.PluginDirectory, FormatDirectoryInfo(context.Paths[context.PluginDirectory]), "Copy plugin package path")
                                             @RenderPathMenuRow("Shadow cache", context.ShadowCopyDirectory, FormatDirectoryInfo(context.Paths[context.ShadowCopyDirectory]), "Copy shadow cache path")
                                         </div>
@@ -479,7 +479,7 @@ else
             <h2 class="quasar-text quasar-type-h6">Plugin Nav Items</h2>
             @if (State.NavItems.Count == 0)
             {
-                <p class="quasar-text quasar-type-body2 mud-text-secondary">No plugin nav items.</p>
+                <p class="quasar-text quasar-type-body2 quasar-text-secondary">No plugin nav items.</p>
             }
             else
             {
@@ -508,7 +508,7 @@ else
             <h2 class="quasar-text quasar-type-h6">Extension Contributions</h2>
             @if (State.Extensions.Count == 0)
             {
-                <p class="quasar-text quasar-type-body2 mud-text-secondary">No extension contributions.</p>
+                <p class="quasar-text quasar-type-body2 quasar-text-secondary">No extension contributions.</p>
             }
             else
             {
@@ -539,7 +539,7 @@ else
             <h2 class="quasar-text quasar-type-h6">Razor Assemblies</h2>
             @if (State.RazorAssemblies.Count == 0)
             {
-                <p class="quasar-text quasar-type-body2 mud-text-secondary">No plugin Razor assemblies.</p>
+                <p class="quasar-text quasar-type-body2 quasar-text-secondary">No plugin Razor assemblies.</p>
             }
             else
             {
@@ -551,7 +551,7 @@ else
                     <RowTemplate>
                         <MudTd DataLabel="Name">@context.Name</MudTd>
                         <MudTd DataLabel="Location">
-                            <CopyablePath Value="@context.Location" Inline="true" TextClass="mud-text-secondary mono" />
+                            <CopyablePath Value="@context.Location" Inline="true" TextClass="quasar-text-secondary mono" />
                         </MudTd>
                     </RowTemplate>
                 </MudTable>
@@ -679,7 +679,7 @@ else
         builder.AddAttribute(11, nameof(CopyablePath.Inline), true);
         builder.AddAttribute(12, nameof(CopyablePath.ShowValueTooltip), true);
         builder.AddAttribute(13, nameof(CopyablePath.Class), "ui-plugin-menu-copy-path");
-        builder.AddAttribute(14, nameof(CopyablePath.TextClass), "mud-text-secondary mono");
+        builder.AddAttribute(14, nameof(CopyablePath.TextClass), "quasar-text-secondary mono");
         builder.CloseComponent();
         builder.CloseElement();
     };

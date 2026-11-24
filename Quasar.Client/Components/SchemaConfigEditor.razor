@@ -15,7 +15,7 @@
 }
 else if (_tabs.Count == 0)
 {
-    <p class="quasar-text quasar-type-body2 mud-text-secondary">No configurable options.</p>
+    <p class="quasar-text quasar-type-body2 quasar-text-secondary">No configurable options.</p>
 }
 else
 {
@@ -311,7 +311,7 @@ else
     private RenderFragment RenderDescription(FieldModel field) => @<text>
         @if (!string.IsNullOrWhiteSpace(field.Description))
         {
-            <span class="quasar-text quasar-type-caption mud-text-secondary d-block">@field.Description</span>
+            <span class="quasar-text quasar-type-caption quasar-text-secondary d-block">@field.Description</span>
         }
     </text>;
 
@@ -333,7 +333,7 @@ else
                         ShowAlpha="@field.HasAlpha"
                         ColorPickerView="ColorPickerView.Spectrum"
                         HelperText="@field.Description" />
-        <span class="quasar-text quasar-type-caption mud-text-secondary">@GetString(get())</span>
+        <span class="quasar-text quasar-type-caption quasar-text-secondary">@GetString(get())</span>
     </div>;
 
     private RenderFragment RenderVectorField(
@@ -342,7 +342,7 @@ else
         Action<JsonNode?> set,
         string path,
         bool integer,
-        int dimensions) => @<section class="quasar-panel pa-3 plugin-config-composite">
+        int dimensions) => @<section class="quasar-panel pa-3 quasar-panel-inset">
         <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
         @RenderDescription(field)
         <MudGrid Spacing="2" Class="mt-1">
@@ -359,7 +359,7 @@ else
         </MudGrid>
     </section>;
 
-    private RenderFragment RenderPoseField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<section class="quasar-panel pa-3 plugin-config-composite">
+    private RenderFragment RenderPoseField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<section class="quasar-panel pa-3 quasar-panel-inset">
         <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
         @RenderDescription(field)
         <MudGrid Spacing="2" Class="mt-1">
@@ -375,8 +375,8 @@ else
         </MudGrid>
     </section>;
 
-    private RenderFragment RenderNestedVector(string label, Func<JsonNode?> get, Action<JsonNode?> set, string key, bool integer) => @<section class="quasar-panel pa-2 plugin-config-nested">
-        <span class="quasar-text quasar-type-caption mud-text-secondary">@label</span>
+    private RenderFragment RenderNestedVector(string label, Func<JsonNode?> get, Action<JsonNode?> set, string key, bool integer) => @<section class="quasar-panel pa-2 quasar-panel-inset">
+        <span class="quasar-text quasar-type-caption quasar-text-secondary">@label</span>
         <MudGrid Spacing="1">
             @foreach (var component in VectorComponents)
             {
@@ -396,7 +396,7 @@ else
         Func<JsonNode?> get,
         Action<JsonNode?> set,
         string path,
-        TreeContext? treeContext) => @<section class="quasar-panel pa-3 plugin-config-composite">
+        TreeContext? treeContext) => @<section class="quasar-panel pa-3 quasar-panel-inset">
         <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
         @RenderDescription(field)
         @RenderStructMembers(field.StructName, get, set, path, treeContext)
@@ -427,7 +427,7 @@ else
         }
     </div>;
 
-    private RenderFragment RenderListField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<section class="quasar-panel pa-3 plugin-config-composite">
+    private RenderFragment RenderListField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<section class="quasar-panel pa-3 quasar-panel-inset">
         @{
             var array = EnsureArray(get, set);
             var maxReached = field.MaxCount is > 0 && array.Count >= field.MaxCount.Value;
@@ -439,7 +439,7 @@ else
                 <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
                 @if (!string.IsNullOrWhiteSpace(field.Description))
                 {
-                    <span class="quasar-text quasar-type-caption mud-text-secondary">@field.Description</span>
+                    <span class="quasar-text quasar-type-caption quasar-text-secondary">@field.Description</span>
                 }
             </div>
             <MudButton Variant="Variant.Outlined"
@@ -453,7 +453,7 @@ else
         </div>
         @if (field.MaxCount is > 0)
         {
-            <span class="quasar-text quasar-type-caption mud-text-secondary">@array.Count / @field.MaxCount items</span>
+            <span class="quasar-text quasar-type-caption quasar-text-secondary">@array.Count / @field.MaxCount items</span>
         }
         @if (array.Count == 0)
         {
@@ -503,9 +503,9 @@ else
                 {
                     var index = i;
                     var itemPath = $"{path}[{index}]";
-                    <section class="quasar-panel pa-2 plugin-config-list-row">
+                    <section class="quasar-panel pa-2 quasar-panel-inset">
                         <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-2">
-                            <span class="quasar-text quasar-type-caption mud-text-secondary plugin-config-row-index">@(index + 1)</span>
+                            <span class="quasar-text quasar-type-caption quasar-text-secondary plugin-config-row-index">@(index + 1)</span>
                             <div class="plugin-config-row-editor">
                                 @RenderField(listField.WithName($"Item {index + 1}"), () => array[index], value => SetArrayValue(array, index, value), itemPath, null)
                             </div>
@@ -527,7 +527,7 @@ else
         }
     </section>;
 
-    private RenderFragment RenderDictField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<section class="quasar-panel pa-3 plugin-config-composite">
+    private RenderFragment RenderDictField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<section class="quasar-panel pa-3 quasar-panel-inset">
         @{
             var dict = EnsureObject(get, set);
             var entries = dict.ToList();
@@ -540,7 +540,7 @@ else
                 <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
                 @if (!string.IsNullOrWhiteSpace(field.Description))
                 {
-                    <span class="quasar-text quasar-type-caption mud-text-secondary">@field.Description</span>
+                    <span class="quasar-text quasar-type-caption quasar-text-secondary">@field.Description</span>
                 }
             </div>
             @if (field.MaxCount is > 0)
@@ -573,7 +573,7 @@ else
                 {
                     var key = entry.Key;
                     var itemPath = $"{path}.{key}";
-                    <section class="quasar-panel pa-2 plugin-config-list-row">
+                    <section class="quasar-panel pa-2 quasar-panel-inset">
                         <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-2">
                             <MudTextField T="string"
                                           Label="Key"
