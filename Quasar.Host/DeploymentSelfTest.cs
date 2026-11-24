@@ -393,6 +393,15 @@ internal static class DeploymentSelfTest
             }
             Assert(snapshots.Describe(old, "cluster", saved.SnapshotId).SnapshotId == saved.SnapshotId, "schema 2 snapshot is unreadable");
 
+            // Tiny files spend most of the archive on tar headers, padding and the manifest.
+            for (int i = 0; i < 128; i++)
+                Write($"nodes/one/data/tiny-{i}", "x");
+            var limited = request with { SnapshotId = Guid.NewGuid(), BytesPerSecond = 1 << 20 };
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            var smallFiles = snapshots.Capture(limited);
+            Assert(elapsed.Elapsed.TotalSeconds >= (double)smallFiles.ArchiveBytes / limited.BytesPerSecond - 0.025,
+                "an online snapshot exceeded its byte rate on small files");
+
             // QSR-26: a 273,000 file runtime wrote a 67 MB manifest, which the old 64 MiB cap refused to read back.
             string large = Path.Combine(root, "large.tar");
             using (var output = File.Create(large))
