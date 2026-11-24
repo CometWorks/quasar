@@ -13,7 +13,10 @@ for (const name of ["chromium", "firefox"]) test(`RTC3 real SDK data and native 
         const errors = [], payloadHttp = [];
 
         page.on("pageerror", error => errors.push(error.message));
-        page.on("request", request => { if (/\/(operations|resources)\//.test(request.url())) payloadHttp.push(request.url()); });
+        page.on("request", request => {
+            const path = new URL(request.url()).pathname;
+            if (/\/(operations|resources)\//.test(path)) payloadHttp.push({ method: request.method(), path });
+        });
         await page.goto(process.env.QUASAR_RTC_TEST_URL);
         let releaseSetup;
         const setupGate = new Promise(resolve => { releaseSetup = resolve; });
@@ -112,12 +115,11 @@ for (const name of ["chromium", "firefox"]) test(`RTC3 real SDK data and native 
         const expected = createHash("sha256"); for (let i = 0; i < 512; i++) expected.update(pattern);
         assert.equal(createHash("sha256").update(bytes).digest("hex"), expected.digest("hex"));
         await page.evaluate(() => globalThis.sdk.dispose());
-        const paths = payloadHttp.map(url => new URL(url).pathname);
-        assert.equal(paths.length, 4, "Only the initial echo and the reserved upload may use HTTP");
-        assert.ok(paths[0].endsWith("/operations/rtc.fixture/echo"));
-        assert.ok(paths[1].endsWith("/resources/rtc.fixture/upload"));
-        assert.match(paths[2], /\/resources\/[0-9a-f]{32}$/);
-        assert.equal(paths[3], paths[2], "HTTP upload cleanup uses the reserved HTTP route");
+        assert.deepEqual(payloadHttp.map(request => request.method), ["POST", "POST", "PUT"],
+            "Only the initial echo, upload reservation and upload body use HTTP");
+        assert.ok(payloadHttp[0].path.endsWith("/operations/rtc.fixture/echo"));
+        assert.ok(payloadHttp[1].path.endsWith("/resources/rtc.fixture/upload"));
+        assert.match(payloadHttp[2].path, /\/resources\/[0-9a-f]{32}$/);
         assert.deepEqual(relayRequests, [], "The hosted SDK must never request TURN");
         assert.deepEqual(errors, []);
         let blockedAttempts = 0;
