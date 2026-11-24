@@ -37,6 +37,18 @@ if (args.FirstOrDefault() == "verify")
 }
 if (args.FirstOrDefault() != "self-test") return 2;
 WindowsServiceCommandTests.Run();
+if (OperatingSystem.IsLinux())
+{
+    try
+    {
+        await BootstrapUpdateSupport.RunAsync("/bin/sleep", ["60"], CancellationToken.None, timeoutSeconds: 1);
+        throw new Exception("Service command ignored its deadline");
+    }
+    catch (TimeoutException exception)
+    {
+        Require(exception.Message == "sleep did not finish within 1 seconds.", "Timeout must identify the command and deadline");
+    }
+}
 
 var testRoot = Path.Combine(Path.GetTempPath(), "quasar-update-shared-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(testRoot);

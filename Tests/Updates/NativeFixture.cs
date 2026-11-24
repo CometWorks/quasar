@@ -72,6 +72,10 @@ internal static class NativeFixture
         appBuilder.Services.AddHostedService<BackgroundFailureFixture>();
         var app = appBuilder.Build();
         NativeServiceFailures.Observe(app);
+        app.Lifetime.ApplicationStopping.Register(() =>
+        {
+            if (File.Exists(Path.Combine(data, "hold-stop"))) Thread.Sleep(Timeout.Infinite);
+        });
         app.MapGet("/api/health", () => Results.Ok());
         app.MapGet("/api/internal/update-health", (HttpContext context) => context.Request.Headers["X-Quasar-Launcher-Token"] != installation.HealthToken
             ? Results.Unauthorized() : File.Exists(Path.Combine(data, "hold-health")) && File.ReadAllText(Path.Combine(data, "hold-health")) == version

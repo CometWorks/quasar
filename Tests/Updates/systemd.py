@@ -180,6 +180,25 @@ try:
         shutil.copy2(root / name_in_manifest, target)
     (payload / 'fixture-release.txt').write_text('1.5.0')
     original_executable = (payload / 'Quasar').read_bytes()
+
+    # systemctl stop returns success even if the unit's stop deadline forces a kill.
+    hold_stop = root / 'hold-stop'
+    installed_unit.write_text(original_unit.replace('TimeoutStopSec=120', 'TimeoutStopSec=2'))
+    run('systemctl', *manager, 'daemon-reload')
+    try:
+        hold_stop.touch()
+        timed_out = request(payload)
+        wait(lambda: journal()['id'] == timed_out and journal()['stage'] == 'Failed'
+             and not (root / 'Updates/application-maintenance').exists(), 'Recover from a forced stop')
+        assert journal()['message'].startswith("Could not stop the current Quasar service. systemd reported 'timeout'")
+        assert (root / 'fixture-release.txt').read_text().strip() == '1.4.1' and alive()
+        assert not (root / 'Updates/LauncherTransaction/phase').exists()
+    finally:
+        hold_stop.unlink(missing_ok=True)
+        installed_unit.write_text(original_unit)
+        run('systemctl', *manager, 'daemon-reload')
+    print('PASS forced stop prevents replacement, restarts previous release and preserves sentinel', flush=True)
+
     (payload / 'Quasar').write_text('#!/bin/sh\nexit 127\n')
     operation = request(payload)
     assert fixture('request', payload).stdout.strip() == operation
