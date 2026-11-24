@@ -187,7 +187,7 @@ public sealed class QuasarBackupService
                     reconcile: false, cancellationToken);
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 timeout.CancelAfter(TimeSpan.FromMinutes(6));
-                await _supervisor.StopServerAsync(uniqueName, forceAfter: null, timeout.Token);
+                await _supervisor.StopServerAsync(uniqueName, returnAfter: null, timeout.Token);
                 if (_supervisor.IsServerProcessActive(uniqueName))
                     throw new InvalidOperationException("The server has not stopped. No backup was created.");
                 definition = RequireServer(uniqueName);

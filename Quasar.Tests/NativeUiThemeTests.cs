@@ -292,7 +292,7 @@ public sealed class NativeAppearanceTests : IDisposable
             EditServers: false, EditConfigs: false, Control: true, ClusterManage: true, ClusterQuery: false);
         var page = context.Render<FleetWorkspace>(p => p.Add(c => c.Dashboard, data).Add(c => c.IsList, isList));
         Assert.Contains("quasar-text-success", page.Find("button[aria-label='Start cluster']").ClassList);
-        foreach (var label in new[] { "Stop server", "Kill starting server", "Gracefully stop cluster", "Delete cluster" })
+        foreach (var label in new[] { "Stop server", "Kill server (unsaved changes are lost)", "Gracefully stop cluster", "Delete cluster" })
         {
             var buttons = page.FindAll($"button[aria-label='{label}']");
             Assert.NotEmpty(buttons);

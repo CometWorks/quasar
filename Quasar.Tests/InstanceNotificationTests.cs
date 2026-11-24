@@ -109,6 +109,25 @@ public sealed class InstanceNotificationTests
     }
 
     [Fact]
+    public void ServersThatNeedAnAdminNotifyOncePerIncidentAndAreOnByDefault()
+    {
+        Assert.True(new NotificationPreferences().NeedsAttention);
+        Observe(0);
+        _server.AttentionAtUtc = _start.AddSeconds(1);
+        _server.AttentionMessage = "Still running 3 minutes after Quasar asked it to stop.";
+        Observe(1);
+        Observe(2);
+        var notice = Assert.Single(Notices(2));
+        Assert.Equal("alpha: Instance needs an admin", notice.Title);
+        Assert.Equal(_server.AttentionMessage, notice.Body);
+
+        _options.NeedsAttention = false;
+        _server.AttentionAtUtc = _start.AddSeconds(3);
+        Observe(3);
+        Assert.Single(Notices(3));
+    }
+
+    [Fact]
     public void MetricsRequireSustainedSamplesRespectCooldownAndNotifyRecoveryOnce()
     {
         Observe(0);

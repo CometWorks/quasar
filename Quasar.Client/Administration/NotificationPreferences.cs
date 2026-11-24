@@ -7,6 +7,8 @@ public sealed record NotificationPreferences
     public bool UiPluginUpdates { get; set; }
     public bool Crashes { get; set; }
     public bool HealthRestarts { get; set; }
+    // On by default: Quasar has stopped acting on its own and only an admin can resolve it.
+    public bool NeedsAttention { get; set; } = true;
     public bool LowSimSpeed { get; set; }
     public float SimSpeedThreshold { get; set; } = 0.8f;
     public bool HighCpu { get; set; }

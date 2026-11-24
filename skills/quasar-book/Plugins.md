@@ -214,6 +214,8 @@ A cluster node that owns no partitions (a hot spare, or a node still starting) l
 
 It runs commands from Quasar: refresh, send chat, whisper and faction chat, run a chat command (a `!` line typed on the **Chat** page), save world, stop server, kick, ban, unban, promote, demote, set promote level, clear kick cooldown, list and delete entities, change profiler mode, apply plugin configuration, and companion requests from UI plugins. Cluster nodes reject the agent-local save and stop commands.
 
+Commands that touch the game run once per game tick from the agent's own queue, several in the same tick, with save and stop always first. Other commands share about 2 ms of each tick and run in the order they arrived. A command Quasar has stopped waiting for, for example after a long save or a physics stall, is dropped instead of running late; save and stop never are. When commands had to wait 5 seconds or more, the server console shows "[Quasar.Agent] The game thread was busy: N Quasar command(s) waited up to S s to run.", at most once a minute. Commands still queued when the connection to Quasar drops are dropped too; Quasar sends a stop again when the agent reconnects.
+
 Plugin statistics appear on **Analytics**; players, chat and entities on their own pages. See [Monitoring](Monitoring.md).
 
 Player death reporting uses the session's native player-death event and per-character fallback callbacks. It filters out bots and wildlife and suppresses duplicate reports. Subscriptions follow the current session and are removed when the session changes or the plugin unloads. The agent does not attach to the global `MyVisualScriptLogicProvider.PlayerDied` delegate, avoiding BuildInfo's warning about the agent's callback. Restart the game server after updating Quasar to load this agent change. See [BuildInfo reports a leaked PlayerDied callback](Troubleshooting.md#buildinfo-reports-a-leaked-playerdied-callback).
@@ -323,6 +325,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar.Agent/AgentConnection.cs`
 - `Quasar.Agent/AgentOptions.cs`
 - `Quasar.Agent/GameBridge.cs`
+- `Quasar.Agent/GameThreadCommandQueue.cs`
 - `Quasar.Agent/PluginLogOutbox.cs`
 - `Quasar.Agent/StopCommand.cs`
 - `Quasar.Agent/WebServiceLocator.cs`

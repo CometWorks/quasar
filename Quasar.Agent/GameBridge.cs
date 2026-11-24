@@ -56,6 +56,7 @@ namespace Quasar.Agent
 
         private readonly Stopwatch _uptime = Stopwatch.StartNew();
         private readonly object _sync = new object();
+        private readonly GameThreadCommandQueue _gameThreadCommands;
         private readonly int _processId = Process.GetCurrentProcess().Id;
         private readonly string _processName = Process.GetCurrentProcess().ProcessName;
         private readonly string _hostName = Environment.MachineName;
@@ -104,6 +105,10 @@ namespace Quasar.Agent
                     ?? $"unmanaged-{_hostId}-{_processId}")
                 .Trim();
             _pluginVersion = GetAgentVersion();
+            _gameThreadCommands = new GameThreadCommandQueue(
+                ExecuteCommandOnGameThread,
+                (command, success, message) => CreateResult(command, success, message),
+                message => Console.WriteLine("[Quasar.Agent] " + message));
             if (!_options.ClusterMode)
             {
                 try { _playerAccess = new PlayerAccessEnforcement(_uniqueName); }
@@ -136,6 +141,7 @@ namespace Quasar.Agent
         public void Update()
         {
             AgentProfiler.MarkGameThread();
+            _gameThreadCommands.Drain();
             AgentProfiler.Update();
             RefreshChatSubscription();
             if (_options.ClusterMode) _clusterChat.Update();
@@ -196,24 +202,7 @@ namespace Quasar.Agent
                 return Task.FromResult(CreateResult(command, false, "Game server not available."));
             }
 
-            var completion = new TaskCompletionSource<ServerCommandResult>();
-
-            using (cancellationToken.Register(() => completion.TrySetCanceled()))
-            {
-                game.Invoke(() =>
-                {
-                    try
-                    {
-                        completion.TrySetResult(ExecuteCommandOnGameThread(command));
-                    }
-                    catch (Exception exception)
-                    {
-                        completion.TrySetResult(CreateResult(command, false, exception.Message));
-                    }
-                }, $"Quasar.Agent:{command.CommandType}");
-
-                return completion.Task;
-            }
+            return _gameThreadCommands.Enqueue(command, cancellationToken);
         }
 
         private async Task<ServerCommandResult> ExecuteCompanionPluginRequestAsync(ServerCommandEnvelope command, CancellationToken cancellationToken)
@@ -241,12 +230,15 @@ namespace Quasar.Agent
                                Error = "Companion plugin returned no response.",
                            };
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                // The connection is closing; there is nobody left to answer.
                 throw;
             }
             catch (Exception exception)
             {
+                // Includes a plugin's own timeout or cancellation: that fails this request only,
+                // it must not take down the agent's connection to Quasar.
                 response = new CompanionPluginResponse
                 {
                     CorrelationId = request.CorrelationId,

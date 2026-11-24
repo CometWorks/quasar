@@ -267,7 +267,7 @@ These pages go through the registry, so their changes appear in the log:
 - **Players**: kick, ban, unban, role and kick cooldown on standalone servers.
 - **Backup**: world backups (latest save, or save and back up) and server backups.
 
-Not recorded: Discord commands, cluster changes and cluster player actions, creating, renaming, cloning and deleting servers or profiles, killing a starting server, stop and back up, restores, configuration backups, and the other pages. The page says so at the top.
+Not recorded: Discord commands, cluster changes and cluster player actions, creating, renaming, cloning and deleting servers or profiles, killing a server, stop and back up, restores, configuration backups, and the other pages. The page says so at the top.
 
 Each entry shows the time, who acted, who asked (the person behind the assistant, or the player's Steam ID and name), the operation, the server, the mode (applied, proposed by an agent, approved or rejected by an admin) and the result: ok; refused, when access was denied or the operation itself declined, such as a grid restore with no free spot (nothing changed, and the reason is shown); or failed, when something broke on the way. An approved or rejected call names the proposal it decided. **Details** shows the arguments, with passwords, tokens and keys replaced by `<redacted>`, the error, and the undo data. Filter by time range (in the time zone selected under **Settings → Display**), principal, requester, operation, server and result. Plugins read the log for a person with `CanManageSecurity` with the `audit.list` operation, which has the same filters and no undo. AI agents can't use it: every operation that needs `CanManageSecurity` is on their hard deny list.
 

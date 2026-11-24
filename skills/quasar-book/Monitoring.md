@@ -300,6 +300,7 @@ Preferences are per account and apply to the page, the bell and browser push on 
 | **Quasar UI plugin updates** (admins only) | off |
 | **Instance crashes and failures (including automatic crash recovery)** | off |
 | **Restarts caused by health checks or agent attach failures** | off |
+| **Servers that need an admin: a stop that isn't finishing, or health restarts paused after repeated failures** | on |
 | **Low simulation speed**, **Alert below simulation speed** | off, 0.8 (above 0, at most 1) |
 | **High process CPU usage**, **Alert above CPU (%)** | off, 200 (100% is one logical CPU) |
 | **High memory usage**, **Alert above working set (MB)** | off, 8192 (1 to 1,048,576) |
@@ -312,7 +313,7 @@ Preferences are per account and apply to the page, the bell and browser push on 
 
 Out-of-range values fail with "Check notification thresholds: ...".
 
-Metric alerts use telemetry no older than 30 seconds from running instances, including cluster nodes. Crash and health-restart alerts cover locally supervised servers only. Instance alerts are kept in memory for up to 24 hours, at most 100 per account, and are cleared when Quasar restarts or preferences are saved.
+Metric alerts use telemetry no older than 30 seconds from running instances, including cluster nodes. Crash, health-restart and needs-an-admin alerts cover locally supervised servers only. A needs-an-admin alert ("<server>: Instance needs an admin") comes once per incident, when Quasar stops acting on its own: a server is still running 3 minutes after Quasar asked it to stop, or Quasar paused its health restarts. The same message is on the server card and in `quasar.log` as "Server <name> needs an admin: ...". Instance alerts are kept in memory for up to 24 hours, at most 100 per account, and are cleared when Quasar restarts or preferences are saved.
 
 ### Browser push notifications
 

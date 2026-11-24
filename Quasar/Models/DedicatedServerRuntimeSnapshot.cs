@@ -28,6 +28,12 @@ public sealed class DedicatedServerRuntimeSnapshot
 
     public DedicatedServerRestartInfo? LastRestart { get; set; }
 
+    /// <summary>Why Quasar stopped acting on its own and an admin has to decide, if it did.</summary>
+    public string AttentionMessage { get; set; } = string.Empty;
+
+    /// <summary>When <see cref="AttentionMessage"/> was raised; each new value is one admin notice.</summary>
+    public DateTimeOffset? AttentionAtUtc { get; set; }
+
     public string LatestErrorLogLine { get; set; } = string.Empty;
 
     public string LatestErrorLogKind { get; set; } = string.Empty;

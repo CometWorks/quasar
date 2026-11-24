@@ -27,6 +27,10 @@ namespace Quasar.Agent
         private readonly Random _rng = new Random();
         private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(2);
         private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
+        // Companion plugin requests run beside the command loop, a few at a time, so a slow
+        // plugin can't hold up lifecycle commands such as save and stop.
+        private readonly SemaphoreSlim _companionSlots = new SemaphoreSlim(MaxConcurrentCompanionRequests, MaxConcurrentCompanionRequests);
+        internal const int MaxConcurrentCompanionRequests = 4;
         private CancellationTokenSource _cancellation;
         private Task _runTask;
         private string _lastPluginConfigJson;
@@ -153,28 +157,33 @@ namespace Quasar.Agent
                             _socket = socket;
                             _lastPluginConfigJson = null;
 
+                            // Everything this connection started, including commands still queued for
+                            // the game thread, ends with it: Quasar has already failed their waits.
+                            using (var connection = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                             try
                             {
+                                var connectionToken = connection.Token;
                                 await SendAsync(socket, new AgentWireMessage
                                 {
                                     Kind = WireMessageKind.Hello,
                                     Hello = _bridge.GetHello(),
-                                }, cancellationToken).ConfigureAwait(false);
+                                }, connectionToken).ConfigureAwait(false);
 
                                 // Keep telemetry independent from optional config/log work.
-                                var snapshotTask = SnapshotLoopAsync(socket, cancellationToken);
+                                var snapshotTask = SnapshotLoopAsync(socket, connectionToken);
                                 var pluginConfigTask = Task.Run(
-                                    () => PluginConfigLoopAsync(socket, cancellationToken),
-                                    cancellationToken);
+                                    () => PluginConfigLoopAsync(socket, connectionToken),
+                                    connectionToken);
                                 var pluginLogTask = Task.Run(
-                                    () => PluginLogLoopAsync(socket, cancellationToken),
-                                    cancellationToken);
-                                var receiveTask = ReceiveLoopAsync(socket, cancellationToken);
+                                    () => PluginLogLoopAsync(socket, connectionToken),
+                                    connectionToken);
+                                var receiveTask = ReceiveLoopAsync(socket, connectionToken);
                                 await Task.WhenAny(
                                     snapshotTask,
                                     pluginConfigTask,
                                     pluginLogTask,
                                     receiveTask).ConfigureAwait(false);
+                                connection.Cancel();
 
                                 if (socket.CloseStatus == WebSocketCloseStatus.PolicyViolation
                                     || socket.CloseStatus == WebSocketCloseStatus.MessageTooBig
@@ -412,14 +421,18 @@ namespace Quasar.Agent
                 if (message == null)
                     break;
 
-                if (message.Kind == WireMessageKind.Command && message.Command != null)
+                if (message.Kind == WireMessageKind.Command && message.Command != null
+                    && message.Command.CommandType == ServerCommandType.PluginRequest)
                 {
-                    var result = await _bridge.ExecuteCommandAsync(message.Command, cancellationToken).ConfigureAwait(false);
-                    await SendAsync(socket, new AgentWireMessage
-                    {
-                        Kind = WireMessageKind.CommandResult,
-                        CommandResult = result,
-                    }, cancellationToken).ConfigureAwait(false);
+                    var command = message.Command;
+                    _ = Task.Run(() => RunCompanionRequestAsync(socket, command, cancellationToken));
+                }
+                else if (message.Kind == WireMessageKind.Command && message.Command != null)
+                {
+                    // Queue it now, in arrival order, and answer whenever it finishes: the loop never
+                    // waits for the game thread, so later commands, save and stop included, get queued
+                    // at once and many can run in the same tick.
+                    _ = ReplyWhenDoneAsync(socket, message.Command, StartCommand(message.Command, cancellationToken), cancellationToken);
                 }
                 else if (message.Kind == WireMessageKind.PluginConfigUpdate && message.PluginConfigUpdateRequest != null)
                 {
@@ -447,6 +460,75 @@ namespace Quasar.Agent
                         Message = "pong",
                     }, cancellationToken).ConfigureAwait(false);
                 }
+            }
+        }
+
+        private Task<ServerCommandResult> StartCommand(ServerCommandEnvelope command, CancellationToken cancellationToken)
+        {
+            try
+            {
+                return _bridge.ExecuteCommandAsync(command, cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                return Task.FromException<ServerCommandResult>(exception);
+            }
+        }
+
+        private async Task ReplyWhenDoneAsync(
+            ClientWebSocket socket,
+            ServerCommandEnvelope command,
+            Task<ServerCommandResult> pending,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var result = await pending.ConfigureAwait(false);
+                await SendAsync(socket, new AgentWireMessage
+                {
+                    Kind = WireMessageKind.CommandResult,
+                    CommandResult = result,
+                }, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception exception)
+            {
+                Log($"Command {command.CommandType} failed: {exception.Message}");
+            }
+        }
+
+        private async Task RunCompanionRequestAsync(ClientWebSocket socket, ServerCommandEnvelope command, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _companionSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            try
+            {
+                var result = await _bridge.ExecuteCommandAsync(command, cancellationToken).ConfigureAwait(false);
+                await SendAsync(socket, new AgentWireMessage
+                {
+                    Kind = WireMessageKind.CommandResult,
+                    CommandResult = result,
+                }, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception exception)
+            {
+                Log($"Companion plugin request failed: {exception.Message}");
+            }
+            finally
+            {
+                _companionSlots.Release();
             }
         }
 

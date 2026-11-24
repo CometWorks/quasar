@@ -87,7 +87,7 @@ The **Dashboard** shows every server as a card (**Cards** view) or as a row in a
 | **Start** | Stopped, Crashed, Faulted | Sets the goal On and starts the server. Disabled while the managed runtime is still preparing or no world save is selected. |
 | **Stop** | Running | Asks "Stop server?", sets the goal Off, then stops gracefully (see below). |
 | **Restart** | Running | Graceful stop, then start. Keeps the goal On. |
-| **Kill** | Starting, Restarting | Asks "Kill starting server?", sets the goal Off and kills the process tree immediately. Use it to cancel a wrong or stuck launch. |
+| **Kill** | Starting, Restarting, Stopping | Asks "Kill server?", sets the goal Off and kills the process tree immediately. Changes since the last save are lost. Use it to cancel a wrong or stuck launch, or to end a server that doesn't finish stopping. |
 | **Show console output** | Always | Opens the log console. |
 | **Save** (expanded live data) | Agent connected | Asks the agent to save the world now. |
 
@@ -109,13 +109,19 @@ Because the goal is saved, Quasar starts every server whose goal is On when Quas
 
 ### Graceful stop and save
 
-When Quasar stops a server (Stop, Restart, health or scheduled restart) and Quasar.Agent is connected, Quasar:
+When Quasar stops a server (Stop, Restart, health or scheduled restart), Quasar:
 
 1. Sends a save command and waits up to 15 seconds for the result.
-2. Sends a stop command. The agent shuts the server down.
-3. Waits up to 30 seconds for the process to exit, then kills the whole process tree.
+2. Sends a stop command. The agent saves again and shuts the server down.
+3. Waits for the process to exit, however long the save takes.
 
-If no agent is connected, steps 1 and 2 are skipped: Quasar waits 30 seconds and kills the process without saving.
+Quasar never kills a running server on its own. Only **Kill** does that. If no agent is connected when the stop begins, the card says "Waiting for Quasar.Agent to reconnect to save and stop." and Quasar sends steps 1 and 2 as soon as the agent reconnects, so the world is still saved. If the agent reconnects again later on a new connection, it gets the request again.
+
+If the server is still running 3 minutes after the stop request, Quasar keeps waiting and sends a needs-an-admin notice (see [Monitoring](Monitoring.md#notification-preferences)): "Still running 3 minutes after Quasar asked it to stop. ..." with whether the request reached the agent. Use **Kill** if the server is stuck.
+
+A restart whose server takes longer than 30 seconds to exit shows "... Waiting for the server to save and exit." and starts the server again once the old process has exited.
+
+The startup attach retry is the one exception: a server stuck in `Starting` whose agent never attaches is still killed and launched again (see [Health checks and the watchdog](#health-checks-and-the-watchdog)).
 
 ### In-game commands from Quasar.Agent
 
@@ -215,14 +221,16 @@ What makes a server `Unhealthy`:
 
 - The goal is On but the process is not running ("Goal state is ON but the process is not running.").
 - During startup, the agent did not attach or send its first snapshot within the inactivity timeout or the hard limit.
-- A running server's agent disconnected ("Quasar.Agent disconnected.").
-- The heartbeat is older than the heartbeat timeout.
+- A running server's agent disconnected and sent no telemetry for longer than the heartbeat timeout ("Quasar.Agent disconnected. No telemetry for N s (heartbeat timeout 20 s)."). Until then the server shows `Warning` with "Quasar.Agent disconnected; waiting for it to reconnect." The agent retries every 10 seconds (plus up to 3 seconds of jitter), so a dropped connection normally recovers in time. The same grace covers a reconnected agent that hasn't sent its first snapshot yet.
+- A connected agent's heartbeat is older than the heartbeat timeout.
 - The simulation rate over the window is below the minimum. A save in progress resets the window instead of counting as a stall.
 
 What happens then, with **Auto-restart when unhealthy** on and the goal On:
 
 - During `Starting`, Quasar kills the process, waits the retry delay and launches again ("Quasar.Agent attach timed out (1/3). Retrying in 5s."). After the last attempt the server becomes `Faulted`.
-- During `Running`, Quasar does a graceful restart with cause "Health policy". It does this at most once per 30 seconds (or per restart delay, if longer). When the agent is still connected, the restart reason is also written to the server's Magnetar `info_*.log`.
+- During `Running`, Quasar does a graceful restart with cause "Health policy", which saves first (see [Graceful stop and save](#graceful-stop-and-save)). It does this at most once per 30 seconds (or per restart delay, if longer). When the agent is connected, the restart reason is also written to the server's Magnetar `info_*.log`.
+- After 3 health-policy restarts of a server within 30 minutes, Quasar pauses them for that server instead of restarting again. The server keeps running, its health message adds "Automatic health restarts are paused until an admin restarts or stops this server.", and admins get a needs-an-admin notice. A manual **Restart**, a **Stop** or **Kill**, or **Clear Error Status** resumes them. The count and the pause reset when Quasar restarts.
+- While Quasar itself is shutting down, it starts and restarts nothing. The agents disconnect as Quasar goes down, so a server can show `Unhealthy` ("Quasar.Agent disconnected.") for a moment, but that doesn't count as a failed server. A server that exits in that time isn't restarted either; Quasar handles it on its next start according to the goal.
 
 To turn health monitoring off for the whole Quasar instance, set `Quasar:DisableServerHealthMonitoring` to `true` or `QUASAR_DISABLE_SERVER_HEALTH_MONITORING=true`. New servers then also start with both health checkboxes off.
 
@@ -373,6 +381,10 @@ Quasar launches Magnetar with `-daemon`, which detaches it from Quasar's session
 - Until an adopted server's agent sends authenticated telemetry again, Quasar doesn't restart it on its own: no attach retries, health restarts or scheduled restarts. An old agent that the current Quasar refuses (for example after the DIS-0042 security update) keeps it that way, and the health message adds "Automatic recovery is paused for this adopted process. Save in game before a manual restart." Save in game, then restart the server yourself.
 - With preserve set to `false`, Quasar stops every server gracefully (save, then stop, no kill timeout) before it exits. The Docker image sets `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN=false`.
 
+A crash of Quasar doesn't stop the servers either, whatever the preserve setting says, because Quasar has no chance to stop them. Quasar saves a server's process ID as soon as it starts the server, so after the crash it adopts the server like after a normal restart. The Quasar launcher starts a crashed Quasar worker again, and on Linux systemd (`Restart=on-failure`) also restarts the launcher if it crashes. An adopted server's console output isn't captured again until its next start, because the output pipe ended with the old Quasar process.
+
+Docker is different. If only the Quasar worker crashes, the launcher starts it again and the servers keep running. If the launcher itself (the container's main process) exits, the container stops and every server in it is killed without saving. Docker then starts the container again (`restart: unless-stopped`) and the servers start fresh from their last save.
+
 While Quasar is away, Quasar.Agent keeps the server running and retries the connection every 10 seconds (plus up to 3 seconds of jitter). If Quasar stays unreachable for 3600 seconds after the agent had connected at least once, the agent saves the world and stops the server. Change this with `Quasar:AgentOfflineShutdownSeconds` or `QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS` (0 or negative stops the server as soon as Quasar is gone). Quasar passes the value to each server at launch, so a change applies after the server's next start.
 
 ## Profiler mode
@@ -385,7 +397,9 @@ Quasar.Agent runs a built-in profiler in each server. Its mode is chosen per ser
 - **Server stuck in Starting, then restarts**: the agent did not connect in time. Check the Server log and Magnetar info log tabs. Big modded worlds may need a larger **Agent startup hard limit**. Check that the server can reach Quasar's web port at `QUASAR_BASE_URL`.
 - **Server Faulted right after Start**: read the message on the card and match it to the table in [Launch failures](#launch-failures-that-fault-a-server).
 - **Server restarts every 8 hours**: **Maximum uptime** defaults to `08:00`. Clear it in Restart Policy to disable.
-- **Server keeps restarting with "Health policy"**: look at the health message. A low simulation rate or a stale heartbeat triggers it. Lower **Minimum average simulation rate**, or turn off **Auto-restart when unhealthy** while investigating.
+- **Server keeps restarting with "Health policy"**: look at the health message. A low simulation rate, a stale heartbeat or an agent that stayed disconnected triggers it. Lower **Minimum average simulation rate** or raise **Agent heartbeat timeout**, or turn off **Auto-restart when unhealthy** while investigating. After 3 such restarts in 30 minutes Quasar pauses them and notifies admins.
+- **"Quasar.Agent disconnected" while the process keeps running**: look in the server's Magnetar `info_*.log` or console for lines starting with `[Quasar.Agent] Connection error:` or "Quasar refused the connection", and in `quasar.log` for "Agent socket closed with transport error" or "Invalid agent JSON". A native crash of the game (for example a segfault in `Havok.dll` in the kernel log) can drop the agent before the process is gone.
+- **Server stays in Stopping**: Quasar waits for it to save and exit and never kills it on its own. If the agent is disconnected, the stop goes through when it reconnects. Use **Kill** if the server is stuck; changes since the last save are lost.
 - **Second server not reachable**: check that no server's game port equals another server's game port + 1000 or + 2000. Each server also uses those two derived ports.
 - **Mods missing after start**: the world's mod list comes from the config profile on every start. Add the mods to the profile, or use **Merge Into <profile>** in the server editor.
 - **High priority does nothing on Linux**: install `quasar-renice` (see above). If the server says the helper may be outdated, install it again and restart the server.
@@ -449,6 +463,8 @@ collisions, limits and the required Magnetar version.
 - `Quasar.Agent/AgentOptions.cs`
 - `Quasar.Agent/OfflineModeNetworkGuard.cs`
 - `Dockerfile`
+- `docker-compose.yml`
+- `Quasar.Bootstrap/Program.cs`
 - `install.sh`
 - `tools/quasar-renice.c`
 - `Quasar/Services/QuasarCommandAliases.cs`

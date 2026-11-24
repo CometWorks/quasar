@@ -235,7 +235,7 @@ else
             @if(Dashboard.Control && r.State=="Running"){
                 <QuasarIconButton ShowLabel="card" Text="Stop" Label="Stop server" Class="quasar-text-error" Icon="@QuasarIcons.Stop" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"servers.stop"))" />
                 <QuasarIconButton ShowLabel="card" Text="Restart" Label="Restart server" Icon="@QuasarIcons.RestartAlt" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"servers.restart"))" /> }
-            @if(Dashboard.Control && r.State is "Starting" or "Restarting"){<QuasarIconButton ShowLabel="card" Text="Kill" Label="Kill starting server" Class="quasar-text-error" Icon="@QuasarIcons.StopCircle" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"fleet.kill"))" />}
+            @if(Dashboard.Control && r.State is "Starting" or "Restarting" or "Stopping"){<QuasarIconButton ShowLabel="card" Text="Kill" Label="Kill server (unsaved changes are lost)" Class="quasar-text-error" Icon="@QuasarIcons.StopCircle" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"fleet.kill"))" />}
             <QuasarIconButton ShowLabel="card" Text="Console" Label="Show console output" Class="@(card ? "quasar-tone-primary" : null)" Icon="@QuasarIcons.Terminal" OnClick="@(()=>ConsoleAsync(r))" />
             @if (!card) { @MoreActions(r) }
         }
@@ -273,7 +273,7 @@ else
         {
             if(operation is "servers.stop" or "fleet.kill" or "cluster.stop"){
                 bool force=operation=="fleet.kill";
-                if(await Dialogs.ShowMessageBoxAsync(force?"Kill starting server?":"Gracefully stop?",force?$"Forcefully terminate {r.DisplayName} during startup?":$"Save and stop {r.DisplayName}?",yesText:force?"Kill process":"Stop",cancelText:"Cancel")!=true)return;
+                if(await Dialogs.ShowMessageBoxAsync(force?"Kill server?":"Gracefully stop?",force?$"Forcefully terminate {r.DisplayName}? Changes since its last save are lost.":$"Save and stop {r.DisplayName}?",yesText:force?"Kill process":"Stop",cancelText:"Cancel")!=true)return;
             }
             var target=new {r.UniqueName};
             if(operation=="cluster.start" && !await Sdk.RequestAsync<bool>("cluster.start.available",target)) throw new InvalidOperationException("Wait for a stable stopped Gateway before starting.");

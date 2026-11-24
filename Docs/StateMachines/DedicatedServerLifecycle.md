@@ -83,7 +83,8 @@ The observed supervisor lifecycle. The UI treats `Starting`, `Stopping`, and
 `Restarting` as transitionary states: `Start`, `Stop`, `Restart`, and `Save`
 actions are disabled while a server is already transitioning. `Starting` and
 `Restarting` keep an immediate `Kill` action so an accidental or wedged launch
-can still be cancelled before the agent attaches. `Running` shows
+can still be cancelled before the agent attaches, and `Stopping` has it too
+because Quasar never force-ends a stop on its own (see below). `Running` shows
 `Stop`/`Restart`; `Stopped`, `Crashed`, and `Faulted` show `Start`. The
 Dashboard problem banner can clear `Crashed`/`Faulted` error status back to
 `Stopped` after setting the goal `Off`.
@@ -115,6 +116,7 @@ stateDiagram-v2
     Restarting --> Stopping: operator Kill pending launch
     Restarting --> Faulted: attempts exhausted
     Stopping --> Stopped: process exited
+    Stopping --> Stopped: operator Kill (stuck stop)
     Stopping --> Faulted: stop failure
     Crashed --> Restarting: RestartOnCrash, within budget
     Crashed --> Starting: operator Start retry
@@ -205,6 +207,37 @@ stateDiagram-v2
   logs. If the unhealthy condition includes a missing or disconnected agent,
   Quasar logs that Magnetar-side delivery was unavailable while retaining the
   reason in Quasar's log and UI.
+- No automatic kill of a running server. A stop or restart sends `SaveWorld`
+  (15 s wait) and `StopServer` through `WatchStopAsync`, which polls every
+  second until the process exits and resends both to every new agent
+  connection, so a stop that began while the agent was offline still saves.
+  `StopServerAsync` returns to its caller after `StopWaitBeforeReturn` (30 s;
+  null waits for the exit) but the watch keeps going. After
+  `StopAttentionDelay` (3 min) it raises an attention notice. A restart whose
+  old process is still running stays `Restarting` with `IsRestartPending`, and
+  the exit handler relaunches it. Only the operator's `KillServerAsync`
+  (Starting, Restarting, Stopping) and the startup attach retry kill.
+- Health-restart cap: `TryReserveHealthRestart` allows `HealthRestartLimit` (3)
+  health-policy restarts per `HealthRestartWindow` (30 min). The next one sets
+  `HealthRestartsPaused` and an attention notice instead. A manual restart, or
+  the server being down with goal Off, resumes them. The count is in memory
+  only.
+- Attention: `AttentionMessage` / `AttentionAtUtc` on the runtime snapshot mark
+  where Quasar stopped acting on its own. `InstanceNotificationMonitor` posts
+  one "Instance needs an admin" notice per new `AttentionAtUtc` when the
+  account's `NeedsAttention` preference is on (the default). A new process
+  start clears them.
+- Shutdown gate: `ApplicationStopping` closes every agent socket before the
+  supervisor's `StopAsync` runs. From the moment it fires, reconcile queues no
+  starts or automatic restarts and stops executing queued actions, and a
+  process exit counts as requested, so the disconnects it causes never become
+  health-policy or crash restarts. The token reports cancellation before its
+  callbacks close the sockets, so a pass that saw the disconnect also sees the
+  gate.
+- The supervisor writes runtime state (`supervisor-state.json`) on a 150 ms
+  debounce after every change, and immediately after launching a process, so
+  a Quasar crash right after a start still leaves the new PID on disk for
+  adoption. Writes are serialized and each takes a fresh snapshot.
 
 ---
 
@@ -238,8 +271,8 @@ stateDiagram-v2
 | --- | --- | --- |
 | `Unknown` | Monitoring disabled, or transitional (starting/restarting), or `goal Off` and stopped. | None. |
 | `Healthy` | Agent telemetry snapshot received, heartbeat fresh, simulation progress above threshold, uptime under warn threshold. | None. |
-| `Warning` | Agent startup logs remain active within the hard limit, waiting for the first telemetry snapshot, uptime past the warn threshold, or `goal Off` but process still running. | Surfaced in UI/Discord only. |
-| `Unhealthy` | Agent startup log inactivity or hard limit expired, an established agent disconnected, heartbeat stale beyond `AgentHeartbeatTimeoutSeconds`, simulation-frame progress stalled, uptime past recycle threshold, or process not running while `goal On`. | Auto-restart if `AutoRestartOnUnhealthy`. |
+| `Warning` | Agent startup logs remain active within the hard limit, waiting for the first telemetry snapshot, an established agent disconnected (or reconnected without a snapshot yet) for no longer than `AgentHeartbeatTimeoutSeconds` since its last telemetry (`LastAgentTelemetryUtc`), uptime past the warn threshold, or `goal Off` but process still running. | Surfaced in UI/Discord only. |
+| `Unhealthy` | Agent startup log inactivity or hard limit expired, an established agent without telemetry for longer than `AgentHeartbeatTimeoutSeconds`, heartbeat stale beyond `AgentHeartbeatTimeoutSeconds`, simulation-frame progress stalled, uptime past recycle threshold, or process not running while `goal On`. | Auto-restart if `AutoRestartOnUnhealthy`, up to the health-restart cap. |
 
 The simulation-frame check mirrors the dedicated server's own watcher:
 `frameProgressScore = deltaFrames / (elapsedSeconds * 60)` is compared against a
