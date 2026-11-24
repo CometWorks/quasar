@@ -2426,13 +2426,14 @@ On **Notifications**, administrators can opt into **Quasar UI plugin updates**.
 This account preference controls the notification list, bell, and subscribed browser
 push independently of Quasar/cluster notices. Available-update notices disappear
 after installation. Successful manual or automatic updates to plugins with a
-Magnetar companion also produce a warning toast and browser push reminder: load
-the update in Quasar, then restart game servers using that companion so functional
-changes and fixes take effect. First installs, same-revision reinstalls, failed
-updates and UI-only plugins do not create a new reminder. Reminders survive Quasar
-restarts in package install metadata and use installed-revision keys to avoid
-repeated push delivery; the toast appears once per UI session. They record an
-update, not outstanding server restarts, and do not clear when servers restart.
+Magnetar companion can produce a restart notice in the bell, list and subscribed
+browser push. Open **UI Plugins** to review and clear the current reminders for
+your account. The page shows any restart guidance that still applies. Quasar
+also clears a reminder when no affected server is online or all affected managed
+standalone servers have restarted since the update. First installs,
+same-revision reinstalls, failed updates and UI-only plugins do not create a new
+reminder. Review status survives a Quasar restart, and push is deduplicated per
+installed revision and subscription.
 Automatic application does not require notifications to be enabled.
 
 ## Hosted public panel

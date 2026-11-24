@@ -217,15 +217,16 @@ The `/settings/ui-plugins` page now manages the QuasarHub catalog:
 - links back to the plugin repository and QuasarHub
 
 For admins who enable **Quasar UI plugin updates** on **Notifications**, a
-successful revision update with a companion declared in the package or catalog
-adds a warning toast, bell/list notice and subscribed browser push reminder.
-Restart Quasar to load the update, then restart game servers using its Magnetar
-companion for functional changes and fixes to take effect. Quasar does not restart
-game servers automatically. The update reminder survives Quasar restarts in
-`quasar-ui-plugin-install.json`; it records the update rather than tracking which
-servers still need a restart. First installs, failed updates, UI-only plugins and
-same-revision reinstalls do not create new reminders. Push is deduplicated per
-installed revision; toasts appear once per UI session.
+successful revision update with a companion declared in the package or catalog can
+add a restart notice in the bell, list and subscribed browser push. The notice
+applies while an affected process is online. It clears when all affected managed
+standalone processes have restarted since the update or gone offline. Opening
+**UI Plugins** shows the applicable restart guidance and clears those notices for
+the current account. First installs, failed updates, UI-only plugins and
+same-revision reinstalls do not create new reminders. Quasar keeps the update
+timestamp in `quasar-ui-plugin-install.json` and deduplicates push per installed
+revision and subscription. Load the update in Quasar before restarting affected
+standalone servers. Clusters use companions pinned in their deployment.
 
 Catalog summaries wrap across the full description column without truncation.
 Rows keep status, author and version compact, leaving the remaining width for

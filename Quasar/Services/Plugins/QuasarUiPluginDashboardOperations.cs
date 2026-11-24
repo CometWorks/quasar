@@ -16,6 +16,7 @@ internal static class QuasarUiPluginDashboardOperations
     internal sealed record RuleInput(string PluginId, string OperationId, QuasarOperationRule? Rule);
     internal sealed record RoleInput(string Name, string[] Roles);
     internal sealed record RestartInput(Guid? UpdateId);
+    internal sealed record ReviewedCompanionUpdates(string[] Keys);
     private static readonly string[] Manage = [QuasarPolicyNames.CanManageSecurity];
     private static readonly QuasarOperationMetadata Change = new() { RequireDefaultPolicies = true, AgentAccess = QuasarAgentAccess.Denied, Effect = QuasarOperationEffect.Change };
     private static readonly QuasarOperationMetadata Read = Change with { Effect = QuasarOperationEffect.Read };
@@ -24,7 +25,17 @@ internal static class QuasarUiPluginDashboardOperations
     {
         services.AddSingleton<UiPluginInstallJobs>();
         services.AddQuasarRead<EmptyRequest>(PluginId, "ui-plugins.dashboard", Manage, (caller, _, token) =>
-            Task.FromResult(JsonRead(Snapshot(caller.Services, token))), Read with { Description = "Returns installed UI plugins, available catalog entries and diagnostics." });
+            Task.FromResult(JsonRead(Snapshot(caller, token))), Read with { Description = "Returns installed UI plugins, available catalog entries and diagnostics." });
+        services.AddQuasarOperation<ReviewedCompanionUpdates, bool>(PluginId, "ui-plugins.companion-updates.review", Manage,
+            async (caller, input, token) =>
+            {
+                try
+                {
+                    return await caller.Services.GetRequiredService<PushNotificationService>()
+                        .ReviewCompanionUpdatesAsync(caller.User, input.Keys ?? [], token);
+                }
+                catch (InvalidDataException error) { throw new QuasarOperationException(400, error.Message); }
+            }, Change with { Description = "Acknowledges the shown companion restart reminders for the current admin." });
         services.AddQuasarRead<EmptyRequest>(PluginId, "rbac.sdk-settings", Manage, async (caller, _, _) =>
         {
             var operations = await caller.Services.GetRequiredService<QuasarOperationService>().GetSettingsAsync(caller.User);
@@ -127,21 +138,27 @@ internal static class QuasarUiPluginDashboardOperations
         return new(_ => Task.FromResult<Stream>(new MemoryStream(bytes, false)), "application/json", Length: bytes.LongLength);
     }
 
-    private static UiPluginDashboard Snapshot(IServiceProvider services, CancellationToken token)
+    private static UiPluginDashboard Snapshot(QuasarOperationContext caller, CancellationToken token)
     {
+        var services = caller.Services;
         var catalog = services.GetRequiredService<QuasarUiPluginCatalog>();
         var hub = services.GetRequiredService<QuasarUiPluginHubCatalogService>();
         var restart = services.GetRequiredService<WebServiceOptions>().RestartCapability;
         var update = services.GetRequiredService<QuasarShutdownService>().PendingRestartUpdate;
         var entries = hub.GetEntries().ToList();
+        var installed = entries.ToDictionary(entry => entry.CatalogId, hub.GetInstallState);
+        var companionNotices = services.GetRequiredService<PushNotificationService>()
+            .UiPluginNotices(entries, entry => installed[entry.CatalogId], caller.User)
+            .Where(notice => notice.Key.StartsWith(UpdateNotices.CompanionRestartKeyPrefix, StringComparison.Ordinal)).ToArray();
         return new(catalog.SafeMode, QuasarUiPluginCatalog.SafeModeMarkerPath, File.Exists(QuasarUiPluginCatalog.SafeModeMarkerPath),
             catalog.SafeModeReasons, catalog.LoadErrors, catalog.LoadedPlugins.Select(p => Describe(p, token)).ToList(),
             catalog.NavItems.Select(n => new NavDetails(n.Text, n.Href, n.Zone, n.Order, n.Policy)).ToList(),
             catalog.Extensions.Select(e => new ExtensionDetails(e.TargetKey, e.Mode.ToString(), e.ComponentType.FullName ?? e.ComponentType.Name, e.Priority, e.PluginId, e.Policy)).ToList(),
             catalog.RazorAssemblies.Select(a => new AssemblyDetails(a.GetName().Name, a.Location)).ToList(), entries,
-            entries.ToDictionary(e => e.CatalogId, hub.GetInstallState), hub.LastRefreshUtc, hub.LastError, services.GetRequiredService<QuasarUpdateOptions>().AutoUpdateUiPlugins,
+            installed, hub.LastRefreshUtc, hub.LastError, services.GetRequiredService<QuasarUpdateOptions>().AutoUpdateUiPlugins,
             hub.RestartRequired, restart.CanRestart, restart.Detail + " " + restart.Repair, update?.Id, update?.Version, hub.GetDotNetSdkStatus(),
-            hub.GetDotNetSdkInstallAvailability(), hub.DotNetSdkInstallInProgress, OperatingSystem.IsWindows(), services.GetRequiredService<UiPluginInstallJobs>().Latest);
+            hub.GetDotNetSdkInstallAvailability(), hub.DotNetSdkInstallInProgress, OperatingSystem.IsWindows(), services.GetRequiredService<UiPluginInstallJobs>().Latest,
+            companionNotices);
     }
 
     private static PluginDetails Describe(QuasarLoadedUiPlugin plugin, CancellationToken token)

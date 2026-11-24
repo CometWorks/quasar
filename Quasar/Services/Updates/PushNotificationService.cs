@@ -5,6 +5,7 @@ using System.Text;
 using System.Security.Cryptography;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.DataProtection;
+using Quasar.Models;
 using Quasar.Plugin.Abstractions.Notifications;
 using Quasar.Services.Auth;
 using Quasar.Services.Plugins;
@@ -70,8 +71,10 @@ public sealed class PushNotificationService(
         try
         {
             var state = await LoadAsync(token);
+            var account = Account(state, identity.Provider, identity.Subject)
+                ?? new AccountPreferences(identity.Provider, identity.Subject, new());
             var settings = (state.Preferences ?? []).Where(p => p.Provider != identity.Provider || p.Subject != identity.Subject)
-                .Append(new AccountPreferences(identity.Provider, identity.Subject, copy)).ToArray();
+                .Append(account with { Options = copy }).ToArray();
             await SaveAsync(state with { Preferences = settings }, token);
             lock (_observationSync)
             {
@@ -81,6 +84,31 @@ public sealed class PushNotificationService(
         }
         finally { _gate.Release(); }
         Changed?.Invoke();
+    }
+
+    internal async Task<bool> ReviewCompanionUpdatesAsync(ClaimsPrincipal user, string[] keys, CancellationToken token)
+    {
+        if (!user.IsInRole(QuasarRoles.Admin) || keys.Length == 0) return false;
+        var identity = BrowserIdentity(user);
+        await _gate.WaitAsync(token);
+        try
+        {
+            var state = await LoadAsync(token);
+            var account = Account(state, identity.Provider, identity.Subject)
+                ?? new AccountPreferences(identity.Provider, identity.Subject, new());
+            var current = InstalledCompanionNoticeKeys();
+            var reviewed = (account.ReviewedCompanionUpdates ?? []).ToHashSet(StringComparer.Ordinal);
+            if (!keys.Any(key => current.Contains(key) && !reviewed.Contains(key))) return false;
+
+            reviewed.UnionWith(keys);
+            reviewed.IntersectWith(current);
+            var settings = (state.Preferences ?? []).Where(p => p.Provider != identity.Provider || p.Subject != identity.Subject)
+                .Append(account with { ReviewedCompanionUpdates = reviewed.Order(StringComparer.Ordinal).ToArray() }).ToArray();
+            await SaveAsync(state with { Preferences = settings }, token);
+        }
+        finally { _gate.Release(); }
+        Changed?.Invoke();
+        return true;
     }
 
     internal async Task<UpdateNotice[]> GetNoticesAsync(ClaimsPrincipal user, CancellationToken token = default)
@@ -109,15 +137,34 @@ public sealed class PushNotificationService(
     }
 
     private UpdateNotice[] Notices(PushState state, string provider, string subject, ClaimsPrincipal user,
-        IEnumerable<UpdateNotice> plugin) =>
-        MergeAnnouncements((_otherNoticesOverride?.Invoke() ?? _instances.GetNotices(provider, subject, user, DateTimeOffset.UtcNow)
-            .Concat(Preferences(state, provider, subject).Updates
+        IEnumerable<UpdateNotice> plugin)
+    {
+        var account = Account(state, provider, subject);
+        var preferences = account?.Options ?? new();
+        return MergeAnnouncements((_otherNoticesOverride?.Invoke() ?? _instances.GetNotices(provider, subject, user, DateTimeOffset.UtcNow)
+            .Concat(preferences.Updates
                 ? UpdateNotices.All(updates.GetSnapshot(), releases.GetSnapshot(), clusters.GetClusters(), user, content.GetSnapshot)
                 : [])
-            .Concat(Preferences(state, provider, subject).UiPluginUpdates
-                ? UpdateNotices.UiPlugins(uiPlugins.GetEntries(), uiPlugins.GetInstallState, user) : []))
+            .Concat(preferences.UiPluginUpdates && user.IsInRole(QuasarRoles.Admin)
+                ? UiPluginNotices(uiPlugins.GetEntries(), uiPlugins.GetInstallState, user, account?.ReviewedCompanionUpdates) : []))
             .Concat(hosted?.BillingNotices(provider, subject) ?? [])
             .Concat(plugin), announcements);
+    }
+
+    internal IEnumerable<UpdateNotice> UiPluginNotices(IEnumerable<QuasarUiPluginHubEntry> entries,
+        Func<QuasarUiPluginHubEntry, QuasarUiPluginInstallState> installState, ClaimsPrincipal user,
+        string[]? reviewed = null)
+    {
+        var runtime = new Lazy<(IReadOnlyList<DedicatedServerRuntimeSnapshot> Servers, IReadOnlyList<AgentRuntimeState> Agents)>(
+            () => (supervisor.GetSnapshots(), agents.GetAgents()));
+        return UpdateNotices.UiPlugins(entries, installState, user, (installed, notice) =>
+            reviewed?.Contains(notice.Key, StringComparer.Ordinal) != true
+            && UpdateNotices.HasPendingCompanionRestart(installed, runtime.Value.Servers, runtime.Value.Agents));
+    }
+
+    private HashSet<string> InstalledCompanionNoticeKeys() => uiPlugins.GetEntries()
+        .Select(entry => UpdateNotices.CompanionRestart(entry, uiPlugins.GetInstallState(entry))?.Key)
+        .OfType<string>().ToHashSet(StringComparer.Ordinal);
 
     private readonly IQuasarNoticeSource[] _noticeSources = noticeSources?.ToArray() ?? [];
 
@@ -146,7 +193,10 @@ public sealed class PushNotificationService(
     }
 
     internal static NotificationPreferences Preferences(PushState state, string provider, string subject) =>
-        state.Preferences?.FirstOrDefault(p => p.Provider == provider && p.Subject == subject)?.Options ?? new();
+        Account(state, provider, subject)?.Options ?? new();
+
+    private static AccountPreferences? Account(PushState state, string provider, string subject) =>
+        state.Preferences?.FirstOrDefault(p => p.Provider == provider && p.Subject == subject);
 
     private void ObserveInstances()
     {
@@ -263,6 +313,7 @@ public sealed class PushNotificationService(
         try { state = await LoadAsync(token); }
         catch (InvalidDataException) { return; }
         finally { _gate.Release(); }
+        var companionKeys = new Lazy<HashSet<string>>(() => uiPlugins is null ? [] : InstalledCompanionNoticeKeys());
         foreach (var item in state.Subscriptions)
         {
             token.ThrowIfCancellationRequested();
@@ -279,7 +330,7 @@ public sealed class PushNotificationService(
                 : hosted?.BillingNotices(item.Provider, item.Subject) ?? [];
             var current = item;
             // Announcement IDs stay deduplicated across withdrawal, consent changes and restarts.
-            string[] retained = RetainedKeys(current, notices);
+            string[] retained = RetainedKeys(current, notices, companionKeys);
             if (!DeliveredKeys(current).SequenceEqual(retained))
                 current = await UpdateSubscriptionAsync(current, null, false, token, retained);
             if (current is null) continue;
@@ -346,8 +397,11 @@ public sealed class PushNotificationService(
         }, Json);
     }
 
-    internal static string[] RetainedKeys(StoredSubscription item, IEnumerable<UpdateNotice> notices) =>
+    internal static string[] RetainedKeys(StoredSubscription item, IEnumerable<UpdateNotice> notices,
+        Lazy<HashSet<string>>? companionKeys = null) =>
         DeliveredKeys(item).Where(key => key.StartsWith(AnnouncementService.KeyPrefix, StringComparison.Ordinal)
+            || key.StartsWith(UpdateNotices.CompanionRestartKeyPrefix, StringComparison.Ordinal)
+                && companionKeys?.Value.Contains(key) == true
             || notices.Any(notice => notice.Key == key)).ToArray();
 
     internal static string[] DeliveredKeys(StoredSubscription item) => (item.DeliveredNoticeKeys ?? [])
@@ -574,7 +628,8 @@ public sealed class PushNotificationService(
 
     internal sealed record PushState(string PublicKey, string PrivateKey, List<StoredSubscription> Subscriptions,
         AccountPreferences[]? Preferences = null);
-    internal sealed record AccountPreferences(string Provider, string Subject, NotificationPreferences Options);
+    internal sealed record AccountPreferences(string Provider, string Subject, NotificationPreferences Options,
+        string[]? ReviewedCompanionUpdates = null);
     internal sealed record StoredSubscription(string Provider, string Subject, string Endpoint, string P256dh, string Auth,
         string? LastNoticeKey, string[]? DeliveredNoticeKeys = null);
 }

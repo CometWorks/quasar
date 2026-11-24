@@ -13,11 +13,13 @@
     private UpdateNotice? Notice;
     private bool TokenExpired;
     private string? _brandingRevision;
+    private int _refreshVersion;
     private readonly CancellationTokenSource _stop = new();
 
     protected override async Task OnInitializedAsync()
     {
         Push.Changed += Changed;
+        Push.NoticesChanged += NoticesChanged;
         await RefreshAsync(_stop.Token);
         _ = PollAsync(_stop.Token);
     }
@@ -38,9 +40,11 @@
 
     private async Task RefreshAsync(CancellationToken token)
     {
+        var version = ++_refreshVersion;
         try
         {
             var current = await Sdk.RequestAsync<DashboardNotices>("notifications.current", token: token);
+            if (version != _refreshVersion) return;
             Notice = current.Notices.FirstOrDefault(); TokenExpired = current.TokenExpired;
             if (current.BrandingRevision is { } revision && revision != _brandingRevision)
             {
@@ -49,11 +53,22 @@
                 _brandingRevision = revision;
             }
         }
-        catch (JSException) { Notice = null; }
+        catch (JSException) { if (version == _refreshVersion) Notice = null; }
     }
 
     private void Changed() => _ = InvokeAsync(StateHasChanged);
-    public void Dispose() { Push.Changed -= Changed; _stop.Cancel(); _stop.Dispose(); }
+    private void NoticesChanged() => _ = InvokeAsync(async () =>
+    {
+        try { await RefreshAsync(_stop.Token); StateHasChanged(); }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    });
+    public void Dispose()
+    {
+        Push.Changed -= Changed;
+        Push.NoticesChanged -= NoticesChanged;
+        _stop.Cancel();
+        _stop.Dispose();
+    }
 
     private string Tone => Notice?.Severity == "critical"
         || TokenExpired && Notice?.Key.StartsWith("token:", StringComparison.Ordinal) == true

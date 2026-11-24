@@ -86,5 +86,8 @@ public sealed class QuasarUiPluginInstallState
 
     public DateTimeOffset? CompanionUpdatedAtUtc { get; set; }
 
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<string> CompanionRuntimeIds { get; init; } = [];
+
     public string Error { get; set; } = string.Empty;
 }

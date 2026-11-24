@@ -657,19 +657,17 @@ public sealed class DedicatedServerRuntimePreparer
                         package.Manifest.DisplayName,
                         package.PluginDirectory,
                         outputDirectory,
-                        ResolveCompanionEntryAssemblyPath(companion, outputDirectory));
+                        Path.Combine(outputDirectory, GetCompanionEntryAssemblyName(companion)));
                 }))
             .ToList();
 
-    private static string ResolveCompanionEntryAssemblyPath(
-        QuasarCompanionPluginManifest companion,
-        string outputDirectory)
+    internal static string GetCompanionEntryAssemblyName(QuasarCompanionPluginManifest companion)
     {
         var entryAssembly = companion.EntryAssembly;
         if (string.IsNullOrWhiteSpace(entryAssembly))
             entryAssembly = $"{Path.GetFileNameWithoutExtension(companion.ProjectPath ?? companion.Id)}.dll";
 
-        return Path.Combine(outputDirectory, Path.GetFileName(entryAssembly));
+        return Path.GetFileName(entryAssembly);
     }
 
     internal static bool ShouldSkipCompanionDeploymentFile(string fileName) =>
