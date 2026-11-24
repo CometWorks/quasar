@@ -1,0 +1,55 @@
+@using Quasar.Client.Clusters
+@using Quasar.Client.Fleet
+@inject DashboardSdk Sdk
+@implements IDisposable
+
+@if (_cluster is not null)
+{
+    <ClusterDetailPanel Cluster="_cluster" Runtime="_runtime" ReadError="@_error" CollapseDetails="CollapseDetails" />
+}
+else if (_error is not null)
+{
+    <p class="quasar-notice quasar-notice-warning" role="status">@_error</p>
+}
+else
+{
+    <p class="quasar-muted quasar-caption">@Row.State · @Row.Health</p>
+}
+
+@code {
+    [Parameter, EditorRequired] public FleetRow Row { get; set; } = default!;
+    [Parameter] public bool CollapseDetails { get; set; }
+    private readonly CancellationTokenSource _stop = new();
+    private ClusterDashboard? _cluster;
+    private ClusterRuntime? _runtime;
+    private string? _error;
+    private FleetRow? _previous;
+    private bool _loading;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // The parent keys this component by cluster and provides a new row with each fleet refresh.
+        if (_loading || ReferenceEquals(_previous, Row)) return;
+        _previous = Row;
+        _loading = true;
+        try
+        {
+            var dashboard = Sdk.ReadClusterAsync<ClusterDashboard>("cluster.dashboard", Row.UniqueName, _stop.Token);
+            var runtime = Sdk.ReadClusterAsync<ClusterRuntime>("cluster.runtime", Row.UniqueName, _stop.Token);
+            await Task.WhenAll(dashboard, runtime);
+            _cluster = await dashboard;
+            _runtime = await runtime;
+            _error = null;
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        catch (Exception error)
+        {
+            _cluster = null;
+            _runtime = null;
+            _error = error.Message;
+        }
+        finally { _loading = false; }
+    }
+
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+}

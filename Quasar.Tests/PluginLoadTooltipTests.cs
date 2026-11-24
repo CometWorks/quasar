@@ -42,7 +42,8 @@ public sealed class PluginLoadTooltipTests
                 new() { PluginId = "extra", IsLoaded = true }],
         };
         var profile = profiles.GetProfile("plugins");
-        var panel = context.Render<FleetRuntimeDetails>(p => p.Add(x => x.Plugins, QuasarFleetDashboardOperations.DescribePlugins(snapshot, profile)));
+        var row = FleetDashboardTestTransport.Row() with { UptimeSeconds = 100 };
+        var panel = context.Render<FleetRuntimeDetails>(p => p.Add(x => x.Row, row with { Plugins = QuasarFleetDashboardOperations.DescribePlugins(snapshot, profile) }));
         AngleSharp.Dom.IElement PluginMetric() => panel.FindAll(".quasar-detail-metrics > div")
             .Single(e => e.QuerySelector(".quasar-eyebrow")?.TextContent == "Plugins");
 
@@ -56,14 +57,14 @@ public sealed class PluginLoadTooltipTests
         // Count-only telemetry cannot identify which selections failed to load.
         snapshot.Plugins.Clear();
         snapshot.Metrics.PluginsLoaded = 1;
-        panel.Render(p => p.Add(x => x.Plugins, QuasarFleetDashboardOperations.DescribePlugins(snapshot, profile)));
+        panel.Render(p => p.Add(x => x.Row, row with { Plugins = QuasarFleetDashboardOperations.DescribePlugins(snapshot, profile) }));
         Assert.Equal("1/3", PluginMetric().QuerySelector("strong")!.TextContent);
         Assert.Equal("Some configured plugins are not loaded. Plugin names are unavailable; check the server logs.",
             PluginMetric().GetAttribute("title"));
 
         snapshot.Plugins = [new() { PluginId = "loaded", IsLoaded = true },
             new() { PluginId = "broken", IsLoaded = true }, new() { PluginId = "no-name", IsLoaded = true }];
-        panel.Render(p => p.Add(x => x.Plugins, QuasarFleetDashboardOperations.DescribePlugins(snapshot, profile)));
+        panel.Render(p => p.Add(x => x.Row, row with { Plugins = QuasarFleetDashboardOperations.DescribePlugins(snapshot, profile) }));
         Assert.Equal("3/3", PluginMetric().QuerySelector("strong")!.TextContent);
         Assert.DoesNotContain("quasar-tone-warning", PluginMetric().QuerySelector("strong")!.ClassList);
         Assert.False(PluginMetric().HasAttribute("title"));

@@ -7,8 +7,10 @@
 
 <PageTitle>Backups</PageTitle>
 
-<div class="quasar-page-heading"><div><div class="quasar-eyebrow">Tools &amp; settings</div><h1>Backups</h1>
-<p>Save and restore all of Quasar's configuration as a ZIP file stamped with the Quasar version (currently <strong>@_snapshot?.Version</strong>).</p></div></div>
+<DashboardPageHeading Section="Tools & settings">
+    <Title>Backups</Title>
+    <Description>Save and restore all of Quasar's configuration as a ZIP file stamped with the Quasar version (currently <strong>@_snapshot?.Version</strong>).</Description>
+</DashboardPageHeading>
 @if (_loadError is not null) { <MudAlert Severity="Severity.Error">@_loadError</MudAlert> }
 @if (_snapshot is null) { <MudProgressCircular Indeterminate="true" /> }
 else

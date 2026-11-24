@@ -13,8 +13,8 @@
     <Description>Import a save into an existing server or manage reusable starting worlds.</Description>
     <Actions>
         @if (_data?.EditServers == true)
-        { <MudButton OnClick="ChooseServer" Color="Color.Primary" Variant="Variant.Filled">Import World to Server...</MudButton> }
-        <MudButton OnClick="RefreshAsync" Disabled="_loading">Refresh</MudButton>
+        { <button type="button" class="quasar-button quasar-button-primary" @onclick="ChooseServer"><MudIcon Icon="@Icons.Material.Filled.Public" />Import World to Server...</button> }
+        <button type="button" class="quasar-button" @onclick="RefreshAsync" disabled="@_loading">Refresh</button>
     </Actions>
 </DashboardPageHeading>
 @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
@@ -49,7 +49,7 @@
                             @if (data.EditServers)
                             {
                                 <span title="@(context.Importable ? "Import a save folder or ZIP" : "Stop the server and set its goal Off; wait for any backup, restore or import")">
-                                    <MudButton Disabled="@(!context.Importable)" OnClick="@(() => Open(context, null, false))">Import World...</MudButton>
+                                    <button type="button" class="quasar-button" disabled="@(!context.Importable)" @onclick="@(() => Open(context, null, false))">Import World...</button>
                                 </span>
                             }
                         </MudTd>
@@ -62,28 +62,33 @@
             <section class="quasar-panel pa-4">
                 <div class="quasar-panel-heading">
                     <h2 class="quasar-text quasar-type-h6">Reusable templates</h2>
-                    @if (data.EditConfigs) { <MudButton OnClick="@(() => Open(null, null, false))">Add Template...</MudButton> }
+                    @if (data.EditConfigs) { <button type="button" class="quasar-button quasar-button-primary" @onclick="@(() => Open(null, null, false))">Add Template...</button> }
                 </div>
-                <p>Use a predefined world, a completed save folder or a ZIP to create a reusable starting world.</p>
+                <p class="quasar-text quasar-type-body2 mb-4">Use a predefined world, a completed save folder or a ZIP to create a reusable starting world.</p>
                 <MudTable T="WorldTemplate" Items="data.Templates" Dense="true" Hover="true">
                     <HeaderContent>
                         <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplate, object>(x => x.SizeMb)">Size</MudTableSortLabel></MudTh>
                         <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplate, object>(x => x.Updated)">Updated</MudTableSortLabel></MudTh>
                         <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplate, object>(x => x.Name)">Name</MudTableSortLabel></MudTh>
                         <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplate, object>(x => x.Description)">Description</MudTableSortLabel></MudTh>
-                        <MudTh>Actions</MudTh>
+                        <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd DataLabel="Size">@(context.Exists ? context.SizeMb + " MiB" : "Missing")</MudTd>
-                        <MudTd DataLabel="Updated">@ViewerTime.Format(context.Updated)</MudTd>
+                        <MudTd DataLabel="Size">
+                            @if (context.Exists) { <span class="quasar-text quasar-type-caption">@context.SizeMb MiB</span> }
+                            else { <MudChip T="string" Color="Color.Warning" Variant="Variant.Outlined" Size="Size.Small">Missing</MudChip> }
+                        </MudTd>
+                        <MudTd DataLabel="Updated"><time class="quasar-stacked-timestamp" datetime="@context.Updated.ToString("O")">@ViewerTime.FormatStacked(context.Updated)</time></MudTd>
                         <MudTd DataLabel="Name">@context.Name</MudTd>
                         <MudTd DataLabel="Description">@context.Description</MudTd>
-                        <MudTd DataLabel="Actions">
+                        <MudTd DataLabel="Actions" Class="quasar-actions-column">
                             @if (data.EditConfigs)
                             {
-                                <MudIconButton Icon="@Icons.Material.Filled.SettingsApplications" title="Create config profile from world settings" Disabled="@(!context.Exists)" OnClick="@(() => Open(null, context, true))" />
-                                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" title="Clone template" Disabled="@(!context.Exists)" OnClick="@(() => Open(null, context, false))" />
-                                <MudIconButton Icon="@Icons.Material.Filled.Delete" title="Delete template" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" />
+                                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-0">
+                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.SettingsApplications" title="Create config profile from world settings" Disabled="@(!context.Exists)" OnClick="@(() => Open(null, context, true))" />
+                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.ContentCopy" title="Clone template" Disabled="@(!context.Exists)" OnClick="@(() => Open(null, context, false))" />
+                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" title="Delete template" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" />
+                                </div>
                             }
                         </MudTd>
                     </RowTemplate>

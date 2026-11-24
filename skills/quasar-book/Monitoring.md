@@ -25,19 +25,17 @@ Cluster totals reuse the background Registry observations collected for Players,
 
 ### Card view and list view
 
-The **Cards** and **List** buttons switch the server view. List is the default. The choice is stored per browser (`quasar.dashboard.serverView` in local storage), and `?view=cards` or `?view=list` in the URL selects it too. List view embeds the same table as the **Servers** page, with one fixed row spacing and no density toggle. Card view shows one card per server and one per cluster.
+The **Cards** and **List** buttons switch the server view. List is the default. The choice is stored per browser (`quasar.dashboard.serverView` in local storage), and `?view=cards` or `?view=list` in the URL selects it too. List view shows one row per server or cluster. Expand a row to see its details. Card view shows one card per server and one per cluster.
+
+A cluster card shows the gateway and desired state. Its overview shows Cluster Registry and World Authority status. When the goal is On, it also shows players, node capacity and crash recovery readiness. Expand **Cluster details** to see the world, configuration and runtime information. **Manage cluster** opens the full cluster page.
 
 A server card has:
 
 - The status badge: **Running** (agent connected and snapshot received), **Connecting** (process running, agent not attached yet, for example right after Quasar restarted and adopted the process), **Starting**, **Restarting**, **Stopping**, **Stopped**, **Crashed** or **Faulted**.
 - **World**, **Host**, **Connect** (click the port to copy the direct connect address) and **Profile**.
-- Status lines, each shown only when present:
-  - the last supervisor message, for example "Launch requested. Waiting for process and agent." or a fault reason
-  - the health summary, for example "Quasar.Agent heartbeat stale beyond 20s timeout."
-  - the last restart record: "Restart pending", "Last restart failed" or "Last restart recovered", with the cause (Health policy, Agent attach recovery, Scheduled, Maximum uptime, Manual, In-game, Crash recovery) and the time. Hover for the reason.
-  - the latest error line, only for a **Crashed** or **Faulted** server. Click it to open the console at the error lines.
+- The health summary or latest supervisor message appears under the card header. When the process is inactive, click a reported error line to open the console at the error. Expand **Live details** for reported restart causes and outcomes.
 - Live metrics: players, sim speed, process CPU, memory, PCU, mods, plugins loaded, uptime. Hover over a yellow **Plugins** count or label to see selected plugins not reported as loaded. If only a count is available, the tooltip directs you to the server logs. Screen readers receive the same description.
-- **Live details** (expand it): **Refresh**, **Save**, a **Broadcast message** box with **Send**, the players table with **Set role**, **Kick** and **Ban**, **Recent Chat** (the last 12 messages, multi-line messages keep their line breaks) and **Recent Command Results**. A **Mod download failed during world initialization.** box lists up to 5 failure lines when the DS reported Workshop download failures. A process priority warning, such as "Install /usr/local/bin/quasar-renice to use High process priority on Linux.", stays here until a priority applies; see [Servers](Servers.md#process-priority-and-cpu-affinity).
+- **Live details** (expand it): **Refresh**, **Save**, a **Broadcast message** box with **Send**, the players table with a **Player actions** menu for **Set role**, **Kick** and **Ban**, **Recent Chat** (the last 12 messages, multi-line messages keep their line breaks) and **Recent Command Results**. The expanded details also list reported Workshop download failures. A process priority warning appears above the metrics until a priority applies; see [Servers](Servers.md#process-priority-and-cpu-affinity).
 - **Console** opens the log console (see [Servers](Servers.md#the-server-console)).
 - **Start**, **Stop**, **Restart** and **Kill** buttons (need `CanControlServers`). Their behavior is in [Servers](Servers.md#dashboard-and-server-controls).
 
@@ -425,7 +423,7 @@ Everything on the Discord page is saved in `<data dir>/discord.json`. Quasar pro
 - **Logos and favicon**: light and dark logos (`.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`) and a favicon (`.ico`, `.png`), up to 10 MiB each. Uploads apply immediately; a cached favicon may need a browser refresh.
 - **Save changes** and **Reset to Quasar default**.
 
-Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Branding/`. The light, dark or system color theme is a per-browser choice in the header, separate from this page. Menus and dialogs use the surface and text colors of the active palette.
+Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Branding/`. The light, dark or system color theme is a per-browser choice in the header, separate from this page. Menus, dialogs and outlined fields, including the Analytics dropdowns, use the active palette.
 
 ## Common problems
 
@@ -467,6 +465,9 @@ collisions, limits and the required Magnetar version.
 - `Docs/QuasarArchitecture.md`
 - `Quasar/appsettings.json`
 - `Quasar.Client/Pages/Home.razor`
+- `Quasar.Client/Components/DashboardProviders.razor`
+- `Quasar.Client/Components/FleetClusterOverview.razor`
+- `Quasar.Client/Components/FleetRuntimeDetails.razor`
 - `Quasar.Client/Components/FleetWorkspace.razor`
 - `Quasar.Client/Components/FleetLiveDetails.razor`
 - `Quasar.Tests/PluginLoadTooltipTests.cs`

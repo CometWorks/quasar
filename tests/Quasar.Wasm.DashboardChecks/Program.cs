@@ -104,6 +104,8 @@ static async Task<int> RunFixtureAsync()
     builder.Services.AddSingleton<RbacConfigCatalog>();
     builder.Services.AddSingleton<QuasarRoleMapper>();
     builder.Services.AddSingleton(new QuasarAuthOptions());
+    builder.Services.AddSingleton<QuasarAuthSettingsService>();
+    builder.Services.AddSingleton<DashboardAccessChanges>();
     builder.Services.AddSingleton(new WebServiceOptions());
     builder.Services.AddSingleton<BrandingService>();
     builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
@@ -152,11 +154,20 @@ static async Task<int> RunFixtureAsync()
     app.UseAntiforgery();
     catalog.UsePluginStaticAssets(app);
     catalog.ConfigurePluginEndpoints(app);
-    app.MapQuasarSdk();
+    app.MapQuasarSdk().MapDashboardAccess();
     if (!string.IsNullOrEmpty(peer)) app.MapQuasarRtc();
     else app.MapPost("/_quasar/sdk/v1/rtc/attempts", () => Results.Problem(statusCode: 503, detail: "The fixture has no direct peer.")).RequireAuthorization();
     app.MapGet("/fixture/login", async (HttpContext c) =>
         await c.SignInAsync("fixture", new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "Fixture admin"), new Claim(ClaimTypes.NameIdentifier, "76561198000000001"), new Claim(QuasarClaimTypes.Provider, QuasarAuthSchemes.Steam)], "fixture"))));
+    app.MapPost("/fixture/page-permissions/{enabled:bool}", async (bool enabled, RbacConfigCatalog rbac) =>
+        await rbac.UpdateAsync(config =>
+        {
+            const string key = "quasar.core/dashboard.permission";
+            if (enabled) config.OperationOverrides.Remove(key);
+            else config.OperationOverrides[key] = new() { Enabled = false, RequiredPolicies = [QuasarPolicyNames.CanView] };
+            return Task.CompletedTask;
+        })).RequireAuthorization();
+    app.MapPost("/fixture/logout", (HttpContext http) => http.SignOutAsync("fixture")).RequireAuthorization();
     if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("QUASAR_TEST_PLUGIN_DRIVER")))
     {
         const string testAdmin = "76561198000000013";

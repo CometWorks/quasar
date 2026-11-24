@@ -1,19 +1,34 @@
 @using Quasar.Client.Fleet
 
-@if (PriorityWarning is { Length: > 0 })
+@if (Row.PriorityWarning is { Length: > 0 } warning)
 {
-    <p class="quasar-notice quasar-notice-warning" role="status">@PriorityWarning</p>
+    <p class="quasar-notice quasar-notice-warning" role="status">@warning</p>
 }
-@if (Plugins is { } load)
+@if (Row.UptimeSeconds is int uptime)
 {
-    <div class="quasar-detail-metrics"><div title="@load.Warning">
-        <span class="quasar-eyebrow">Plugins</span>
-        <strong class="@(load.Warning is null ? null : "quasar-tone-warning")">@(load.Configured is int total ? $"{load.Loaded}/{total}" : load.Loaded.ToString())</strong>
-        <span class="quasar-visually-hidden">@load.Warning</span>
-    </div></div>
+    <div class="quasar-detail-metrics">
+        <div><span class="quasar-eyebrow">Players</span><strong>@Row.PlayerCountText</strong></div>
+        <div><span class="quasar-eyebrow">Sim speed</span><strong>@(Row.SimSpeed?.ToString("0.00") ?? "—")</strong></div>
+        <div><span class="quasar-eyebrow">Process CPU</span><strong>@(Row.Cpu is float cpu ? $"{cpu:0.0}%" : "—")</strong></div>
+        <div><span class="quasar-eyebrow">Memory</span><strong>@Row.MemoryText</strong></div>
+        <div><span class="quasar-eyebrow">PCU</span><strong>@Row.Pcu</strong></div>
+        <div><span class="quasar-eyebrow">Mods</span><strong>@Row.Mods</strong></div>
+        @if (Row.Plugins is { } load)
+        {
+            <div title="@load.Warning">
+                <span class="quasar-eyebrow">Plugins</span>
+                <strong class="@(load.Warning is null ? null : "quasar-tone-warning")">@(load.Configured is int total ? $"{load.Loaded}/{total}" : load.Loaded.ToString())</strong>
+                <span class="quasar-visually-hidden">@load.Warning</span>
+            </div>
+        }
+        <div><span class="quasar-eyebrow">Uptime</span><strong>@TimeSpan.FromSeconds(uptime).ToString("g")</strong></div>
+    </div>
+}
+else
+{
+    <p class="quasar-notice" role="status">Waiting for server telemetry · @Row.State</p>
 }
 
 @code {
-    [Parameter] public string? PriorityWarning { get; set; }
-    [Parameter] public FleetPluginLoad? Plugins { get; set; }
+    [Parameter, EditorRequired] public FleetRow Row { get; set; } = default!;
 }

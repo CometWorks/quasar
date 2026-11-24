@@ -269,6 +269,7 @@ public class Program
             builder.Services.AddSingleton<TrustedNetworkEvaluator>();
             builder.Services.AddSingleton<ServicePrincipalAuthenticator>();
             builder.Services.AddSingleton<QuasarAuthSettingsService>();
+            builder.Services.AddSingleton<DashboardAccessChanges>();
             builder.Services.AddSingleton<KnownPlayerCatalog>();
             builder.Services.AddSingleton<MetricsStoreService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<MetricsStoreService>());
@@ -428,7 +429,8 @@ public class Program
             app.UseAntiforgery();
 
             app.MapWebServiceProbes(authOptions);
-            app.MapQuasarSdk();
+            var browserSdk = app.MapQuasarSdk();
+            if (!webServiceOptions.Headless) browserSdk.MapDashboardAccess();
             app.MapQuasarRtc();
             app.MapClusterApi(authOptions);
             app.MapServerWorldImportApi(authOptions);

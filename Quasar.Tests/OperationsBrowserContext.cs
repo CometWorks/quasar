@@ -28,6 +28,7 @@ internal sealed class OperationsBrowserContext : QuasarBunitContext
 
         public async ValueTask<T> InvokeAsync<T>(string name, CancellationToken token, object?[]? args)
         {
+            if (name == "quasarSdk.allowed") return await QuasarBunitContext.ReadPolicyAsync<T>(services, args!);
             if (name == "import" && args?[0] is string module && module.EndsWith("/worldTransfers.js", StringComparison.Ordinal))
                 return (T)(object)new TransferModule(this, selectedZip);
             if (storage is not null && name is ("quasarConfigs.getLocalStorage" or "quasarConfigs.setLocalStorage"))

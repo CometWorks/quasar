@@ -73,9 +73,10 @@ public sealed class ProcessPriorityWarningTests
             DedicatedServerProcessPriority.Low,
             OutdatedHelperError
         )!;
-        var panel = context.Render<FleetRuntimeDetails>(p => p.Add(x => x.PriorityWarning, warning));
+        var row = FleetDashboardTestTransport.Row();
+        var panel = context.Render<FleetRuntimeDetails>(p => p.Add(x => x.Row, row with { PriorityWarning = warning }));
         Assert.Equal(warning, panel.Find(".quasar-notice-warning").TextContent);
-        panel.Render(p => p.Add(x => x.PriorityWarning, (string?)null));
+        panel.Render(p => p.Add(x => x.Row, row));
         Assert.Empty(panel.FindAll(".quasar-notice-warning"));
     }
 }

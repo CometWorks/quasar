@@ -261,6 +261,10 @@ h1:focus {
     cursor: pointer;
 }
 
+.folder-picker-breadcrumbs .folder-picker-breadcrumb {
+    text-transform: none;
+}
+
 .installed-world-template-table {
     min-width: 0;
 }

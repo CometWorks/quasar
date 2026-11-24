@@ -5,6 +5,7 @@ using Bunit;
 using Bunit.TestDoubles;
 using Microsoft.Extensions.Configuration;
 using MudBlazor;
+using MudBlazor.Extensions;
 using MudBlazor.Services;
 using Quasar.Services.Auth;
 using Magnetar.Protocol.Runtime;
@@ -47,6 +48,26 @@ public sealed class NativeUiThemeTests
             Assert.Equal(color, ((MudBlazor.Utilities.MudColor)mudProperty.GetValue(reloaded.DarkPalette.ToMudPaletteDark())!).ToString(MudBlazor.Utilities.MudColorOutputFormats.HexA));
         }
         Assert.Equal(29, typeof(ThemePalette).GetProperties().Length);
+    }
+
+    [Fact]
+    public async Task DashboardPopoversUseTheSelectedBrandingAndThemeMode()
+    {
+        await using var context = new QuasarBunitContext();
+        context.Services.AddMudServices();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var branding = BrandingSettings.Normalize(null);
+        branding.LightPalette.Surface = "#faf0d4";
+        var providers = context.Render<DashboardProviders>(p => p.Add(x => x.Branding, branding));
+        var theme = providers.FindComponent<MudThemeProvider>();
+        Assert.True(theme.Instance.GetState(x => x.IsDarkMode));
+        await providers.InvokeAsync(() => providers.Instance.ApplyTheme(false, null));
+        Assert.False(theme.Instance.GetState(x => x.IsDarkMode));
+        Assert.Equal("#faf0d4ff", theme.Instance.Theme!.PaletteLight.Surface.ToString(MudBlazor.Utilities.MudColorOutputFormats.HexA));
+        var updated = branding.Clone();
+        updated.DarkPalette.Surface = "#302640";
+        await providers.InvokeAsync(() => providers.Instance.ApplyTheme(true, updated));
+        Assert.Equal("#302640ff", theme.Instance.Theme!.PaletteDark.Surface.ToString(MudBlazor.Utilities.MudColorOutputFormats.HexA));
     }
 
     [Fact]
@@ -204,11 +225,10 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.ComponentFactories.AddStub<FleetLiveDetails>();
+        context.ComponentFactories.AddStub<FleetClusterOverview>();
         var warmup = new ManagedRuntimeWarmupSnapshot { Message = "Runtime preparing" };
-        FleetRow Row(string id, string display, bool cluster, int port) => new(id, display, cluster, "Stopped", "Off", port,
-            "", "", "", null, null, false, null, null, null, null, null, null, "Unknown", "", null, null, [], false, false, false, default);
         var data = new FleetDashboard(new(3,0,1,null,null,0,null,0,null,0,0,0),
-            [Row("zulu", "Zulu", false, 9999), Row("alpha", "Alpha", false, 27016), Row("cluster", "Beta Cluster", true, 18000)],
+            [FleetDashboardTestTransport.Row("zulu", "Zulu", false, 9999), FleetDashboardTestTransport.Row("alpha", "Alpha", false, 27016), FleetDashboardTestTransport.Row("cluster", "Beta Cluster", true, 18000)],
             [new("orphan", "alpha", "Orphan node", "", "missing", "slot", "node", 42, true, false)],
             [], [], [], [], warmup, false, false, true, true, true, true, false, false);
         var page = context.Render<FleetWorkspace>(p => p.Add(c => c.Dashboard, data).Add(c => c.IsList, true));
@@ -243,6 +263,13 @@ public sealed class NativeAppearanceTests : IDisposable
         Assert.Single(page.FindAll(".quasar-server-detail-row"));
         page.FindAll("button[title='Show live data']")[0].Click();
         Assert.Empty(page.FindAll(".quasar-server-detail-row"));
+        page.FindAll("button[title='Show live data']")[1].Click();
+        Assert.True(page.FindComponent<Stub<FleetClusterOverview>>().Instance.Parameters.Get(c => c.Row).IsCluster);
+        page.Render(p => p.Add(c => c.IsList, false));
+        var clusterCard = page.FindAll(".quasar-fleet-card").Single(card => card.TextContent.Contains("Beta Cluster"));
+        Assert.Equal(new[] { "Gateway", "Desired state" }, clusterCard.QuerySelectorAll("dt").Select(label => label.TextContent));
+        Assert.DoesNotContain("Process CPU", clusterCard.TextContent);
+        Assert.True(page.FindComponent<Stub<FleetClusterOverview>>().Instance.Parameters.Get(c => c.CollapseDetails));
     }
 
     [Theory]
@@ -398,10 +425,12 @@ public sealed class NativeAppearanceTests : IDisposable
         Assert.Equal(ServerCommandType.SendChat, Assert.Single(sent).CommandType);
         Assert.Equal("hello fleet", sent[0].Text);
         Assert.Equal(string.Empty, panel.Find("input").GetAttribute("value"));
-        Assert.True(panel.FindAll("details button").Single(x => x.TextContent == "Admin").HasAttribute("disabled"));
+        var actionsTarget = panel.Find("button[aria-label='Actions for Engineer']").GetAttribute("popovertarget");
+        Assert.Equal(actionsTarget, panel.Find(".quasar-player-actions[popover='auto']").Id);
+        Assert.True(panel.FindAll(".quasar-player-actions button").Single(x => x.TextContent == "Admin").HasAttribute("disabled"));
         snapshot.Players[0].PingMs = 25;
         registry.UpdateSnapshot(snapshot,"connection");
-        var promotion = panel.FindAll("details button").Single(x => x.TextContent == "Moderator").ClickAsync();
+        var promotion = panel.FindAll(".quasar-player-actions button").Single(x => x.TextContent == "Moderator").ClickAsync();
         await dialogs.WaitForAssertionAsync(() => Assert.Contains("Set role to Moderator", dialogs.Markup));
         dialogs.FindAll("button").Single(x => x.TextContent.Trim() == "Confirm").Click();
         await promotion;
@@ -410,14 +439,14 @@ public sealed class NativeAppearanceTests : IDisposable
         Assert.Equal("Moderator", sent[^1].Text);
         Assert.Contains("25", panel.Find("tbody").TextContent);
         var count = sent.Count;
-        var kick = panel.FindAll("details button").Single(x => x.TextContent == "Kick").ClickAsync();
+        var kick = panel.FindAll(".quasar-player-actions button").Single(x => x.TextContent == "Kick").ClickAsync();
         await dialogs.WaitForAssertionAsync(() => Assert.Contains("Kick", dialogs.Markup));
         auth.SetPolicies(QuasarPolicyNames.CanView);
         dialogs.FindAll("button").Single(x => x.TextContent.Trim() == "Confirm").Click();
         await kick;
         Assert.Equal(count, sent.Count);
         panel.Render(p => p.Add(x => x.CanControl, false));
-        Assert.Empty(panel.FindAll("details, form"));
+        Assert.Empty(panel.FindAll(".quasar-player-actions, form"));
         Assert.Contains("Engineer", panel.Markup);
     }
 
@@ -496,7 +525,7 @@ public sealed class NativeAppearanceTests : IDisposable
         Assert.NotEmpty(page.FindAll(".quasar-card-grid"));
         Assert.Equal(6, page.FindAll(".quasar-fleet-card").Count);
         Assert.Empty(page.FindAll(".quasar-players-table"));
-        page.FindAll("button").First(b=>b.TextContent.Trim()=="Live details").Click();
+        page.Find(".quasar-card-disclosure > button").Click();
         Assert.Single(page.FindAll(".quasar-players-table"));
         Assert.Single(page.FindAll(".quasar-chat-form"));
         Assert.Equal(5, page.FindAll(".quasar-card-actions button[title='Stop server']").Count);

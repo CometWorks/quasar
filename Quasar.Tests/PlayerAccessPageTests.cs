@@ -148,8 +148,8 @@ public sealed class PlayerAccessPageTests : IDisposable
         Assert.Equal(revision, catalog.GetSettings().Revision);
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies(QuasarPolicyNames.CanView);
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetAuthorized("viewer");
-        await page.InvokeAsync(page.Instance.RefreshPermissionsAsync);
-        page.WaitForAssertion(() => Assert.DoesNotContain("Save access settings", page.Markup));
+        var reopened = context.Render<AccessView>();
+        Assert.DoesNotContain("Save access settings", reopened.Markup);
     }
 
     public void Dispose() { cache.SetValue(null, previous); if (Directory.Exists(root)) Directory.Delete(root, true); }

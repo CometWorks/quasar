@@ -17,7 +17,7 @@ public static class QuasarSdkEndpoints
             ? "Authentication is required." : "SDK access is forbidden.").ExecuteAsync(http);
     }
 
-    public static void MapQuasarSdk(this WebApplication app)
+    public static RouteGroupBuilder MapQuasarSdk(this WebApplication app)
     {
         var sdk = app.MapGroup(Prefix).RequireAuthorization();
         sdk.AddEndpointFilter(async (context, next) =>
@@ -94,6 +94,7 @@ public static class QuasarSdkEndpoints
             await operations.SaveRuleAsync(http.User, pluginId, operationId, rule, http.RequestAborted);
             return Results.NoContent();
         });
+        return sdk;
     }
 
     internal static async Task<JsonDocument?> ReadJsonAsync(HttpContext http)

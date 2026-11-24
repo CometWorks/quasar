@@ -3,7 +3,10 @@
 @inject ISnackbar Snackbar
 
 <PageTitle>Server listing</PageTitle>
-<div class="quasar-page-heading"><div><div class="quasar-eyebrow">Settings</div><h1>Server listing</h1><p>Choose which standalone Magnetar servers and clusters appear on se-servers.net.</p></div></div>
+<DashboardPageHeading Section="Settings">
+    <Title>Server listing</Title>
+    <Description>Choose which standalone Magnetar servers and clusters appear on se-servers.net.</Description>
+</DashboardPageHeading>
 <p class="quasar-muted">Published listings show the server name, join address and summary statistics. Quasar shares administrator Steam IDs privately with the directory for description editing.</p>
 @if (_snapshot is { HasAdmin: false })
 {

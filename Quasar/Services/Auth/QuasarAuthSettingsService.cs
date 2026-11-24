@@ -21,6 +21,8 @@ public sealed class QuasarAuthSettingsService
         _options = options;
     }
 
+    public event Action? Changed;
+
     public string SettingsPath => Path.Combine(MagnetarPaths.GetQuasarDirectory(), "appsettings.json");
 
     public QuasarTrustedNetworkSettings GetTrustedNetworkSettings()
@@ -73,6 +75,7 @@ public sealed class QuasarAuthSettingsService
         {
             _gate.Release();
         }
+        Changed?.Invoke();
     }
 
     public static List<string> ParseTrustedProxiesText(string text) =>

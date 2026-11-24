@@ -52,6 +52,12 @@ for (const browserType of [chromium, firefox]) {
         const errors = [], circuits = [], shared = [], fallbacks = [];
         observeDashboard(context, circuits, errors);
         const page = await context.newPage();
+        const permissionRequests = [], snapshots = [];
+        page.on("request", request => {
+            const path = new URL(request.url()).pathname;
+            if (path.endsWith("/dashboard/access")) snapshots.push(path);
+            if (/\/operations\/quasar\.core\/dashboard\.(permission|plugin\.page)$/.test(path)) permissionRequests.push(path);
+        });
         page.on("response", r => {
             if (r.url().includes("/_nebula/releases/")) shared.push([r.url(), r.status()]);
             if (/\/fixture-panel\/_framework\/Quasar\.Client\..+\.wasm$/.test(r.url())) fallbacks.push(r.status());
@@ -152,6 +158,7 @@ for (const browserType of [chromium, firefox]) {
             await input.waitFor();
             // A routed link must keep the runtime and the selected SDK transport alive.
             const generation = await page.evaluate(() => { window.fixtureGeneration = crypto.randomUUID(); return window.fixtureGeneration; });
+            const beforeNavigation = snapshots.length;
             await page.evaluate(() => {
                 const link = document.createElement("a");
                 link.href = new URL("hosts/enroll", document.baseURI);
@@ -163,6 +170,18 @@ for (const browserType of [chromium, firefox]) {
             await page.goBack();
             await page.getByRole("combobox", { name: "Time zone" }).waitFor();
             assert.equal(await page.evaluate(() => window.fixtureGeneration), generation);
+            assert.equal(snapshots.length, beforeNavigation, "Warm navigation must reuse the initial access snapshot");
+            assert.deepEqual(permissionRequests, [], "Navigation and page controls must not request permissions");
+            // A worker event refreshes the current page even when the operator stays on it.
+            assert.ok((await context.request.post(base + "fixture/page-permissions/false")).ok());
+            await page.getByText("You do not have permission to view this page.").waitFor();
+            assert.equal(await input.count(), 0);
+            assert.ok((await context.request.post(base + "fixture/page-permissions/true")).ok());
+            await input.waitFor();
+            assert.equal(snapshots.length, beforeNavigation + 2);
+            const loggedOut = page.waitForResponse(r => r.request().isNavigationRequest() && r.status() === 401);
+            assert.ok((await context.request.post(base + "fixture/logout")).ok());
+            await loggedOut;
             console.log(browserType.name() + " rendered and saved " + prefix + "settings/display without a circuit");
         }
         assert.ok(shared.some(([url, status]) => url.endsWith(".wasm") && status === 200), JSON.stringify(shared.slice(0, 4)));

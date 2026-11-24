@@ -1,3 +1,4 @@
+@using Quasar.Components.Shared
 @using Quasar.Client.Fleet
 @using Quasar.Services
 @using MudBlazor
@@ -12,34 +13,78 @@
 @implements IDisposable
 
 @if (_error is not null){<p class="quasar-notice quasar-notice-error" role="alert">@_error</p>}
-@if(CanControl)
+<div class="quasar-row">
+    @if (_live?.Saving == true) { <span class="quasar-status">Save in progress</span> }
+    else if (_live?.LastSave is {} saved)
+    {
+        <span class="quasar-status">Saved @ViewerTime.Format(saved) @if (_live.UnsavedSeconds is > 0) { <span> · Unsaved @TimeSpan.FromSeconds(_live.UnsavedSeconds.Value).ToString("g")</span> }</span>
+    }
+    @if (CanControl)
+    {
+        <button type="button" class="quasar-button" disabled="@(_busy || !Connected)" @onclick="@(() => Send("chat.node.refresh", new { UniqueName }))"><QuasarIcon Icon="@QuasarIcons.Refresh" />Refresh</button>
+        <button type="button" class="quasar-button quasar-tone-info" disabled="@(_busy || !Connected || !Running || _live?.Saving == true)" @onclick="@(() => Send("servers.save", new { UniqueName }))"><QuasarIcon Icon="@QuasarIcons.Save" />Save</button>
+    }
+</div>
+@if (CanControl)
 {
-    <div class="quasar-row">
-        <button class="quasar-button" disabled="@(_busy||!Connected)" @onclick="@(()=>Send("chat.node.refresh",new {UniqueName}))">Refresh</button>
-        <button class="quasar-button" disabled="@(_busy||!Connected||!Running||_live?.Saving==true)" @onclick="@(()=>Send("servers.save",new {UniqueName}))">Save</button>
-    </div>
     <form class="quasar-chat-form" @onsubmit="Broadcast" @onsubmit:preventDefault>
         <label class="quasar-field"><span>Broadcast message</span><input @bind="_message" @bind:event="oninput" disabled="@(!Connected)" /></label>
-        <button class="quasar-button" disabled="@(_busy||!Connected||string.IsNullOrWhiteSpace(_message))">Send</button>
+        <button type="submit" class="quasar-button quasar-button-primary" disabled="@(_busy || !Connected || string.IsNullOrWhiteSpace(_message))">Send</button>
     </form>
 }
-@if(_live is {} data)
+@if (_live is {} data)
 {
-    @if (data.Saving) { <p class="quasar-status">Save in progress</p> }
-    else if (data.LastSave is {} saved) { <p class="quasar-status">Saved @ViewerTime.Format(saved) @if(data.UnsavedSeconds is >0){<span> · Unsaved @TimeSpan.FromSeconds(data.UnsavedSeconds.Value).ToString("g")</span>}</p> }
-    <h3>Players</h3><div class="quasar-table-scroll"><table class="quasar-server-table quasar-players-table"><thead><tr><th>Steam ID</th><th>Service</th><th>Faction</th><th>Role</th><th>Ping</th><th>Name</th>@if(CanControl){<th>Actions</th>}</tr></thead><tbody>
-    @foreach(var p in data.Players)
+    <h3>Players</h3>
+    <div class="quasar-table-scroll">
+        <table class="quasar-server-table quasar-players-table">
+            <thead><tr><th scope="col">Steam ID</th><th scope="col">Service</th><th scope="col">Faction</th><th scope="col">Role</th><th scope="col">Ping</th><th scope="col">Name</th>
+                @if (CanControl) { <th scope="col"><span class="quasar-visually-hidden">Actions</span></th> }
+            </tr></thead>
+            <tbody>
+                @foreach (var player in data.Players)
+                {
+                    var actionsId = $"{_playerActionsId}-{player.SteamId}";
+                    <tr @key="player.SteamId">
+                        <td class="mono">@player.SteamId</td><td>@player.Service</td><td>@player.Faction</td><td>@player.Role</td><td>@player.Ping</td>
+                        <td>@player.Name
+                            @if (player.Platform.Length > 0 && player.Platform != player.Name) { <span class="quasar-server-secondary quasar-muted">Platform: @player.Platform</span> }
+                        </td>
+                        @if (CanControl)
+                        {
+                            <td>
+                                <button type="button" class="quasar-icon-button" popovertarget="@actionsId" title="Player actions" aria-label="@($"Actions for {player.Name}")" disabled="@(!Connected)"><QuasarIcon Icon="@QuasarIcons.MoreVert" /></button>
+                                <div id="@actionsId" popover="auto" class="quasar-player-actions">
+                                    <strong>@player.Name</strong><p class="quasar-muted">Set role</p>
+                                    @foreach (var level in Levels)
+                                    {
+                                        <button type="button" popovertarget="@actionsId" popovertargetaction="hide" disabled="@(_busy || !Connected || player.Role == level)" @onclick="@(() => Moderate(player, "players.promotion.set", level))">@level</button>
+                                    }
+                                    <hr class="quasar-divider" />
+                                    <button type="button" class="quasar-tone-error" popovertarget="@actionsId" popovertargetaction="hide" disabled="@(_busy || !Connected)" @onclick="@(() => Moderate(player, "players.kick"))">Kick</button>
+                                    <button type="button" class="quasar-tone-error" popovertarget="@actionsId" popovertargetaction="hide" disabled="@(_busy || !Connected)" @onclick="@(() => Moderate(player, "players.ban"))">Ban</button>
+                                </div>
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <h3>Recent Chat</h3>
+    <div class="quasar-chat-list">
+        @foreach (var message in data.Chat)
+        {
+            <div class="quasar-chat-row">
+                <time class="mono quasar-muted" datetime="@(message.At?.ToString("O"))">@(message.At is {} at ? ViewerTime.Format(at) : "")</time>
+                <p><span class="mono">[@message.Channel]</span> <strong>@message.Author</strong>: <span class="chat-text">@message.Content</span></p>
+            </div>
+        }
+    </div>
+    @if (data.Results.Length > 0)
     {
-        <tr @key="p.SteamId"><td>@p.SteamId</td><td>@p.Service</td><td>@p.Faction</td><td>@p.Role</td><td>@p.Ping</td><td>@p.Name @if(p.Platform.Length>0 && p.Platform!=p.Name){<small>@p.Platform</small>}</td>
-        @if(CanControl){<td><details><summary>Player actions</summary><div class="quasar-stack">
-            @foreach(var level in Levels){<button class="quasar-button" disabled="@(_busy||!Connected||p.Role==level)" @onclick="@(()=>Moderate(p,"players.promotion.set",level))">@level</button>}
-            <button class="quasar-button" disabled="@(_busy||!Connected)" @onclick="@(()=>Moderate(p,"players.kick"))">Kick</button>
-            <button class="quasar-button" disabled="@(_busy||!Connected)" @onclick="@(()=>Moderate(p,"players.ban"))">Ban</button>
-        </div></details></td>}</tr>
+        <h3>Recent Command Results</h3>
+        @foreach (var result in data.Results) { <p class="quasar-notice" role="status">@result</p> }
     }
-    </tbody></table></div>
-    <h3>Recent Chat</h3>@foreach(var m in data.Chat){<p>@(m.At is {} at ? ViewerTime.Format(at) : "") [@m.Channel] <strong>@m.Author</strong> @m.Content</p>}
-    @if(data.Results.Length>0){<h3>Recent Command Results</h3>@foreach(var result in data.Results){<p>@result</p>}}
 }
 @code {
     [Parameter, EditorRequired] public string UniqueName {get;set;}="";
@@ -47,6 +92,7 @@
     [Parameter] public bool Connected {get;set;}
     [Parameter] public bool Running {get;set;}
     [Parameter] public bool CanControl {get;set;}
+    private readonly string _playerActionsId = "player-actions-" + Guid.NewGuid().ToString("N");
     private static readonly string[] Levels=["None","Scripter","Moderator","SpaceMaster","Admin"];
     private readonly CancellationTokenSource _lifetime=new();
     private FleetLive? _live;

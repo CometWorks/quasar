@@ -1,13 +1,43 @@
 @using Microsoft.JSInterop
-@inject IJSRuntime JS
 @using MudBlazor
+@using Quasar.Models
+@using Quasar.Services
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<MudThemeProvider Theme="_theme" IsDarkMode="_dark" ObserveSystemDarkModeChange="false" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
 @code {
+    [Parameter, EditorRequired] public BrandingSettings Branding { get; set; } = default!;
+    private MudTheme _theme = default!;
+    private bool _dark = true;
+    private DotNetObjectReference<DashboardProviders>? _listener;
+
+    protected override void OnInitialized() => _theme = QuasarTheme.Create(Branding);
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender) await JS.InvokeVoidAsync("quasarSdk.dashboardReady");
+        if (!firstRender) return;
+        _listener = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("quasarSdk.watchTheme", _listener);
+        await JS.InvokeVoidAsync("quasarSdk.dashboardReady");
+    }
+
+    [JSInvokable]
+    public Task ApplyTheme(bool dark, BrandingSettings? branding)
+    {
+        if (branding is not null) _theme = QuasarTheme.Create(branding);
+        _dark = dark;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_listener is null) return;
+        try { await JS.InvokeVoidAsync("quasarSdk.watchTheme", (object?)null); }
+        finally { _listener.Dispose(); }
     }
 }

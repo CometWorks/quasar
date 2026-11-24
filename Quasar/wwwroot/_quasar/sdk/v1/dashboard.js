@@ -30,6 +30,7 @@ function bindShell(shell) {
         shell.style.cssText = dark ? shell.dataset.darkPalette : shell.dataset.lightPalette;
         shell.dataset.theme = dark ? "dark" : "light";
         logo.src = dark ? logo.dataset.darkLogo : logo.dataset.lightLogo;
+        quasarSdk.themeModeChanged();
     }
     theme.addEventListener("change", () => { quasarConfigs.setLocalStorage("quasar.theme.mode", theme.value); apply(); });
     system.addEventListener("change", apply);
@@ -79,6 +80,10 @@ export async function startDashboard({ hosted, release, frameworkIntegrity }, sh
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
     progress();
 
+    const access = quasarSdk.dashboardAccess();
+    // Warm permissions alongside the runtime. The router handles errors and retries.
+    access.catch(() => {});
+
     if (hosted) {
         const indicator = shell.querySelector("#quasar-sdk-route");
         const status = { http: "Using tunnel", connecting: "Tunnel · connecting directly…", direct: "Connected directly" };
@@ -87,7 +92,7 @@ export async function startDashboard({ hosted, release, frameworkIntegrity }, sh
             if (status[path] && indicator.textContent !== status[path]) indicator.textContent = status[path];
         };
         indicator.textContent = "Opening panel connection…";
-        quasarSdk.prepare().then(() => {
+        access.then(() => quasarSdk.prepare()).then(() => {
             refresh();
             const timer = setInterval(() => { if (!document.hidden) refresh().catch(() => {}); }, 1500);
             window.addEventListener("pagehide", event => { if (!event.persisted) clearInterval(timer); });

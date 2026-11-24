@@ -4,16 +4,17 @@
 @using System.Reflection
 @using Quasar.Client.Plugins
 @inject NavigationManager Navigation
+@inject DashboardSdk Sdk
 
 @if (_error is not null)
 {
-    <p role="alert">@_error</p><button type="button" @onclick="LoadAsync">Retry loading plugin pages</button>
+    <p role="alert">@_error</p><button type="button" @onclick="LoadAsync">Retry loading dashboard</button>
 }
-@if (_ready)
+@if (_ready && _access is not null)
 {
 <Router AdditionalAssemblies="_assemblies" AppAssembly="typeof(DashboardRouter).Assembly" NotFoundPage="typeof(DashboardExternalRoute)">
     <Found Context="route">
-        <DashboardRouteContent Route="route" />
+        <DashboardRouteContent Route="route" Access="_access" />
         <FocusOnNavigate RouteData="route" Selector="h1, h2" />
     </Found>
 </Router>
@@ -24,11 +25,14 @@
     [Parameter] public BrowserPluginAssembly[] PluginPages { get; set; } = [];
     private Assembly[] _assemblies = [];
     private bool _ready;
+    private DashboardAccess? _access;
     private string? _error;
     protected override Task OnInitializedAsync() => LoadAsync();
     private async Task LoadAsync()
     {
         _error = null;
+        try { _access = await Sdk.GetAccessAsync(); }
+        catch (Microsoft.JSInterop.JSException error) { _error = error.Message; return; }
         var assemblies = new List<Assembly>();
         var failures = new List<string>();
         bool ready = true;

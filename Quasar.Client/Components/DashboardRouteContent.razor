@@ -1,74 +1,27 @@
-@using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.JSInterop
-@using Quasar.Services.Auth
-@inject NavigationManager Navigation
-@inject DashboardSdk Sdk
 @inject IJSRuntime JS
-@implements IDisposable
+@inject NavigationManager Navigation
 
-@if (_authorized)
+@if (Access.CanOpen(Route.PageType))
 {
     <RouteView RouteData="Route" />
 }
-else if (_message is not null)
-{
-    <p role="alert">@_message</p>
-    <a href="login" data-enhance-nav="false">Sign in</a>
-    <button type="button" @onclick="CheckAsync">Retry</button>
-}
 else
 {
-    <p role="status">Opening page…</p>
+    <p role="alert">You do not have permission to view this page.</p>
+    <a href="login" data-enhance-nav="false">Sign in</a>
 }
 
 @code {
     [Parameter, EditorRequired] public RouteData Route { get; set; } = default!;
-    private bool _authorized;
-    private string? _message;
-    private CancellationTokenSource? _pending;
-    private string? _checkedUri;
-    private Type? _checkedPage;
-    protected override Task OnParametersSetAsync() =>
-        _checkedUri == Navigation.Uri && _checkedPage == Route.PageType ? Task.CompletedTask : CheckAsync();
+    [Parameter, EditorRequired] public DashboardAccess Access { get; set; } = default!;
+    private string? _lastUri;
 
-    private async Task CheckAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        _pending?.Cancel();
-        using var pending = new CancellationTokenSource();
-        _pending = pending;
-        var uri = Navigation.Uri;
-        // Recheck the caller on tab/query changes without discarding the page's unsaved state.
-        if (_checkedPage != Route.PageType || _checkedUri is null ||
-            new Uri(_checkedUri).AbsolutePath != new Uri(uri).AbsolutePath)
-            _authorized = false;
-        _checkedPage = Route.PageType;
-        _checkedUri = uri;
-        _message = null;
-        try
-        {
-            bool allowed;
-            if (Route.PageType.Assembly == typeof(DashboardRouter).Assembly)
-            {
-                var policies = Route.PageType.GetCustomAttributes(typeof(AuthorizeAttribute), true).Cast<AuthorizeAttribute>()
-                    .Select(attribute => attribute.Policy).OfType<string>().Append(QuasarPolicyNames.CanView).Distinct();
-                allowed = (await Task.WhenAll(policies.Select(policy => Sdk.AllowedAsync(policy, pending.Token)))).All(value => value);
-            }
-            else
-            {
-                allowed = await Sdk.RequestAsync<bool>("dashboard.plugin.page", new
-                {
-                    assemblyName = Route.PageType.Assembly.FullName, component = Route.PageType.FullName
-                }, pending.Token);
-            }
-            if (pending.IsCancellationRequested) return;
-            if (!allowed) { _authorized = false; _message = "You do not have permission to view this page."; return; }
-            _authorized = true;
-            await JS.InvokeVoidAsync("quasarSdk.dashboardNavigated", pending.Token);
-        }
-        catch (OperationCanceledException) when (pending.IsCancellationRequested) { }
-        catch (JSException error) when (!pending.IsCancellationRequested) { _authorized = false; _message = error.Message; }
-        finally { if (_pending == pending) _pending = null; }
+        if (_lastUri == Navigation.Uri) return;
+        _lastUri = Navigation.Uri;
+        await JS.InvokeVoidAsync("quasarSdk.dashboardNavigated");
     }
-    public void Dispose() => _pending?.Cancel();
 }
