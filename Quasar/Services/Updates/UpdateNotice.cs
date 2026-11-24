@@ -11,23 +11,51 @@ internal static class UpdateNotices
 {
     internal const string CompanionRestartKeyPrefix = "ui-plugin-companion:";
 
+    internal static UpdateNotice? CompanionRestart(QuasarUiPluginHubEntry entry, QuasarUiPluginInstallState installed) =>
+        installed.Installed && installed.CompanionUpdatedAtUtc is { } updatedAt
+            ? new(CompanionRestartKeyPrefix + entry.CatalogId + ":" + installed.InstalledCommit.ToLowerInvariant(),
+                "UI plugin updated: restart game servers",
+                $"{entry.FriendlyName} was updated and has a Magnetar companion. After loading the update in Quasar, restart game servers using that companion for functional changes and fixes to take effect.",
+                "/settings/ui-plugins", updatedAt, "warning")
+            : null;
+
     internal static IEnumerable<UpdateNotice> UiPlugins(IEnumerable<QuasarUiPluginHubEntry> entries,
-        Func<QuasarUiPluginHubEntry, QuasarUiPluginInstallState> state, ClaimsPrincipal user)
+        Func<QuasarUiPluginHubEntry, QuasarUiPluginInstallState> state, ClaimsPrincipal user,
+        Func<QuasarUiPluginInstallState, UpdateNotice, bool> showCompanionRestart)
     {
         if (!user.IsInRole(QuasarRoles.Admin)) yield break;
         foreach (var entry in entries.OrderBy(e => e.CatalogId, StringComparer.Ordinal))
         {
             var installed = state(entry);
-            if (installed.Installed && installed.CompanionUpdatedAtUtc is { } updatedAt)
-                yield return new(CompanionRestartKeyPrefix + entry.CatalogId + ":" + installed.InstalledCommit.ToLowerInvariant(),
-                    "UI plugin updated: restart game servers",
-                    $"{entry.FriendlyName} was updated and has a Magnetar companion. After loading the update in Quasar, restart game servers using that companion for functional changes and fixes to take effect.",
-                    "/settings/ui-plugins", updatedAt, "warning");
+            if (CompanionRestart(entry, installed) is { } reminder && showCompanionRestart(installed, reminder))
+                yield return reminder;
             if (!QuasarUiPluginHubCatalogService.HasUpdate(entry, installed)) continue;
             yield return new("ui-plugin:" + entry.CatalogId + ":" + entry.Commit,
                 "Quasar UI plugin update available", $"{entry.FriendlyName} has a new catalog revision. Open UI Plugins to review it.",
                 "/settings/ui-plugins");
         }
+    }
+
+    internal static bool HasPendingCompanionRestart(QuasarUiPluginInstallState installed,
+        IReadOnlyList<DedicatedServerRuntimeSnapshot> runtimes, IReadOnlyList<AgentRuntimeState> agents)
+    {
+        return agents.Any(agent =>
+        {
+            if (agent.Snapshot is not { } snapshot || !snapshot.Plugins.Any(plugin => plugin.IsLoaded
+                && installed.CompanionRuntimeIds.Contains(plugin.PluginId, StringComparer.OrdinalIgnoreCase)))
+                return false;
+
+            var runtime = agent.IsCluster ? null : runtimes.FirstOrDefault(server =>
+                server.UniqueName.Equals(agent.UniqueNameKey, StringComparison.OrdinalIgnoreCase));
+            if (runtime is null) return agent.IsConnected && snapshot.IsRunning;
+
+            // A supervisor can still see the process when its Agent has lost its connection.
+            return runtime.ProcessId is not null
+                && runtime.State is DedicatedServerProcessState.Starting or DedicatedServerProcessState.Running
+                    or DedicatedServerProcessState.Restarting or DedicatedServerProcessState.Stopping
+                && runtime.StartedAtUtc is { } started
+                && started <= agent.LastSnapshotReceivedUtc && started < installed.CompanionUpdatedAtUtc;
+        });
     }
 
     internal static UpdateNotice? Current(QuasarUpdateSnapshot updates, ClusterReleaseSnapshot releases,

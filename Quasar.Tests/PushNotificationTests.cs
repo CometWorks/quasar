@@ -106,6 +106,17 @@ public sealed class PushNotificationTests
     }
 
     [Fact]
+    public void CompanionPushReceiptSurvivesTemporaryAbsenceOfTheWarning()
+    {
+        const string installed = "ui-plugin-companion:viewer:next";
+        const string superseded = "ui-plugin-companion:viewer:old";
+        var subscription = new PushNotificationService.StoredSubscription(QuasarAuthSchemes.Steam,
+            "76561198000000000", "https://fcm.googleapis.com/fcm/send/test", "key", "auth", superseded, [installed]);
+
+        Assert.Equal([installed], PushNotificationService.RetainedKeys(subscription, [], new(() => [installed])));
+    }
+
+    [Fact]
     public void StagedWebUpdateTakesPriorityAndUsesUpdatesPage()
     {
         var snapshot = new QuasarUpdateSnapshot

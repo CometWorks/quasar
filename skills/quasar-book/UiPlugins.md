@@ -143,7 +143,7 @@ After a successful automatic update, Quasar restarts itself the same way as **Re
 
 To get a notice instead, enable **Quasar UI plugin updates** on the **Notifications** page. That notice lists installed plugins whose hub commit changed. See [Monitoring](Monitoring.md).
 
-That preference also enables a warning toast, bell/list notice and subscribed browser push reminder after a successful manual or automatic update to a plugin with a Magnetar companion. Load the update by restarting Quasar, then restart game servers using that companion so functional changes and fixes take effect. Quasar leaves game servers running until you restart them. First installs, failed updates, UI-only plugins and same-revision reinstalls do not create new reminders. The reminder survives Quasar restarts in `quasar-ui-plugin-install.json`. It records the update and does not clear when servers restart. Browser push is sent once per installed revision per subscription; the toast appears once per UI session.
+That preference also enables bell, list and subscribed browser push reminders when a successful update to a plugin with a Magnetar companion affects an online server. Open **UI Plugins** to see the restart guidance and clear those reminders for your account. A reminder also clears when all affected servers are offline or all affected managed standalone servers have restarted since the update. Restart Quasar to load the update, then restart affected standalone servers. Clusters use companions pinned in their deployment. First installs, failed updates, UI-only plugins and same-revision reinstalls do not create new reminders. Quasar remembers which revisions you reviewed across restarts. Browser push is sent once per installed revision per subscription.
 
 ## .NET 10 SDK
 
@@ -281,6 +281,8 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar/Services/Updates/QuasarUpdateOptions.cs`
 - `Quasar/Services/Updates/QuasarUpdateService.cs`
 - `Quasar/Services/Updates/UpdateNotice.cs`
+- `Quasar/Services/Updates/PushNotificationService.cs`
+- `Quasar/Services/Plugins/QuasarUiPluginDashboardOperations.cs`
 - `Quasar/Components/Layout/WasmPageLayout.razor`
 - `Quasar/wwwroot/quasar-configs.js`
 - `Quasar/wwwroot/app.css`

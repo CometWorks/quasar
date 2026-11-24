@@ -8,6 +8,7 @@
 @inject IDialogService DialogService
 @inject IJSRuntime JS
 @inject ViewerTimeZone ViewerTime
+@inject Quasar.Client.Administration.DashboardPushState Notifications
 
 @if (State is null)
 {
@@ -198,6 +199,13 @@ else
             @if (!IsRestartAvailable)
             {
                 <p class="quasar-muted quasar-caption">@State.RestartReason</p>
+            }
+
+            @foreach (var notice in State.CompanionRestartNotices ?? [])
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" @key="notice.Key">
+                    @notice.Body
+                </MudAlert>
             }
 
             @if (!string.IsNullOrWhiteSpace(State.LastError))
@@ -577,6 +585,7 @@ else
     private UiPluginDashboard State { get; set; } = null!;
     private string? _error;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly HashSet<string> _reviewedCompanionKeys = new(StringComparer.Ordinal);
 
     private IReadOnlyList<LoadedExtension> _extensions = [];
 
@@ -591,6 +600,20 @@ else
             catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
             catch (JSException error) { _error = error.Message; }
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (State?.CompanionRestartNotices is not { Length: > 0 } notices) return;
+        var keys = notices.Select(notice => notice.Key).Where(_reviewedCompanionKeys.Add).ToArray();
+        if (keys.Length == 0) return;
+        try
+        {
+            if (await Sdk.RequestAsync<bool>("ui-plugins.companion-updates.review", new { keys }, _lifetime.Token))
+                Notifications.RefreshNotices();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (JSException error) { Snackbar.Add(error.Message, Severity.Error); }
     }
 
     private async Task<QuasarDotNetSdkInstallResult> WaitForInstallAsync(UiPluginInstallJob job)

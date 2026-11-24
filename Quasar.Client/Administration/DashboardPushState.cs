@@ -3,7 +3,7 @@ using Microsoft.JSInterop;
 
 namespace Quasar.Client.Administration;
 
-/// <summary>Browser subscription status shared by the WASM notifications page and bell.</summary>
+/// <summary>Browser subscription status and notice refresh signals for the WASM dashboard.</summary>
 public sealed class DashboardPushState(DashboardSdk sdk, IJSRuntime js)
 {
     public bool Checked { get; private set; }
@@ -13,7 +13,10 @@ public sealed class DashboardPushState(DashboardSdk sdk, IJSRuntime js)
     public bool Busy { get; private set; }
     public string? Error { get; private set; }
     public event Action? Changed;
+    public event Action? NoticesChanged;
     private sealed record BrowserStatus(bool Supported, BrowserPushSubscription? Subscription);
+
+    internal void RefreshNotices() => NoticesChanged?.Invoke();
 
     public async Task RefreshAsync()
     {

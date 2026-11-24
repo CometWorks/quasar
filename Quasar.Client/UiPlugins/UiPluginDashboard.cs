@@ -1,4 +1,5 @@
 using Quasar.Services.Plugins;
+using Quasar.Services.Updates;
 
 namespace Quasar.Client.UiPlugins;
 
@@ -7,7 +8,8 @@ public sealed record UiPluginDashboard(bool SafeMode, string MarkerPath, bool Ma
     List<ExtensionDetails> Extensions, List<AssemblyDetails> RazorAssemblies, List<QuasarUiPluginHubEntry> Entries,
     Dictionary<string, QuasarUiPluginInstallState> InstallStates, DateTimeOffset? LastRefreshUtc, string LastError,
     bool AutoUpdateUiPlugins, bool RestartRequired, bool CanRestart, string RestartReason, Guid? UpdateId, string? UpdateVersion,
-    QuasarDotNetSdkStatus Sdk, QuasarDotNetSdkInstallAvailability Availability, bool SdkInstalling, bool Windows, UiPluginInstallJob? LastInstall);
+    QuasarDotNetSdkStatus Sdk, QuasarDotNetSdkInstallAvailability Availability, bool SdkInstalling, bool Windows, UiPluginInstallJob? LastInstall,
+    UpdateNotice[]? CompanionRestartNotices = null);
 
 public sealed record UiPluginInstallJob(Guid Id, string Target, QuasarDotNetSdkInstallResult? Result);
 

@@ -264,6 +264,11 @@ public sealed class QuasarUiPluginHubCatalogService
             InstalledCommit = metadata?.Commit ?? string.Empty,
             InstalledAtUtc = metadata?.InstalledAtUtc,
             CompanionUpdatedAtUtc = metadata?.CompanionUpdatedAtUtc,
+            CompanionRuntimeIds = metadata?.CompanionUpdatedAtUtc is null ? [] : entry.CompanionPluginIds
+                .Concat(manifest?.CompanionPluginManifests.Select(companion => companion.Id) ?? [])
+                .Concat(manifest?.CompanionPluginManifests.Where(companion => companion.IsOwned)
+                    .Select(companion => Path.GetFileNameWithoutExtension(DedicatedServerRuntimePreparer.GetCompanionEntryAssemblyName(companion))) ?? [])
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             Enabled = pluginState.Enabled,
             ImplicitInstallSuppressed = _pluginStates.IsImplicitInstallSuppressed(entry.CatalogId),
             Error = error,

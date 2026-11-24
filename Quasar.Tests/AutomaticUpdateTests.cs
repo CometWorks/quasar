@@ -4,6 +4,8 @@ using System.Text.Json;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Magnetar.Protocol.Model;
+using Quasar.Models;
 using Quasar.Plugin.Abstractions.Manifests;
 using Quasar.Services;
 using Quasar.Services.Auth;
@@ -58,12 +60,13 @@ public sealed class AutomaticUpdateTests
         var entry = new QuasarUiPluginHubEntry { CatalogId = "viewer", Commit = "next", FriendlyName = "Entity Viewer" };
         var state = new QuasarUiPluginInstallState { Installed = true, InstalledCommit = "old" };
         var admin = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, QuasarRoles.Admin)], "test"));
-        var first = Assert.Single(UpdateNotices.UiPlugins([entry], _ => state, admin));
+        IEnumerable<UpdateNotice> Notices(ClaimsPrincipal user) => UpdateNotices.UiPlugins([entry], _ => state, user, (_, _) => false);
+        var first = Assert.Single(Notices(admin));
         Assert.Equal("/settings/ui-plugins", first.Url);
-        Assert.Equal(first.Key, Assert.Single(UpdateNotices.UiPlugins([entry], _ => state, admin)).Key);
-        Assert.Empty(UpdateNotices.UiPlugins([entry], _ => state, new ClaimsPrincipal(new ClaimsIdentity([], "test"))));
+        Assert.Equal(first.Key, Assert.Single(Notices(admin)).Key);
+        Assert.Empty(Notices(new ClaimsPrincipal(new ClaimsIdentity([], "test"))));
         state.InstalledCommit = entry.Commit;
-        Assert.Empty(UpdateNotices.UiPlugins([entry], _ => state, admin));
+        Assert.Empty(Notices(admin));
     }
 
     [Theory]
@@ -104,8 +107,9 @@ public sealed class AutomaticUpdateTests
                 Installed = true, InstalledCommit = reloaded.Commit, CompanionUpdatedAtUtc = reloaded.CompanionUpdatedAtUtc,
             };
             var admin = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, QuasarRoles.Admin)], "test"));
-            var notices = UpdateNotices.UiPlugins([entry], _ => state, admin).ToArray();
-            Assert.Empty(UpdateNotices.UiPlugins([entry], _ => state, new ClaimsPrincipal()));
+            IEnumerable<UpdateNotice> Notices(ClaimsPrincipal user) => UpdateNotices.UiPlugins([entry], _ => state, user, (_, _) => true);
+            var notices = Notices(admin).ToArray();
+            Assert.Empty(Notices(new ClaimsPrincipal()));
             if (!expected) { Assert.Empty(notices); return; }
             var notice = Assert.Single(notices);
             Assert.Equal("ui-plugin-companion:viewer:next", notice.Key);
@@ -114,11 +118,112 @@ public sealed class AutomaticUpdateTests
             Assert.Contains("restart game servers", notice.Body);
             Assert.Contains("functional changes and fixes", notice.Body);
             state.InstalledCommit = "NEXT";
-            Assert.Equal(notice.Key, Assert.Single(UpdateNotices.UiPlugins([entry], _ => state, admin)).Key);
+            Assert.Equal(notice.Key, Assert.Single(Notices(admin)).Key);
             entry.Commit = "future";
-            Assert.Equal(2, UpdateNotices.UiPlugins([entry], _ => state, admin).Count());
+            Assert.Equal(2, Notices(admin).Count());
         }
         finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public void CompanionRestartWarningFollowsTheAffectedProcesses()
+    {
+        var updated = DateTimeOffset.UtcNow;
+        var installed = new QuasarUiPluginInstallState
+        {
+            CompanionUpdatedAtUtc = updated,
+            CompanionRuntimeIds = ["Companion.Assembly"],
+        };
+        var runtime = new DedicatedServerRuntimeSnapshot
+        {
+            UniqueName = "server",
+            State = DedicatedServerProcessState.Running,
+            ProcessId = 1,
+            StartedAtUtc = updated.AddMinutes(-1),
+        };
+        var agent = new AgentRuntimeState
+        {
+            IsConnected = true,
+            LastSnapshotReceivedUtc = updated,
+            Snapshot = new AgentSnapshot
+            {
+                UniqueName = "server",
+                IsRunning = true,
+                Plugins = [new() { PluginId = "companion.assembly", IsLoaded = true }],
+            },
+        };
+        bool Pending() => UpdateNotices.HasPendingCompanionRestart(installed, [runtime], [agent]);
+
+        Assert.True(Pending());
+        agent.Snapshot.Plugins[0].IsLoaded = false;
+        Assert.False(Pending());
+        agent.Snapshot.Plugins[0].IsLoaded = true;
+        agent.IsConnected = false;
+        Assert.True(Pending()); // A disconnected Agent does not stop a supervised process.
+        runtime.ProcessId = null;
+        Assert.False(Pending());
+        runtime.ProcessId = 2;
+        runtime.StartedAtUtc = updated.AddMinutes(1);
+        agent.LastSnapshotReceivedUtc = updated.AddMinutes(2);
+        Assert.False(Pending());
+
+        agent.Snapshot.ClusterMode = true;
+        Assert.False(Pending());
+        agent.IsConnected = true;
+        Assert.True(Pending()); // The cluster runs a pinned companion package.
+    }
+
+    [Fact]
+    public async Task ReviewingCompanionUpdatePersistsOnlyForThatAccountAndRevision()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "quasar-plugin-review-" + Guid.NewGuid().ToString("N"));
+        var cache = typeof(MagnetarPaths).GetField("_cachedQuasarDirectory", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var previous = cache.GetValue(null);
+        cache.SetValue(null, directory);
+        try
+        {
+            var entry = new QuasarUiPluginHubEntry { CatalogId = "viewer", Commit = "next", CompanionPluginIds = ["companion"] };
+            Directory.CreateDirectory(Path.Combine(directory, "Caches"));
+            await File.WriteAllTextAsync(Path.Combine(directory, "Caches", "ui-plugin-hub-catalog.json"),
+                JsonSerializer.Serialize(new { SchemaVersion = 1, Entries = new[] { entry } }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            var protection = new EphemeralDataProtectionProvider();
+            using var credentials = new GitHubUpdateCredentialsCatalog(NullLogger<GitHubUpdateCredentialsCatalog>.Instance, protection);
+            var options = new QuasarUpdateOptions();
+            var web = new WebServiceOptions();
+            using var updater = new QuasarUpdateService(new NoNetwork(), options, web, credentials, NullLogger<QuasarUpdateService>.Instance);
+            var hub = new QuasarUiPluginHubCatalogService(NullLogger<QuasarUiPluginHubCatalogService>.Instance,
+                new NoNetwork(), null!, null!, new QuasarUiPluginStateStore(), null!, null!, null!, options, web, updater);
+            var installed = hub.GetInstallDirectory(entry);
+            Directory.CreateDirectory(installed);
+            var manifest = new QuasarPluginManifest
+            {
+                Id = "viewer", DisplayName = "Entity Viewer", Version = "1.0", EntryAssembly = "Viewer.dll",
+                EntryType = "Viewer.Plugin", ProjectPath = "Viewer.csproj",
+            };
+            await QuasarUiPluginHubCatalogService.WriteInstallMetadataAsync(installed, entry, manifest, new() { Commit = "old" }, default);
+
+            PushNotificationService CreateDelivery() => new(protection, null!, null!, null!, null!,
+                NullLogger<PushNotificationService>.Instance, null!, null!, null!, hub, null!);
+            static ClaimsPrincipal Admin(string subject) => new(new ClaimsIdentity([
+                new Claim(ClaimTypes.Role, QuasarRoles.Admin),
+                new Claim(QuasarClaimTypes.Provider, QuasarAuthSchemes.Steam),
+                new Claim(QuasarClaimTypes.SteamId, subject),
+            ], "test"));
+            var admin = Admin("76561198000000000");
+            const string key = "ui-plugin-companion:viewer:next";
+            using (var delivery = CreateDelivery())
+                Assert.True(await delivery.ReviewCompanionUpdatesAsync(admin, [key], default));
+
+            using var reloaded = CreateDelivery();
+            Assert.False(await reloaded.ReviewCompanionUpdatesAsync(admin, [key], default));
+            Assert.True(await reloaded.ReviewCompanionUpdatesAsync(Admin("76561198000000001"), [key], default));
+
+            entry.Commit = "future";
+            await QuasarUiPluginHubCatalogService.WriteInstallMetadataAsync(installed, entry, manifest, new() { Commit = "next" }, default);
+            Assert.False(await reloaded.ReviewCompanionUpdatesAsync(admin, [key], default));
+            Assert.True(await reloaded.ReviewCompanionUpdatesAsync(admin, ["ui-plugin-companion:viewer:future"], default));
+        }
+        finally { cache.SetValue(null, previous); Directory.Delete(directory, true); }
     }
 
     [Fact]
