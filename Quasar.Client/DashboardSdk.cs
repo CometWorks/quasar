@@ -14,6 +14,9 @@ public sealed class DashboardSdk(IJSRuntime js)
     public async Task DownloadAsync(string operation, object? payload = null, CancellationToken token = default) =>
         await js.InvokeVoidAsync("quasarSdk.download", token, "quasar.core", operation, payload ?? new { });
 
-    public Task<bool> AllowedAsync(string policy, CancellationToken token = default) =>
-        RequestAsync<bool>("dashboard.permission", new { policy }, token);
+    internal ValueTask<DashboardAccess> GetAccessAsync() =>
+        js.InvokeAsync<DashboardAccess>("quasarSdk.dashboardAccess");
+
+    public async Task<bool> AllowedAsync(string policy, CancellationToken token = default) =>
+        await js.InvokeAsync<bool>("quasarSdk.allowed", token, policy);
 }

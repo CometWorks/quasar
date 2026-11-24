@@ -148,6 +148,8 @@ Viewers see all pages under **Control plane** in the navigation: **Dashboard**, 
 
 Viewers do not see **Security**, **UI Plugins**, **Backups**, **Updates** or **Appearance** in the navigation. Chat and plugin logs can contain player names and private messages, so give `viewer` only to people allowed to read them.
 
+The dashboard loads your page permissions once when you open it. Switching pages uses that list immediately. Each page still fetches its own data, and the worker checks your current access on each operation. Changing role mappings, endpoint rules or trusted-network settings reloads open dashboards. Signing out also ends access in other tabs using the same panel sign-in.
+
 Plugin-provided UI pages follow the permission each plugin declares (see [UI plugins](UiPlugins.md)).
 
 ### Plugin endpoint authorization
@@ -394,7 +396,7 @@ All under `Quasar:Auth` in `appsettings.json`. These are read at startup; restar
 | Key | Default | Notes |
 | --- | --- | --- |
 | `Enabled` | `true` | See [Turning authentication off](#turning-authentication-off) |
-| `RequireHttpsForPublicAccess` (retired) | — | Public access always requires HTTPS. Loopback and private LAN clients may use HTTP. |
+| `RequireHttpsForPublicAccess` (retired) | Always on for public access | Public access always requires HTTPS. Loopback and private LAN clients may use HTTP. |
 | `DefaultProvider` | `Steam` | Only `Steam` has a sign-in |
 | `Steam:Enabled` | `true` | `false` disables `/login` |
 | `TrustedNetworkBypass:*` | see above | Also editable on the **Security** page |
@@ -452,6 +454,8 @@ asset transfers continue through the tunnel. Each SDK operation checks current p
 - `Quasar/Services/Auth/PublicAccessSecurity.cs`
 - `Quasar/Services/Auth/QuasarAuthSettingsService.cs`
 - `Quasar.Client/Components/DashboardRouteContent.razor`
+- `Quasar/Services/Plugins/DashboardAccessEndpoints.cs`
+- `Quasar/Services/Auth/DashboardAccessChanges.cs`
 - `Quasar/Services/Auth/QuasarRoleMapper.cs`
 - `Quasar/Services/Auth/DashboardLogin.cs`
 - `Quasar/Services/Plugins/QuasarBrowserSessions.cs`

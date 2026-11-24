@@ -33,10 +33,7 @@ else
         @if (_snapshot.CanEdit)
         {
         <form class="configs-create-form" @onsubmit="CreateProfileAsync" @onsubmit:preventDefault>
-            <label class="quasar-field">
-                New profile name
-                <input @bind="_newProfileName" @bind:event="oninput" />
-            </label>
+            <MudTextField @bind-Value="_newProfileName" Label="New profile name" Variant="Variant.Outlined" Immediate="true" />
             <button type="submit" class="quasar-button quasar-button-primary" disabled="@string.IsNullOrWhiteSpace(_newProfileName)">
                 Create profile
             </button>

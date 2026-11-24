@@ -67,7 +67,6 @@ internal static partial class QuasarFleetDashboardOperations
             var name = string.IsNullOrWhiteSpace(server.DisplayName) ? server.UniqueName : server.DisplayName;
             sources[server.UniqueName] = name;
             var details = new List<string>();
-            if (m is not null) details.AddRange([$"PCU {m.UsedPcu}/{m.TotalPcu}", $"Mods {m.ModsLoaded}", $"Uptime {TimeSpan.FromSeconds(m.UptimeSeconds):g}"]);
             if (!string.IsNullOrEmpty(server.CpuAffinity)) details.Add($"CPU affinity {server.CpuAffinity}");
             if (runtime is not null)
             {
@@ -83,6 +82,9 @@ internal static partial class QuasarFleetDashboardOperations
                 !string.IsNullOrWhiteSpace(server.WorldSaveName) && File.Exists(Path.Combine(server.GetWorldSavePath(), "Sandbox.sbc")),
                 (edit || config) && imports.CanImport(server), false, server.UpdatedAtUtc)
             {
+                Pcu = m is null ? null : $"{m.UsedPcu}/{m.TotalPcu}",
+                Mods = m?.ModsLoaded,
+                UptimeSeconds = m?.UptimeSeconds,
                 PriorityWarning = runtime?.ProcessPriorityWarning,
                 Plugins = agent?.Snapshot is { } snapshot ? DescribePlugins(snapshot, profiles.FirstOrDefault(p => p.ConfigProfileId == server.ConfigProfileId)) : null
             });
@@ -97,7 +99,7 @@ internal static partial class QuasarFleetDashboardOperations
             rows.Add(new(cluster.UniqueName, name, true, status?.Phase.ToString() ?? "Unavailable", cluster.GoalState.ToString(), ClusterOverview.GamePort(cluster),
                 cluster.ConfigProfileId, ProfileName(cluster.ConfigProfileId), "", null, null, false, status?.Counts.ConnectedClients, null, null, null, null, null,
                 status?.Health.ToString() ?? "Unknown", snapshot?.Error ?? "", null, null, status?.Nodes.Select(n => $"{n.SlotKey} · {n.Role} · {n.State}").ToArray() ?? [],
-                false, false, cluster.ActiveDeployment is not null, default));
+                false, false, cluster.ActiveDeployment is not null, default) { GatewayUrl = cluster.GatewayUrl });
         }
         var unmanaged = agents.Where(a => a.IsCluster ? query && caller.User.CanQueryCluster(a.ClusterId) && !observations.ContainsKey(a.ClusterId)
             : !sources.ContainsKey(a.UniqueNameKey)).Select(a => new FleetAgent(a.AgentId, a.UniqueNameKey, a.ServerDisplayName, a.HostDisplayName, a.IsCluster ? a.ClusterId : null, a.ClusterSlot, a.ClusterNodeId, a.ClusterEpoch, a.IsConnected, a.Snapshot?.IsRunning == true)).ToArray();

@@ -8,8 +8,10 @@
     <MudButton Href="hosts/enroll" Variant="Variant.Filled" Color="Color.Primary" Class="mb-3">Add host machine</MudButton>
 }
 
-<h1 class="quasar-text quasar-type-h4">Host machines</h1>
-<p class="quasar-text quasar-type-body1 mb-3">View machine connections and the clusters they run. Add a host machine to expand your cluster.</p>
+<DashboardPageHeading Section="Infrastructure">
+    <Title>Host machines</Title>
+    <Description>View machine connections and the clusters they run. Add a host machine to expand your cluster.</Description>
+</DashboardPageHeading>
 @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
 @if (_snapshot is null)
 {

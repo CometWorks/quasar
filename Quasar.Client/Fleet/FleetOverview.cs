@@ -10,8 +10,16 @@ public sealed record FleetRow(string UniqueName, string DisplayName, bool IsClus
     int? Capacity, float? SimSpeed, float? Cpu, long? MemoryMb, int? ProcessId, string Health, string Message,
     string? Error, string? ErrorLogKind, string[] Details, bool LaunchReady, bool Importable, bool Deployed, DateTimeOffset Revision)
 {
+    public string? GatewayUrl { get; init; }
+    public string? Pcu { get; init; }
+    public int? Mods { get; init; }
+    public int? UptimeSeconds { get; init; }
     public FleetPluginLoad? Plugins { get; init; }
     public string? PriorityWarning { get; init; }
+    internal string PlayerCountText => Players is int online
+        ? Capacity is int capacity ? $"{online}/{capacity}" : online.ToString()
+        : "—";
+    internal string MemoryText => MemoryMb is long mb ? $"{mb / 1024d:0.0} GiB" : "—";
     public bool Active => State is "Running" or "Starting" or "Stopping" or "Restarting";
 }
 public sealed record FleetPluginLoad(int Loaded, int? Configured, string? Warning);

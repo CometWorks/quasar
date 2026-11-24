@@ -1,10 +1,11 @@
 @inject IDialogService Dialogs
 
-<QuasarIconButton Label="Open cluster console" Icon="@QuasarIcons.Terminal" OnClick="OpenAsync" />
+<QuasarIconButton ShowLabel="ShowLabel" Text="Console" Label="Open cluster console" Icon="@QuasarIcons.Terminal" OnClick="OpenAsync" />
 
 @code {
     [Parameter, EditorRequired] public string UniqueName { get; set; } = "";
     [Parameter, EditorRequired] public string DisplayName { get; set; } = "";
+    [Parameter] public bool ShowLabel { get; set; }
     private Task OpenAsync() => Dialogs.ShowAsync<ClusterConsoleDialog>($"Console — {DisplayName}",
         new DialogParameters<ClusterConsoleDialog> { { p => p.UniqueName, UniqueName } },
         new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Large });

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Quasar.Client.Fleet;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,11 +11,15 @@ namespace Quasar.Tests;
 
 internal sealed class FleetDashboardTestTransport(IServiceProvider services) : IJSRuntime
 {
+    internal static FleetRow Row(string id = "alpha", string display = "Alpha", bool cluster = false, int port = 27016) => new(id, display, cluster, "Stopped", "Off", port,
+            "", "", "", null, null, false, null, null, null, null, null, null, "Unknown", "", null, null, [], false, false, false, default);
+
     public ValueTask<T> InvokeAsync<T>(string identifier, object?[]? args) =>
         InvokeAsync<T>(identifier, default, args);
 
     public async ValueTask<T> InvokeAsync<T>(string identifier, CancellationToken token, object?[]? args)
     {
+        if (identifier == "quasarSdk.allowed") return await QuasarBunitContext.ReadPolicyAsync<T>(services, args!);
         Assert.Equal("quasarSdk.request", identifier);
         Assert.Equal("quasar.core", args![0]);
         var operation = services.GetServices<QuasarOperation>().Single(o => o.OperationId == (string)args[1]!);

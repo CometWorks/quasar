@@ -164,9 +164,10 @@ have their own lifecycle and can function without a browser assembly.
 
 A component in that same DLL can also declare a Razor `@page` route. Quasar
 includes the signed-in panel's declared page assemblies in its browser router,
-resolves route parameters and checks the component's authorization attributes
-on the worker when the operator navigates. Direct links and reloads enter the
-same shell. The route catalog reserves stock routes. If a
+and the worker evaluates each plugin page's authorization attributes when the dashboard opens.
+The browser resolves route parameters and uses that access snapshot as the operator
+navigates. A worker access-change event reloads the dashboard and its navigation.
+Direct links and reloads enter the same shell. The route catalog reserves stock routes. If a
 plugin assembly duplicates an existing template, Quasar reports the conflict
 and excludes that assembly's pages. Plugins can still contribute links to
 their own static HTML and authenticated worker endpoints.

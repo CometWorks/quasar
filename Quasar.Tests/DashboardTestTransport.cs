@@ -14,6 +14,7 @@ internal sealed class DashboardTestTransport(IServiceProvider services, Func<str
     public ValueTask<T> InvokeAsync<T>(string identifier, object?[]? args) => InvokeAsync<T>(identifier, default, args);
     public async ValueTask<T> InvokeAsync<T>(string identifier, CancellationToken token, object?[]? args)
     {
+        if (identifier == "quasarSdk.allowed") return await QuasarBunitContext.ReadPolicyAsync<T>(services, args!);
         if (identifier != "quasarSdk.request" || args is not [string plugin, string operation, var input])
             throw new NotSupportedException(identifier);
         if (projection?.Invoke(operation) is { } value) return JsonSerializer.SerializeToElement(value, Json).Deserialize<T>(Json)!;

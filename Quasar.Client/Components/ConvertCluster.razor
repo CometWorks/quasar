@@ -9,7 +9,7 @@
 <BrowserClusterNotice />
 @if (!_ready && _error is null) { <MudProgressLinear Indeterminate="true" aria-label="Loading conversion" /> }
 <section class="quasar-panel pa-4">
-    <h1 class="quasar-text quasar-type-h4">@Title</h1>
+    <DashboardPageHeading Section="Infrastructure"><Title>@Title</Title></DashboardPageHeading>
     <p class="quasar-text quasar-type-body1 my-2">Conversion creates a separate destination. The source and backup remain intact. The destination stays stopped until you review it and start it.</p>
     @if (ToCluster)
     {

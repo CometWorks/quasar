@@ -7,8 +7,10 @@
 
 <PageTitle>Security</PageTitle>
 
-<div class="quasar-page-heading"><div><div class="quasar-eyebrow">Access &amp; security</div><h1>Security</h1>
-<p>Manage trusted-network access, reverse proxy settings, and SteamID-based RBAC mappings.</p></div></div>
+<DashboardPageHeading Section="Access & security">
+    <Title>Security</Title>
+    <Description>Manage trusted-network access, reverse proxy settings, and SteamID-based RBAC mappings.</Description>
+</DashboardPageHeading>
 @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
 @if (_snapshot is null) { <MudProgressCircular Indeterminate="true" /> }
 else

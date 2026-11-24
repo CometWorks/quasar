@@ -12,8 +12,10 @@
 @if (_snapshot is null) { <MudProgressCircular Indeterminate="true" /> } else {
 <div class="quasar-layout quasar-gap-3">
     <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-2">
-        <div class="quasar-page-heading"><div><div class="quasar-eyebrow">Tools &amp; settings</div><h1>Updates</h1>
-            <p>Manage Quasar, cluster packages, and dedicated server runtimes.</p></div></div>
+        <DashboardPageHeading Section="Tools & settings">
+            <Title>Updates</Title>
+            <Description>Manage Quasar, cluster packages, and dedicated server runtimes.</Description>
+        </DashboardPageHeading>
         <MudSpacer />
         <MudButton Variant="Variant.Outlined"
                    Color="Color.Primary"

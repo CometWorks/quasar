@@ -61,7 +61,7 @@
             <Quasar.Client.Layout.DashboardDrawer @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
         }
         <Quasar.Client.Administration.DashboardSetupPrompt @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
-        <Quasar.Client.Components.DashboardProviders @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
+        <Quasar.Client.Components.QuasarThemeProvider Branding="Branding.GetSettings()" @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
     </div>
 </div>
 

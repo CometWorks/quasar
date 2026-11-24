@@ -8,6 +8,24 @@ migrate the core UI, preserve behavior, and complete regression checks. This is 
 planning estimate based on the current source, not a measured delivery schedule.
 External UI plugin migrations are additional work, depending on their scope.
 
+## Dashboard comparison with 1.6
+
+The baseline is the last 1.6 tag, `v1.6.1.20` (`5ace6000`). The release comparison uses `0bf90d8b`, before the UX fixes. It covers the 26 routed page components and the components that render their contents.
+
+| Pages | What the source comparison showed | WASM implementation |
+| --- | --- | --- |
+| Analytics, plugin statistics history | Analytics retained its outlined selects and scoped CSS. The WASM shell dropped the theme provider that supplied MudBlazor's palette, corner radius, typography and elevation. The release supplied only two palette variables on the shell. | The shell hosts one MudBlazor theme provider using Quasar branding and the selected light, dark or system mode. Dropdowns, dialogs and form fields share this theme. |
+| Fleet overview | The card grid became a generic panel inside the table layout. Clusters acquired standalone metric placeholders. Expanding a player row exposed an inline list of moderation buttons. | Standalone and cluster cards use their own facts, metrics and disclosures. The expanded cluster row shares its overview with the cluster page. Standalone details reuse the player action popover and timestamped chat rows. |
+| Config Profiles, Worlds | Config Profiles carried over its stylesheet and a native creation field beside outlined Mud fields. Worlds lost the compact template action column, missing-world chip and stacked timestamp. Both folder pickers still had the breadcrumb class. | Profile creation and editing use the same outlined field. Worlds reuses the table treatments and buttons. The pickers share the rule that preserves folder-name casing. |
+| Hosts, cluster conversion, audit log, backups, post-install setup, security, updates | Several pages replaced the shared heading with a bare heading or a local copy missing the description wrapper. | These pages use the shared section, title and description component. Server listing uses it too. |
+| UI Plugins, plugin endpoint authorization | UI Plugins moved its scoped rules into the linked `ui-plugins.css` and removed isolation selectors. The authorization editor retained its fieldset classes and lost their stylesheet. | The authorization editor again ships the rules for fieldset outlines, spacing and long policy names. |
+| Access, Chat, Discord, Entities, Players, server Plugins | The views retain the 1.6 heading and page-specific table, tab or form styling. Their Mud controls depend on the shell theme. | The shared provider supplies the palette to these controls. |
+| Cluster setup, cluster detail, host enrollment, Display, Appearance, Notifications | The page structures carry over. Display's form moved into a child component. Appearance and Notifications already used native controls in 1.6. | The native controls continue to read Quasar palette variables alongside the Mud theme. |
+
+Of the 17 scoped stylesheets in 1.6, 12 moved byte-for-byte into the client. The other five belonged to UI Plugins, the authorization editor, the folder picker, the old layout error banner and the Blazor Server reconnect dialog. The generated `Quasar.styles.css` imports the client bundle. The old reconnect dialog belonged to the server circuit.
+
+Built-in route components load with the WASM application. At startup the browser also loads registered plugin page assemblies and obtains the worker's access snapshot. Changing routes uses that snapshot. Page data still loads when the operator opens the page. A worker RBAC or authentication change reloads the dashboard.
+
 ## Migration progress
 
 Long operations use the shared native `QuasarOperationLoader`: a named activity,

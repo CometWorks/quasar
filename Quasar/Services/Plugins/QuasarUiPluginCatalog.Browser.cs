@@ -96,6 +96,8 @@ public sealed partial class QuasarUiPluginCatalog
             _ => throw new InvalidOperationException("Unknown route segment.")
         }))));
 
+    internal IEnumerable<Type> BrowserPageTypes => _browserPages.Values;
+
     internal async Task<bool> CanOpenBrowserPageAsync(QuasarOperationContext caller, string assemblyName, string component)
     {
         if (!_browserPages.TryGetValue((assemblyName, component), out var type)) return false;
