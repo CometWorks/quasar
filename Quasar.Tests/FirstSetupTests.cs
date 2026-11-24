@@ -11,6 +11,7 @@ using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Services;
 using Quasar.Components.Pages;
+using Quasar.Client.Formatting;
 using Quasar.Models;
 using Quasar.Services;
 using Quasar.Services.Auth;
@@ -349,7 +350,7 @@ public sealed class FirstSetupTests : IDisposable
         var tracker = context.Services.GetRequiredService<ClusterPlayerService>();
         await tracker.RefreshAsync(cluster, default);
         await page.Find("button[aria-label='Refresh fleet']").ClickAsync();
-            await page.WaitForAssertionAsync(() => Assert.Equal(new[] { "1/ 1 running", "7/ 32 slots", "0.90×", "6.5GiB" },
+            await page.WaitForAssertionAsync(() => Assert.Equal(new[] { "1/ 1 running", "7/ 32 slots", NumberText.Display(0.90, "0.00") + "×", NumberText.Display(6.5, "0.0") + "GiB" },
             page.FindAll(".quasar-metric-value").Select(value => value.TextContent)));
         // Moderation endpoints are deliberately unavailable; the successful status remains useful.
         Assert.False(tracker.GetSnapshot("fleet")!.Available);

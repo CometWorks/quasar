@@ -1,5 +1,6 @@
 @using Quasar.Client.Fleet
 @using Quasar.Client.Clusters
+@using Quasar.Client.Formatting
 @using Quasar.Components.Pages
 @using Quasar.Components.Shared
 @using Quasar.Services
@@ -186,7 +187,9 @@ else
     private void ClearFilters()=>_search=_kind=_status="";
     private bool Expanded(FleetRow r)=>_expanded.Contains((r.IsCluster, r.UniqueName));
     private void Toggle(FleetRow r){if(!_expanded.Add((r.IsCluster, r.UniqueName))) _expanded.Remove((r.IsCluster, r.UniqueName));}
-    private static string Metric(float? value,string format,string unit)=>value.HasValue?value.Value.ToString(format)+unit:"—";
+    private static string Players(FleetRow r)=>r.Players is int players ? r.Capacity is int capacity ? $"{players}/{capacity}" : players.ToString() : "-";
+    private static string Metric(float? value,string format,string unit)=>value is { } number?NumberText.Display(number,format)+unit:"-";
+    private static string Memory(FleetRow r)=>r.MemoryMb is long mb ? NumberText.Display(mb/1024d,"0.0")+" GiB":"-";
     private static string ClusterHref(FleetRow r)=>"clusters/"+Uri.EscapeDataString(r.UniqueName);
     private string Address(FleetRow r)
     {

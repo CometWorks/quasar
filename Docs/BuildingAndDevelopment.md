@@ -623,6 +623,33 @@ include `dotnet test tests/UiChecks/UiChecks.csproj`, `npm test`, and
 `npm run check` from the viewer checkout. The renderer and companion plugin are
 unchanged; native UI tests do not establish real asset-streaming acceptance.
 
+### Culture and number formatting
+
+Number formatting follows three rules:
+
+- **Display uses the viewer's culture.** A German viewer sees `0,98x`; an
+  English viewer sees `0.98x`. Use `NumberText.Display` in Razor components.
+- **Configs, game data, API payloads and persisted values use invariant
+  formatting.** They always use `0.98`, never the server's or viewer's decimal
+  separator. Use `NumberText.Invariant`.
+- **User input accepts local and invariant formats.** `NumberText.TryParseUser`
+  tries the current culture first, then invariant, so a user can type their
+  local decimal separator or paste a value from a config or log.
+- **Display timestamps use the viewer's culture.** `ViewerTimeZone.Format` and
+  `FormatStacked` render in the browser's culture and selected time zone.
+- **Logs, configs, API payloads and `datetime` attributes keep ISO 8601.**
+  `ViewerTimeZone.Pattern` remains the invariant standard; do not use the
+  display formatter for saved or machine-readable timestamps. The NLog
+  `quasar.log` and `discord.log` layouts use the fixed
+  `yyyy-MM-dd HH:mm:ss.ffff` shape, and audit JSON uses `DateTimeOffset` ISO
+  with an offset.
+
+Do not format display numbers on the worker: the worker's culture is not the
+viewer's culture. Server-side models should send numbers and formats, and the
+browser should render them with `NumberText.Display`. CSS and HTML attribute
+values remain invariant. Display tests build expected values with the current
+culture, so they pass in every locale without enumerating cultures.
+
 ### Profile command alias regression tests
 
 Build Magnetar's PluginSdk with contract 1.1 and set `MagnetarBin` to its output

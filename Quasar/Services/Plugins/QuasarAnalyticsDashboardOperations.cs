@@ -241,30 +241,30 @@ internal sealed class DashboardAnalyticsProjection(QuasarOperationContext caller
         }
 
         var hasClusters = _config.SelectedClusterIds.Count > 0;
-        _summaryChips.Add(new SummaryChipModel("Servers", _config.SelectedUniqueNames.Count.ToString()));
+        _summaryChips.Add(new SummaryChipModel("Servers", Number: _config.SelectedUniqueNames.Count, Format: "0"));
         if (hasClusters)
         {
-            _summaryChips.Add(new SummaryChipModel("Clusters", _config.SelectedClusterIds.Count.ToString()));
-            _summaryChips.Add(new SummaryChipModel("Node series", SelectedServerOptions.Count(option => option.ClusterId is not null).ToString()));
+            _summaryChips.Add(new SummaryChipModel("Clusters", Number: _config.SelectedClusterIds.Count, Format: "0"));
+            _summaryChips.Add(new SummaryChipModel("Node series", Number: SelectedServerOptions.Count(option => option.ClusterId is not null), Format: "0"));
         }
 
         if (latestSamples.Count == 0)
         {
-            _summaryChips.Add(new SummaryChipModel("Avg process sim speed", "-"));
-            _summaryChips.Add(new SummaryChipModel(hasClusters ? "Total process CPU" : "Avg process CPU", "-"));
-            _summaryChips.Add(new SummaryChipModel("Avg simulation CPU", "-"));
-            _summaryChips.Add(new SummaryChipModel("Total process memory", "-"));
+            _summaryChips.Add(new SummaryChipModel("Avg process sim speed", Text: "-"));
+            _summaryChips.Add(new SummaryChipModel(hasClusters ? "Total process CPU" : "Avg process CPU", Text: "-"));
+            _summaryChips.Add(new SummaryChipModel("Avg simulation CPU", Text: "-"));
+            _summaryChips.Add(new SummaryChipModel("Total process memory", Text: "-"));
             if (!hasClusters)
             {
-                _summaryChips.Add(new SummaryChipModel("Players", "-"));
-                _summaryChips.Add(new SummaryChipModel("PCU", "-"));
-                _summaryChips.Add(new SummaryChipModel("Grids", "-"));
-                _summaryChips.Add(new SummaryChipModel("Entities", "-"));
+                _summaryChips.Add(new SummaryChipModel("Players", Text: "-"));
+                _summaryChips.Add(new SummaryChipModel("PCU", Text: "-"));
+                _summaryChips.Add(new SummaryChipModel("Grids", Text: "-"));
+                _summaryChips.Add(new SummaryChipModel("Entities", Text: "-"));
             }
             return;
         }
         if (hasClusters)
-            _summaryChips.Add(new SummaryChipModel("Reporting processes", $"{latestSamples.Count}/{SelectedServerOptions.Count}"));
+            _summaryChips.Add(new SummaryChipModel("Reporting processes", Text: $"{latestSamples.Count}/{SelectedServerOptions.Count}"));
 
         var simSpeed = latestSamples.Average(sample => sample.SimSpeed);
         var cpu = hasClusters ? latestSamples.Sum(sample => sample.CpuPercent) : latestSamples.Average(sample => sample.CpuPercent);
@@ -275,16 +275,24 @@ internal sealed class DashboardAnalyticsProjection(QuasarOperationContext caller
         var grids = latestSamples.Where(sample => sample.ActiveGridCount >= 0).Sum(sample => sample.ActiveGridCount);
         var entities = latestSamples.Where(sample => sample.ActiveEntityCount >= 0).Sum(sample => sample.ActiveEntityCount);
 
-        _summaryChips.Add(new SummaryChipModel("Avg process sim speed", simSpeed.ToString("0.000")));
-        _summaryChips.Add(new SummaryChipModel(hasClusters ? "Total process CPU" : "Avg process CPU", $"{cpu:0.0}%"));
-        _summaryChips.Add(new SummaryChipModel("Avg simulation CPU", simCpu.HasValue ? $"{simCpu:0.0}%" : "-"));
-        _summaryChips.Add(new SummaryChipModel("Total process memory", $"{memory:0} MB"));
+        // Keep numbers as numbers. The browser formats them with the viewer's
+        // culture; the worker's own culture must not decide what the user sees.
+        _summaryChips.Add(new SummaryChipModel("Avg process sim speed", Number: simSpeed, Format: "0.000"));
+        _summaryChips.Add(new SummaryChipModel(hasClusters ? "Total process CPU" : "Avg process CPU", Number: cpu, Format: "0.0", Suffix: "%"));
+        _summaryChips.Add(simCpu is { } averagedCpu
+            ? new SummaryChipModel("Avg simulation CPU", Number: averagedCpu, Format: "0.0", Suffix: "%")
+            : new SummaryChipModel("Avg simulation CPU", Text: "-"));
+        _summaryChips.Add(new SummaryChipModel("Total process memory", Number: memory, Format: "0", Suffix: " MB"));
         if (!hasClusters)
         {
-            _summaryChips.Add(new SummaryChipModel("Players", players.ToString()));
-            _summaryChips.Add(new SummaryChipModel("PCU", pcu.ToString()));
-            _summaryChips.Add(new SummaryChipModel("Grids", grids > 0 ? grids.ToString() : "-"));
-            _summaryChips.Add(new SummaryChipModel("Entities", entities > 0 ? entities.ToString() : "-"));
+            _summaryChips.Add(new SummaryChipModel("Players", Number: players, Format: "0"));
+            _summaryChips.Add(new SummaryChipModel("PCU", Number: pcu, Format: "0"));
+            _summaryChips.Add(grids > 0
+                ? new SummaryChipModel("Grids", Number: grids, Format: "0")
+                : new SummaryChipModel("Grids", Text: "-"));
+            _summaryChips.Add(entities > 0
+                ? new SummaryChipModel("Entities", Number: entities, Format: "0")
+                : new SummaryChipModel("Entities", Text: "-"));
         }
 
         if (samplesByServer.Values.SelectMany(sampleSet => sampleSet).Any())
@@ -292,7 +300,7 @@ internal sealed class DashboardAnalyticsProjection(QuasarOperationContext caller
             var rangeSimAverage = samplesByServer.Values
                 .SelectMany(sampleSet => sampleSet)
                 .Average(sample => sample.SimSpeed);
-            _summaryChips.Add(new SummaryChipModel("Range Avg Sim", rangeSimAverage.ToString("0.000")));
+            _summaryChips.Add(new SummaryChipModel("Range Avg Sim", Number: rangeSimAverage, Format: "0.000"));
         }
     }
 

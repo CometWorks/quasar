@@ -1,4 +1,4 @@
-@using System.Globalization
+@using Quasar.Client.Formatting
 @using Admin = CometWorks.ClusterGateway.AdminContract.V1
 
 <section class="quasar-stack" aria-label="@(Prediction ? "Compensation prediction" : "Last compensation")">
@@ -25,7 +25,7 @@
                 else
                 {
                     <p>Modeled interval: @Hours(result.Frames) game hours. @(result.Capped == true ? "Capped; excess time receives no compensation." : "Not capped.")</p>
-                    <p class="quasar-muted quasar-caption">Authority clock interval: @(result.FromFrame.ToString(CultureInfo.InvariantCulture)) to @(result.CompensatedTo.ToString(CultureInfo.InvariantCulture)) (16 ms clock units; not wall time). The end marker includes any capped excess time.</p>
+                    <p class="quasar-muted quasar-caption">Authority clock interval: @(NumberText.Invariant(result.FromFrame, "0")) to @(NumberText.Invariant(result.CompensatedTo, "0")) (16 ms clock units; not wall time). The end marker includes any capped excess time.</p>
                     <p>Stored energy change: @Number(result.EnergyDelta) MWh</p>
                     <div class="quasar-table-scroll" tabindex="0" role="region" aria-label="Power, production and upkeep by block; scroll horizontally for more columns"><table class="quasar-server-table">
                         <caption>Power, production and upkeep by block</caption>
@@ -33,7 +33,7 @@
                         <tbody>
                         @foreach (long block in Blocks(result))
                         {
-                            <tr><th scope="row">@block</th><td>@Value(result.ProducerEnergyMWh, block)</td><td>@Value(result.ConsumerEnergyMWh, block)</td><td>@Value(result.StorageInputEnergyMWh, block)</td><td>@Value(result.ProductionUnits, block)</td><td>@(result.UpkeepConsumed?.TryGetValue(block, out var chips) == true ? chips.ToString("0.######", CultureInfo.InvariantCulture) : "Unavailable")</td></tr>
+                            <tr><th scope="row">@block</th><td>@Value(result.ProducerEnergyMWh, block)</td><td>@Value(result.ConsumerEnergyMWh, block)</td><td>@Value(result.StorageInputEnergyMWh, block)</td><td>@Value(result.ProductionUnits, block)</td><td>@(result.UpkeepConsumed?.TryGetValue(block, out var chips) == true ? NumberText.Display(chips, "0.######") : "Unavailable")</td></tr>
                         }
                         </tbody>
                     </table></div>
@@ -46,7 +46,7 @@
                         {
                             @foreach (var fuel in producer.Value)
                             {
-                                <tr><th scope="row">@producer.Key</th><td>@fuel.Key</td><td>@fuel.Value.ToString("0.######", CultureInfo.InvariantCulture)</td></tr>
+                                <tr><th scope="row">@producer.Key</th><td>@fuel.Key</td><td>@NumberText.Display(fuel.Value, "0.######")</td></tr>
                             }
                         }
                         </tbody>
@@ -58,7 +58,7 @@
                         <tbody>
                         @foreach (var item in result.ItemDelta?.AsEnumerable() ?? [])
                         {
-                            <tr><th scope="row">@item.Key</th><td>@item.Value.ToString("+0.######;-0.######;0", CultureInfo.InvariantCulture)</td></tr>
+                            <tr><th scope="row">@item.Key</th><td>@NumberText.Display(item.Value, "+0.######;-0.######;0")</td></tr>
                         }
                         </tbody>
                     </table></div>
@@ -86,7 +86,7 @@
     [Parameter] public Admin.OfflineCompensationResult[]? Results { get; set; }
     [Parameter] public bool Prediction { get; set; }
     private static string Number(double? value) => value is { } n && double.IsFinite(n)
-        ? n.ToString("0.######", CultureInfo.InvariantCulture) : "Unavailable";
+        ? NumberText.Display(n, "0.######") : "Unavailable";
     private static string Hours(long? frames) => Number(frames / 225000d);
     private static string Value(IReadOnlyDictionary<long, double>? values, long block) =>
         values?.TryGetValue(block, out double value) == true ? Number(value) : "Unavailable";

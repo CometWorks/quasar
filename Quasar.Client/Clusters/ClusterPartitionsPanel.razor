@@ -1,5 +1,5 @@
 @implements IDisposable
-@using System.Globalization
+@using Quasar.Client.Formatting
 @using Admin = CometWorks.ClusterGateway.AdminContract.V1
 @inject DashboardSdk Sdk
 @inject ViewerTimeZone ViewerTime
@@ -93,7 +93,7 @@
             else { <p>Administrator role required for Profile, Dry run and cache clear.</p> }
             @if (_prediction is { } prediction)
             {
-                <p>Prediction for Final @prediction.SaveId · @prediction.Hours.ToString("0.######", CultureInfo.InvariantCulture) game hours · holder @prediction.Node</p>
+                <p>Prediction for Final @prediction.SaveId · @NumberText.Display(prediction.Hours, "0.######") game hours · holder @prediction.Node</p>
                 <ClusterOfflineResults Results="prediction.Results" Prediction="true" />
             }
         </section>
@@ -148,9 +148,9 @@
         && _operation?.State != "Running";
     private bool CanRun(string operation) => CanMutate && _capabilities!.Operations.Contains(operation, StringComparer.Ordinal);
     private bool CanPredict => _supported == true && _capabilities?.Operations.Contains("GET /admin/v1/offline/prediction", StringComparer.Ordinal) == true;
-    private static string Number(double value) => double.IsFinite(value) ? value.ToString("0.######", CultureInfo.InvariantCulture) : "Unavailable";
+    private static string Number(double value) => double.IsFinite(value) ? NumberText.Display(value, "0.######") : "Unavailable";
     private Admin.OfflinePartitionSummary? Offline(ulong partition) => _catalog?.Partitions.FirstOrDefault(p => p.Partition == partition);
-    private bool ValidHours(out double hours) => double.TryParse(_hours, NumberStyles.Float, CultureInfo.InvariantCulture, out hours)
+    private bool ValidHours(out double hours) => NumberText.TryParseUser(_hours, out hours)
         && double.IsFinite(hours) && hours is >= 0 and <= 168;
     protected override async Task OnParametersSetAsync()
     {
