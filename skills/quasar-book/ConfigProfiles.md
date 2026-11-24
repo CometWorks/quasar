@@ -138,6 +138,28 @@ Offline is unsafe on a dedicated server because Space Engineers gives every conn
 
 Public, Friends and Private use the server's own **Listen IP**.
 
+### Warfare 3 and grid storage settings
+
+Open **Configs**, select the profile, and open **World**. Under **Blocks & Combat**, set:
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| **Allow Gravity Drives** | Off | Allows artificial gravity to affect Artificial Mass blocks and Space Balls. |
+| **Allow Dampening to Hostile Grids** | Off | Lets characters use relative dampeners to match the movement of hostile grids. |
+| **Enable Jump Detection** | On | Allows large or heavy grids making long jumps to leave temporary GPS markers at their destinations. |
+
+Under **Economy & Contracts**, the grid storage settings include:
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| **Grid Storage Minutes Per Km** | 0.004 | Adds retrieval time per kilometer between the storage location and the retrieval terminal. |
+| **Grid Storage Combat Cooldown (sec)** | 60 | Sets how long a grid must be out of combat before it can be stored. Set to 0 to disable the cooldown. |
+| **Grid Storage Max Retrieval Distance (m)** | 0 | Limits how far the retrieval terminal can be from the storage location. Set to 0 for unlimited distance. |
+
+World imports that read session settings pick up these values from the world XML. Older profiles use the game defaults above for missing values. If you set a custom value directly in the game's XML, enter it in the profile before applying it.
+
+Save the profile and restart an assigned standalone server. For a cluster, [stage and apply the profile changes](Clusters.md#cluster-settings-and-configuration-profile). If a profile change was already staged before Quasar added these settings, stage it again before applying it.
+
 ### Mods
 
 The Mods tab has these panels:

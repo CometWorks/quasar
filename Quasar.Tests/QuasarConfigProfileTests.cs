@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Xml.Linq;
 using Quasar.Models;
 using Quasar.Services;
@@ -50,6 +51,51 @@ public sealed class QuasarConfigProfileTests
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData("AllowGravityDrives", "combat", "false", "true")]
+    [InlineData("AllowDampeningToHostileGrids", "combat", "false", "true")]
+    [InlineData("EnableJumpSignatures", "combat", "true", "false")]
+    [InlineData("GridStorageMinutesPerKm", "economy", "0.004", "0.0125")]
+    [InlineData("GridStorageCombatCooldown", "economy", "60", "0")]
+    [InlineData("GridStorageMaxDistance", "economy", "0", "10000000000")]
+    public async Task WorldOptionsKeepGameDefaultsAndRoundTripExplicitValues(
+        string elementName, string category, string gameDefault, string overrideValue)
+    {
+        var option = Assert.Single(QuasarConfigMetadata.Options, option =>
+            option.Scope == QuasarConfigOptionScope.Session && option.ElementName == elementName);
+        Assert.False(option.Hidden);
+        Assert.Equal(category, option.CategoryKey);
+
+        var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var existingProfile = JsonSerializer.Deserialize<QuasarConfigProfile>("""{"sessionSettings":{}}""", jsonOptions)!;
+        Assert.Equal(gameDefault, QuasarConfigMetadata.FormatValue(option, existingProfile.SessionSettings));
+        Assert.Equal(gameDefault, QuasarConfigMetadata.FormatValue(option, new QuasarConfigProfile().SessionSettings));
+
+        var directory = Directory.CreateTempSubdirectory("quasar-world-options-");
+        try
+        {
+            var path = Path.Combine(directory.FullName, WorldSandboxConfigEditor.SandboxConfigFileName);
+            new XDocument(new XElement("MyObjectBuilder_WorldConfiguration",
+                new XElement("Settings", new XElement(elementName, overrideValue)))).Save(path);
+            var imported = WorldSandboxConfigEditor.ReadConfigProfile(path);
+            Assert.Equal(1, imported.SessionSettingCount);
+            var savedProfile = JsonSerializer.Serialize(imported.Profile, jsonOptions);
+            var reloaded = JsonSerializer.Deserialize<QuasarConfigProfile>(savedProfile, jsonOptions)!;
+
+            // Start with an empty world config so the assertion requires the profile writer to emit the element.
+            await File.WriteAllTextAsync(path, "<MyObjectBuilder_WorldConfiguration><Settings /></MyObjectBuilder_WorldConfiguration>");
+            await WorldSandboxConfigEditor.WriteProfileAsync(path, reloaded, "World");
+            Assert.Equal(overrideValue, XDocument.Load(path).Root?.Element("Settings")?.Element(elementName)?.Value);
+
+            var patch = XDocument.Parse(await ClusterWorkshopModStager.ProfileSettingsXmlAsync(directory.FullName, reloaded, "World", default));
+            Assert.Equal(overrideValue, patch.Root?.Element("Settings")?.Element(elementName)?.Value);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
         }
     }
 
