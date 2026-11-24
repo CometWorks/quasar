@@ -139,6 +139,92 @@ public sealed partial class QuasarSdkTests
     }
 
     [Fact]
+    public async Task CreateSweepsExpiredUnclaimedLeaseBeforeApplyingTheLimit()
+    {
+        await using var app = await StartAsync();
+        var sessions = app.Services.GetRequiredService<QuasarBrowserSessions>();
+        var registry = app.Services.GetRequiredService<QuasarTransferRegistry>();
+        var http = new DefaultHttpContext { RequestServices = app.Services };
+        http.Request.PathBase = Prefix;
+        http.User = User(QuasarRoles.Viewer);
+        var binding = await sessions.BindHttpSessionAsync(http);
+
+        var leases = new List<QuasarTransferRegistry.Transfer>();
+        for (var index = 0; index < QuasarTransferRegistry.PerSessionLimit; index++)
+            leases.Add(registry.Create(binding, "example.plugin", "download", QuasarOperationKind.Read,
+                JsonSerializer.SerializeToElement(new { })));
+
+        // Expire one unclaimed lease. Without the stale-lease sweep the next
+        // Create would hit the per-session limit and return 429.
+        leases[0].Stop.Cancel();
+
+        var replacement = registry.Create(binding, "example.plugin", "download", QuasarOperationKind.Read,
+            JsonSerializer.SerializeToElement(new { }));
+        Assert.NotNull(replacement);
+        registry.Dispose();
+    }
+
+    [Fact]
+    public async Task DisposeCancelsEveryTransferAndIsIdempotent()
+    {
+        await using var app = await StartAsync();
+        var sessions = app.Services.GetRequiredService<QuasarBrowserSessions>();
+        var registry = app.Services.GetRequiredService<QuasarTransferRegistry>();
+        var http = new DefaultHttpContext { RequestServices = app.Services };
+        http.Request.PathBase = Prefix;
+        http.User = User(QuasarRoles.Viewer);
+        var binding = await sessions.BindHttpSessionAsync(http);
+
+        var unclaimed = registry.Create(binding, "example.plugin", "download", QuasarOperationKind.Read,
+            JsonSerializer.SerializeToElement(new { }));
+        var claimed = registry.Create(binding, "example.plugin", "download", QuasarOperationKind.Read,
+            JsonSerializer.SerializeToElement(new { }));
+        registry.Get(binding, claimed.Id, claim: true);
+
+        registry.Dispose();
+        registry.Dispose();
+
+        Assert.True(unclaimed.Token.IsCancellationRequested);
+        Assert.True(claimed.Token.IsCancellationRequested);
+        Assert.Throws<ObjectDisposedException>(() => unclaimed.Stop.CancelAfter(TimeSpan.FromSeconds(1)));
+        Assert.Throws<ObjectDisposedException>(() => claimed.Stop.CancelAfter(TimeSpan.FromSeconds(1)));
+        Assert.Throws<QuasarOperationException>(() => registry.Get(binding, unclaimed.Id, claim: false));
+        Assert.Throws<ObjectDisposedException>(() => registry.Create(binding, "example.plugin", "download",
+            QuasarOperationKind.Read, JsonSerializer.SerializeToElement(new { })));
+    }
+
+    [Fact]
+    public async Task CleanupDeleteCancelsClaimedTransfer()
+    {
+        await using var app = await StartAsync();
+        using var client = app.GetTestClient();
+        client.DefaultRequestHeaders.Add("X-Test-Role", QuasarRoles.Viewer);
+        var tokens = await SessionTokensAsync(client);
+        var url = await ResourceAsync(client, "watch");
+
+        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+        using var reader = new StreamReader(await response.Content.ReadAsStreamAsync());
+        Assert.Equal("0", await reader.ReadLineAsync());
+
+        // A claimed lease is owned by the streaming request. The cleanup DELETE
+        // must cancel it in place and return 204; only the request removes it.
+        using (var request = new HttpRequestMessage(HttpMethod.Delete, url))
+        {
+            request.Headers.Add(tokens.GetProperty("headerName").GetString()!, tokens.GetProperty("requestToken").GetString());
+            using var deleted = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        }
+
+        // Bound the drain. The producer yields every 20 ms, so a cancellation
+        // regression must fail this test, not hang the run waiting for a null
+        // that never arrives.
+        using var drain = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try { while (await reader.ReadLineAsync(drain.Token) is not null) { } }
+        catch (Exception error) when (error is IOException or OperationCanceledException) { }
+        Assert.Equal(1, _subscriptionsClosed);
+    }
+
+    [Fact]
     public async Task RevokedPermissionsCancelAnActiveSubscription()
     {
         await using var app = await StartAsync();
