@@ -368,6 +368,36 @@ public sealed class QuasarUiHostTests
         Assert.Null(await task);
     }
 
+    [Fact]
+    public async Task DisposingTheHostCancelsAnOpenMessageBox()
+    {
+        using var context = CreateContext();
+        var wrapper = context.Render<DialogHostWrapper>();
+        var dialogs = context.Services.GetRequiredService<IQuasarDialogService>();
+
+        var task = dialogs.ShowMessageBoxAsync("Question", "Choose");
+        await wrapper.WaitForAssertionAsync(() =>
+            Assert.Contains("Choose", wrapper.Markup, StringComparison.Ordinal));
+
+        wrapper.Render(parameters => parameters.Add(p => p.ShowHost, false));
+
+        Assert.Null(await task.WaitAsync(TimeSpan.FromSeconds(2)));
+    }
+
+    public sealed class DialogHostWrapper : ComponentBase
+    {
+        [Parameter] public bool ShowHost { get; set; } = true;
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            if (!ShowHost)
+                return;
+
+            builder.OpenComponent<QuasarDialogHost>(0);
+            builder.CloseComponent();
+        }
+    }
+
     private static QuasarBunitContext CreateContext()
     {
         var context = new QuasarBunitContext();

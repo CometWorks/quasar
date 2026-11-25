@@ -247,13 +247,15 @@ internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
 
     /// <summary>
     /// Registers a rendered dialog host. While at least one host is mounted,
-    /// cancellations go through the native two-phase close.
+    /// cancellations go through the native two-phase close. A host that
+    /// initializes after the service is disposed is ignored.
     /// </summary>
     internal void HostMounted()
     {
         lock (_sync)
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_disposed)
+                return;
             _hostCount++;
         }
     }
@@ -286,18 +288,31 @@ internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
     }
 
     /// <summary>
-    /// Handles a cancellation token. A recorded choice wins; otherwise the entry
-    /// is closed through the host, or completed immediately when no host exists.
+    /// Handles a cancellation token. A recorded choice wins; with no mounted
+    /// host the entry is completed immediately with that choice, or with a
+    /// cancel when no choice was recorded.
     /// </summary>
     private void CancelEntry(QuasarDialogEntry entry)
     {
         bool completeNow = false;
         lock (_sync)
         {
-            if (!_entries.Contains(entry) || entry.CloseRequested)
+            if (!_entries.Contains(entry))
                 return;
-            entry.RequestedResult = QuasarDialogResult.Cancel();
-            entry.CloseRequested = true;
+
+            // With a host, a recorded close stays in flight and the host will
+            // finish it. With no host, no FinishClose can arrive, so complete
+            // the entry here even when a close was already recorded; otherwise
+            // the caller waits forever for a host that is not there.
+            if (entry.CloseRequested && _hostCount > 0)
+                return;
+
+            if (!entry.CloseRequested)
+            {
+                entry.RequestedResult = QuasarDialogResult.Cancel();
+                entry.CloseRequested = true;
+            }
+
             if (_hostCount == 0)
             {
                 _entries.Remove(entry);
@@ -307,7 +322,7 @@ internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
 
         if (completeNow)
         {
-            entry.Reference.Complete(QuasarDialogResult.Cancel());
+            entry.Reference.Complete(entry.RequestedResult ?? QuasarDialogResult.Cancel());
             entry.Cancellation.Dispose();
         }
         RaiseChanged();

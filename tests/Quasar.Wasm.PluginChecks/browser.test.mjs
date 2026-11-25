@@ -150,7 +150,7 @@ async function check(browser, prefix) {
         // A locked modal must swallow Escape on every press and remain open
         // until a control closes it.
         await page.getByRole("button", { name: "Open locked dialog" }).click();
-        const locked = page.locator("dialog.quasar-dialog").first();
+        const locked = page.locator('dialog.quasar-dialog[aria-label="Locked dialog"]');
         await locked.waitFor({ state: "visible", timeout: 10000 });
         await page.keyboard.press("Escape");
         await page.keyboard.press("Escape");
@@ -173,7 +173,8 @@ async function check(browser, prefix) {
         const modeless = page.locator(".quasar-dialog-modeless").first();
         await modeless.waitFor({ state: "visible", timeout: 10000 });
         await page.getByRole("button", { name: "Toast: Normal" }).click();
-        await page.locator(".quasar-toast").first().waitFor({ state: "visible", timeout: 10000 });
+        await page.locator(".quasar-toast", { hasText: "Native Normal toast from the fixture plugin." })
+            .waitFor({ state: "visible", timeout: 10000 });
         const beforeDrag = await modeless.boundingBox();
         const dragHandle = page.locator(".quasar-dialog-drag-handle").first();
         const handleBox = await dragHandle.boundingBox();
@@ -188,7 +189,7 @@ async function check(browser, prefix) {
         await modeless.waitFor({ state: "hidden", timeout: 10000 });
 
         await page.getByRole("button", { name: "Toast: Success" }).click();
-        const toast = page.locator(".quasar-toast").first();
+        const toast = page.locator(".quasar-toast", { hasText: "Native Success toast from the fixture plugin." });
         await toast.waitFor({ state: "visible", timeout: 10000 });
         assert.equal(await toast.getAttribute("role"), "status");
 

@@ -145,6 +145,12 @@ public interface IQuasarDialogService
     /// <c language="csharp">null</c>. If a choice was already recorded, that choice wins;
     /// cancellation only closes a box that is still open.
     /// </param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="title"/> or <paramref name="message"/> is <c>null</c>.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="title"/> is empty or whitespace.
+    /// </exception>
     /// <returns>
     /// <c language="csharp">true</c> for Yes, <c language="csharp">false</c> for No, and <c language="csharp">null</c> for Cancel,
     /// Escape, a backdrop click, navigation, or a canceled token.

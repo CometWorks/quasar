@@ -376,6 +376,41 @@ public sealed class QuasarDialogServiceTests
         Assert.Null(await task);
     }
 
+    [Fact]
+    public async Task CloseRecordedWithoutHostIsCompletedWhenTokenIsCancelled()
+    {
+        using var service = new QuasarDialogService();
+        using var cancellation = new CancellationTokenSource();
+        var reference = service.Show<TestDialog>(cancellationToken: cancellation.Token);
+        var entry = Assert.Single(service.Entries);
+
+        service.RequestClose(entry, QuasarDialogResult.Ok("recorded"));
+        await cancellation.CancelAsync();
+
+        Assert.Empty(service.Entries);
+        var result = await reference.Result.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(result.Canceled);
+        Assert.Equal("recorded", result.Data);
+    }
+
+    [Fact]
+    public void HostMountedAfterDisposeIsIgnored()
+    {
+        var service = new QuasarDialogService();
+        service.Dispose();
+
+        service.HostMounted();
+    }
+
+    [Fact]
+    public async Task MessageBoxRejectsNullMessage()
+    {
+        using var service = new QuasarDialogService();
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            service.ShowMessageBoxAsync("Question", null!));
+    }
+
     private sealed class TestDialog : IComponent
     {
         public void Attach(RenderHandle renderHandle)
