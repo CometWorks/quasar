@@ -125,7 +125,7 @@ public sealed class WorldSaveFilesTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(() => WorldSaveFiles.FromFolderAsync(Source, Source));
         File.WriteAllText(Path.Combine(Source, "Sandbox.sbc"), "<not-a-world />");
         await Assert.ThrowsAsync<InvalidOperationException>(() => WorldSaveFiles.FromFolderAsync(Source, Staging));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(Staging));
+        Assert.False(Directory.Exists(Staging) && Directory.EnumerateFileSystemEntries(Staging).Any());
     }
 
     [Fact]

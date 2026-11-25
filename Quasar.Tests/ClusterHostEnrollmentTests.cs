@@ -81,10 +81,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
 
     // QSR-27: a Quasar service restart with no cluster left stopped the Host, and the next Quasar kept it
     // stopped until a Hosts page visit, so a script that only waited for the connection waited forever.
-    [Fact]
+    [LinuxFact]
     public async Task LocalHostStartsAgainAfterQuasarStoppedItWithoutClusters()
     {
-        if (!OperatingSystem.IsLinux()) return;
         string binary = FakeHost(Path.Combine(root, "release"));
         string install = Path.Combine(root, "install");
         using var first = LocalHost(binary, install);
@@ -105,10 +104,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         finally { await second.StopAsync(default); }
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task LocalHostStaysStoppedOnAnInstallThatNeverUsedIt()
     {
-        if (!OperatingSystem.IsLinux()) return;
         string binary = FakeHost(Path.Combine(root, "release"));
         using var local = LocalHost(binary, Path.Combine(root, "install"));
         await local.StartAsync(default);
@@ -120,10 +118,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
 
     // The live Host was started by hand without a PID file. A second one exits on the state lock, so Quasar
     // must take over the running one instead of starting another.
-    [Fact]
+    [LinuxFact]
     public async Task LocalHostAdoptsARunningHostWithoutAPidFile()
     {
-        if (!OperatingSystem.IsLinux()) return;
         string binary = FakeHostKeepingCommandLine(Path.Combine(root, "release"));
         string install = Path.Combine(root, "install");
         using var first = LocalHost(binary, install);
@@ -141,10 +138,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         finally { Process(running.Pid)?.Kill(); }
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task LocalHostWaitsForUnrecognizedLockOwnerBeforeLaunching()
     {
-        if (!OperatingSystem.IsLinux()) return;
         string release = Path.Combine(root, "release");
         string binary = FakeHost(release);
         using var local = LocalHost(binary, Path.Combine(root, "install"));
@@ -170,10 +166,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         finally { await local.StopAsync(default); }
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task LocalHostLogsWhyItCannotStartOncePerReason()
     {
-        if (!OperatingSystem.IsLinux()) return;
         var logger = new RecordingLogger();
         using var local = new ClusterLocalHost(hosts, credentials,
             new ClusterHostInstaller(hosts, credentials, Path.Combine(root, "missing-host"), TimeProvider.System),
@@ -188,10 +183,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
     }
 
     // deploy scripts wait on this list; the Hosts page only renders after its browser connection.
-    [Fact]
+    [LinuxFact]
     public async Task HostListApiStartsTheLocalHost()
     {
-        if (!OperatingSystem.IsLinux()) return;
         string binary = FakeHost(Path.Combine(root, "release"));
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
@@ -225,10 +219,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         }
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task LocalHostReportsMissingBinaryWithoutRegistering()
     {
-        if (!OperatingSystem.IsLinux()) return;
         var local = LocalHost(Path.Combine(root, "missing-host"), Path.Combine(root, "install"));
         await local.EnsureRunningAsync(default);
         Assert.Empty(hosts.GetAll());
@@ -237,10 +230,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(root, "install", "LocalHost")));
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task LocalHostCommandReportsLaunchFailureWithoutAnUnhandledException()
     {
-        if (!OperatingSystem.IsLinux()) return;
         var tunnels = new ClusterHostTunnels();
         using var local = LocalHost(Path.Combine(root, "missing-host"), Path.Combine(root, "install"), tunnels: tunnels);
         using var http = new HttpClient(new SocketsHttpHandler { ConnectCallback = tunnels.OpenAsync, UseProxy = false });
@@ -258,10 +250,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         Assert.Null(local.ReadPid());
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task LocalHostConnectionWaitHonorsCallerCancellationAndShutdown()
     {
-        if (!OperatingSystem.IsLinux()) return;
         var tunnels = new ClusterHostTunnels();
         string binary = FakeHost(Path.Combine(root, "release"));
         using var local = LocalHost(binary, Path.Combine(root, "install"), tunnels: tunnels);
@@ -285,10 +276,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         finally { await local.StopAsync(default); }
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task LocalHostCommandWaitsForItsAuthenticatedConnection()
     {
-        if (!OperatingSystem.IsLinux()) return;
         var host = await hosts.RegisterAsync("local", "Local", "127.0.0.1", 18400, default);
         var tunnels = new ClusterHostTunnels();
         string binary = FakeHost(Path.Combine(root, "release"));
@@ -332,12 +322,11 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         }
     }
 
-    [Theory]
+    [LinuxTheory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task LocalHostRestartsWhenItsConnectionConfigurationChangesOrIsUnknown(bool legacyPid)
     {
-        if (!OperatingSystem.IsLinux()) return;
         string install = Path.Combine(root, "install");
         string binary = FakeHost(Path.Combine(root, "release"));
         using var local = LocalHost(binary, install);
@@ -383,10 +372,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         Assert.Equal(first + 2, ClusterLocalHost.SelectCommandPort("/home/a/Quasar", [first], port => port != first + 1));
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task LocalHostRunsFromTheReleaseWithEverythingInTheInstallRoot()
     {
-        if (!OperatingSystem.IsLinux()) return;
         string install = Path.Combine(root, "install");
         string binary = FakeHost(Path.Combine(root, "release-1"));
         var local = LocalHost(binary, install);
@@ -453,12 +441,11 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         try { return System.Diagnostics.Process.GetProcessById(pid); } catch (ArgumentException) { return null; }
     }
 
-    [Theory]
+    [LinuxTheory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task LocalHostKeepsItsRunningClustersOnlyWhenQuasarPreservesServers(bool preserve)
     {
-        if (!OperatingSystem.IsLinux()) return;
         string install = Path.Combine(root, "install");
         string binary = FakeHost(Path.Combine(root, "release"));
         var local = LocalHost(binary, install, preserve: preserve);
@@ -493,10 +480,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         finally { Process(running.Pid)?.Kill(); }
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task SecondInstallGetsItsOwnLocalHost()
     {
-        if (!OperatingSystem.IsLinux()) return;
         string binary = FakeHost(Path.Combine(root, "release"));
         var otherCredentials = new ClusterCredentialStore(new EphemeralDataProtectionProvider(), Path.Combine(root, "second", "cluster-credentials.json"));
         var otherHosts = new ClusterHostCatalog(otherCredentials, Path.Combine(root, "second", "Hosts"));
@@ -525,10 +511,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         }
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task UninstallSavesTheClustersThenStopsOnlyThisInstallsLocalHost()
     {
-        if (!OperatingSystem.IsLinux()) return;
         string home = Path.Combine(root, "home"), fakeBin = Path.Combine(root, "fake-bin"), units = Path.Combine(home, ".config/systemd/user");
         Directory.CreateDirectory(units);
         Directory.CreateDirectory(fakeBin);
@@ -678,7 +663,7 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         Assert.Single(Directory.GetFiles(root, "torn-credentials.json.corrupt-*"));
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task InstallTicketsExpireAndRejectReplayAndReplacedTickets()
     {
         var host = await hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);
@@ -710,10 +695,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         await syntax.WaitForExitAsync(); Assert.Equal(0, syntax.ExitCode);
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task ExistingHostUpgradeKeepsStateAndRollsBackFailedRestart()
     {
-        if (!OperatingSystem.IsLinux()) return;
         var host = await hosts.RegisterAsync("one", "One", "127.0.0.1", 18400, default);
         string binary = Path.Combine(root, "Quasar.Host");
         string home = Path.Combine(root, "home");
@@ -793,7 +777,7 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         Assert.Equal("new", File.ReadAllText(Path.Combine(installed, "Quasar.Host")));
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task InstallerReportsRemoteFailureInsteadOfBrokenPipe()
     {
         var start = new System.Diagnostics.ProcessStartInfo("bash");
@@ -804,10 +788,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         Assert.Contains("Existing Host credentials differ", error.Message);
     }
 
-    [Fact]
+    [LinuxFact]
     public async Task EnrolledUpdaterDownloadsVerifiedHostAndRollsBackFailedRestart()
     {
-        if (!OperatingSystem.IsLinux()) return;
         var host = await hosts.RegisterAsync("one", "One", "127.0.0.1", 18400, default);
         string releaseBinary = Path.Combine(root, "release-host");
         File.WriteAllText(releaseBinary, "verified host release");

@@ -25,7 +25,7 @@ public sealed class WorkerConfigurationTests : IDisposable
 
         var directories = Program.GetConfigurationDirectories(worker + "/", worker, install);
 
-        Assert.Equal([worker, Path.Combine(worker, "WebService"), install], directories);
+        Assert.Equal(new[] { worker, Path.Combine(worker, "WebService"), install }.Select(NormalizePath), directories.Select(NormalizePath));
         var configuration = new ConfigurationBuilder();
         foreach (string directory in directories)
             configuration.AddJsonFile(Path.Combine(directory, "appsettings.json"), optional: true);
@@ -50,7 +50,9 @@ public sealed class WorkerConfigurationTests : IDisposable
         string bin = Path.Combine(project, "bin", "Debug", "net10.0");
         string data = Path.Combine(root, "data");
 
-        Assert.Equal([bin, Path.Combine(bin, "WebService"), project, data],
-            Program.GetConfigurationDirectories(bin, bin, data));
+        Assert.Equal(new[] { bin, Path.Combine(bin, "WebService"), project, data }.Select(NormalizePath),
+            Program.GetConfigurationDirectories(bin, bin, data).Select(NormalizePath));
     }
+
+    private static string NormalizePath(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 }

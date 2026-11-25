@@ -155,7 +155,7 @@ public sealed class ClusterDependencyTests
         // A rebuilt dev-folder plugin changes only the inputs; it must not reuse the active deployment's directory (#1359).
         string a = new('a', 64), b = new('b', 64), spec = "{\"clusterId\":\"demo\"}";
         string active = ClusterUpdatePreparationService.ConfigurationDirectory("/conversions/x/configuration", spec, a);
-        Assert.Equal("/conversions/x", Path.GetDirectoryName(active));
+        Assert.Equal("/conversions/x", Path.GetDirectoryName(active)!.Replace('\\', '/'));
         Assert.StartsWith("config-", Path.GetFileName(active));
         Assert.Equal(active, ClusterUpdatePreparationService.ConfigurationDirectory(active, spec, a));
         Assert.NotEqual(active, ClusterUpdatePreparationService.ConfigurationDirectory(active, spec, b));
@@ -1084,9 +1084,6 @@ public sealed class ClusterDependencyTests
         }
         finally { Directory.Delete(root, true); }
     }
-
-    private sealed class LinuxFactAttribute : FactAttribute
-    { public LinuxFactAttribute() { if (!OperatingSystem.IsLinux()) Skip = "Cluster dependencies require Linux."; } }
 
     private sealed class Fixture : IDisposable
     {

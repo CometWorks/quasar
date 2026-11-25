@@ -764,6 +764,18 @@ public sealed class AccessSetupDialogTests : IDisposable
     public void Dispose()
     {
         _cache.SetValue(null, _previous);
-        if (Directory.Exists(_root)) Directory.Delete(_root, true);
+        // The RBAC file watcher can release its handle just after the test ends.
+        for (var attempt = 0; attempt < 5 && Directory.Exists(_root); attempt++)
+        {
+            try
+            {
+                Directory.Delete(_root, true);
+                return;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException && attempt < 4)
+            {
+                Thread.Sleep(100);
+            }
+        }
     }
 }

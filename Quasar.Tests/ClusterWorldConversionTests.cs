@@ -98,7 +98,7 @@ public sealed class ClusterWorldConversionTests : IDisposable
         Directory.CreateDirectory(Path.Combine(regular, "P-0001"));
         Directory.CreateDirectory(Path.Combine(wa, "GLOBAL"));
         Directory.CreateDirectory(Path.Combine(two, "nodes/spare/data"));
-        Assert.Equal(new[] { regular, wa }, ClusterConversionService.FindSaveStores([one, two]));
+        Assert.Equal(new[] { regular, wa }.Select(Path.GetFullPath), ClusterConversionService.FindSaveStores([one, two]).Select(Path.GetFullPath));
     }
 
     [Fact]
