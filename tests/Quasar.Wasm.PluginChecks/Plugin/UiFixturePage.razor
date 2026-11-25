@@ -1,8 +1,8 @@
 @page "/fixture/ui"
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Web
-@using Quasar.Components.Shared
 @using Quasar.Ui
+@using Quasar.Ui.Components
 @attribute [Authorize(Policy = "CanView")]
 @implements IDisposable
 @inject IQuasarDialogService Dialogs
@@ -33,6 +33,7 @@
             <button type="button" class="quasar-button" @onclick="OpenLongAsync">Open long dialog</button>
             <button type="button" class="quasar-button" @onclick="OpenTwoAsync">Open two dialogs</button>
             <button type="button" class="quasar-button" @onclick="OpenMessageBoxAsync">Open message box</button>
+            <button type="button" class="quasar-button" @onclick="OpenLateDescriptionAsync">Open late description</button>
         </div>
 
         <div class="quasar-row">
@@ -119,6 +120,17 @@
             return;
         _lastResult = $"Message box: {result}";
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OpenLateDescriptionAsync()
+    {
+        await RecordAsync(await Dialogs.ShowAsync<UiFixtureDialog>(
+            "Late description dialog",
+            new QuasarDialogParameters<UiFixtureDialog>
+            {
+                { dialog => dialog.Message, "The description appears after the dialog opens." },
+                { dialog => dialog.LateDescription, true },
+            }));
     }
 
     private void Toast(QuasarSeverity severity) => Toasts.Add($"Native {severity} toast from the fixture plugin.", severity);

@@ -1,7 +1,7 @@
 using Bunit;
 using Microsoft.AspNetCore.Components;
-using Quasar.Components.Shared;
 using Quasar.Ui;
+using Quasar.Ui.Components;
 using Xunit;
 
 namespace Quasar.Tests.Ui;
@@ -91,6 +91,35 @@ public sealed class QuasarInlineNoticeTests
         var notice = cut.Find(".quasar-notice");
         Assert.Contains("custom-notice", notice.ClassList, StringComparer.Ordinal);
         Assert.Equal("margin-top: 4px", notice.GetAttribute("style"));
+    }
+
+    [Fact]
+    public void AdditionalAttributesPassThroughWithoutOverridingComponentAttributes()
+    {
+        using var context = new QuasarBunitContext();
+        using var cut = context.Render<QuasarInlineNotice>(parameters => parameters
+            .Add(p => p.Class, "custom-notice")
+            .Add(p => p.Style, "color: red")
+            .Add(p => p.AdditionalAttributes, new Dictionary<string, object>
+            {
+                ["id"] = "notice-1",
+                ["data-test"] = "notice",
+                ["aria-label"] = "Status",
+                ["class"] = "ignored-class",
+                ["style"] = "color: blue",
+                ["role"] = "presentation",
+                ["aria-atomic"] = "false",
+            }));
+
+        var notice = cut.Find(".quasar-notice");
+        Assert.Equal("notice-1", notice.Id);
+        Assert.Equal("notice", notice.GetAttribute("data-test"));
+        Assert.Equal("Status", notice.GetAttribute("aria-label"));
+        Assert.Contains("custom-notice", notice.ClassList, StringComparer.Ordinal);
+        Assert.DoesNotContain("ignored-class", notice.ClassList, StringComparer.Ordinal);
+        Assert.Equal("color: red", notice.GetAttribute("style"));
+        Assert.Equal("status", notice.GetAttribute("role"));
+        Assert.Equal("true", notice.GetAttribute("aria-atomic"));
     }
 
     [Fact]

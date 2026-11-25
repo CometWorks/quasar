@@ -1,4 +1,4 @@
-namespace Quasar.Components.Shared;
+namespace Quasar.Ui.Components;
 
 /// <summary>Visual treatment for <see cref="QuasarInlineNotice"/>.</summary>
 public enum QuasarInlineNoticeVariant

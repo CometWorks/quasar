@@ -309,6 +309,8 @@
         state.dragCleanup = null;
         state.resizeCleanup?.();
         state.resizeCleanup = null;
+        state.descriptionObserver?.disconnect();
+        state.descriptionObserver = null;
         if (state.locked) {
             state.locked = false;
             unlockScroll();
@@ -339,6 +341,41 @@
     }
 
     /**
+     * Points aria-describedby at the dialog's description element and keeps it
+     * valid when Blazor renders or replaces the body after the dialog opens.
+     * A caller-supplied aria-describedby wins; the host only changes an
+     * attribute it set itself.
+     */
+    function syncDescription(dialog, state) {
+        if (state.notified || !dialog.isConnected)
+            return;
+
+        const description = dialog.querySelector("[data-quasar-dialog-description]");
+        const hasText = description && description.textContent.trim().length > 0;
+        const current = dialog.getAttribute("aria-describedby");
+
+        if (!hasText) {
+            if (state.descriptionId && current === state.descriptionId)
+                dialog.removeAttribute("aria-describedby");
+            state.descriptionId = null;
+            return;
+        }
+
+        if (!description.id || document.getElementById(description.id) !== description) {
+            let id;
+            do {
+                id = "quasar-dialog-description-" + (++nextDescriptionId);
+            } while (document.getElementById(id));
+            description.id = id;
+        }
+
+        if (!current || (state.descriptionId && current === state.descriptionId)) {
+            dialog.setAttribute("aria-describedby", description.id);
+            state.descriptionId = description.id;
+        }
+    }
+
+    /**
      * Wires one native dialog element and opens it.
      *
      * options:
@@ -363,6 +400,8 @@
             pointerDownOutside: false,
             dragCleanup: null,
             resizeCleanup: null,
+            descriptionId: null,
+            descriptionObserver: null,
         };
 
         // Native modal dialogs fire "cancel" for Escape before closing. A
@@ -421,18 +460,14 @@
 
         states.set(dialog, state);
 
-        const description = dialog.querySelector("[data-quasar-dialog-description]");
-        if (description && description.textContent.trim()) {
-            if (!description.id || document.getElementById(description.id) !== description) {
-                let id;
-                do {
-                    id = "quasar-dialog-description-" + (++nextDescriptionId);
-                } while (document.getElementById(id));
-                description.id = id;
-            }
-            if (!dialog.hasAttribute("aria-describedby"))
-                dialog.setAttribute("aria-describedby", description.id);
-        }
+        syncDescription(dialog, state);
+        state.descriptionObserver = new MutationObserver(
+            () => syncDescription(dialog, state));
+        state.descriptionObserver.observe(dialog, {
+            childList: true,
+            characterData: true,
+            subtree: true,
+        });
 
         if (modal) {
             if (options.lockScroll !== false) {

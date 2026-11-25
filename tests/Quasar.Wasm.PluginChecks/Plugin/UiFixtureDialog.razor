@@ -7,6 +7,14 @@
 <div class="quasar-dialog-content">
     <div class="quasar-layout quasar-gap-3">
         <p class="quasar-text">@Message</p>
+        @if (LateDescription)
+        {
+            @if (_descriptionVisible)
+            {
+                <p class="quasar-text" data-quasar-dialog-description>Late description added after open.</p>
+            }
+            <button type="button" class="quasar-button" @onclick="ShowDescription">Add description</button>
+        }
         @if (LongContent)
         {
             @for (var i = 1; i <= 40; i++)
@@ -27,6 +35,12 @@
     [Parameter] public string Message { get; set; } = "Fixture dialog content.";
 
     [Parameter] public bool LongContent { get; set; }
+
+    [Parameter] public bool LateDescription { get; set; }
+
+    private bool _descriptionVisible;
+
+    private void ShowDescription() => _descriptionVisible = true;
 
     private void Confirm() => Dialog.Close(QuasarDialogResult.Ok("confirmed"));
 

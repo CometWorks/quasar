@@ -30,9 +30,10 @@ DLL (QuasarHub passes `QuasarUiAbstractionsAssembly`), injects
 `IQuasarDialogService` or `IQuasarToastService`, and gets focus-managed native
 dialogs, accessible toasts, and the active palette without a MudBlazor or
 `Quasar.Client` reference. The same assembly provides the `QuasarInlineNotice`
-component; add `@using Quasar.Components.Shared` for the component and
+component; add `@using Quasar.Ui.Components` for the component and
 `@using Quasar.Ui` for `QuasarSeverity`, then use it for inline page notices in
-core pages or plugin pages.
+core pages or plugin pages. `AdditionalAttributes` forwards `id`, `data-*`, and
+extra `aria-*`; `Class`, `Style`, `role`, and `aria-atomic` stay component-owned.
 
 `Modal = false` gives a modeless dialog that leaves
 the page interactive and shows a keyboard-operable drag handle by default;
@@ -55,9 +56,9 @@ popover provider. Native controls work inside either dialog mode.
 For simple confirmations, `IQuasarDialogService.ShowMessageBoxAsync` uses the
 same native host and returns `bool?`: `true` for Yes, `false` for No, and
 `null` for Cancel or dismissal. Line breaks in the message are preserved. A
-canceled token is authoritative: it returns `null` even when a button was
-already pressed. Without a mounted dialog host the task stays pending, and
-cancellation cannot complete it until a host renders the dialog.
+cancellation closes the dialog only while it is still open; a button pressed
+before the cancellation wins. Without a mounted dialog host the task stays
+pending until the token is canceled, which completes it with `null`.
 
 A modeless panel with `CloseOnNavigation = false` stays open while the admin
 moves between pages. A plugin can feed it live data from its worker half through

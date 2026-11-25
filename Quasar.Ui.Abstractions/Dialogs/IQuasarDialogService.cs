@@ -142,8 +142,8 @@ public interface IQuasarDialogService
     /// <param name="options">Dialog behavior and appearance overrides. Keep <see cref="QuasarDialogOptions.Modal"/> and <see cref="QuasarDialogOptions.CloseOnNavigation"/> enabled for a blocking confirmation.</param>
     /// <param name="cancellationToken">
     /// Cancels opening the dialog or closes it if already open; the result is
-    /// <c language="csharp">null</c>. A token canceled before the result is observed returns
-    /// <c language="csharp">null</c> even if a button was already pressed.
+    /// <c language="csharp">null</c>. If a choice was already recorded, that choice wins;
+    /// cancellation only closes a box that is still open.
     /// </param>
     /// <returns>
     /// <c language="csharp">true</c> for Yes, <c language="csharp">false</c> for No, and <c language="csharp">null</c> for Cancel,
@@ -167,8 +167,9 @@ public interface IQuasarDialogService
     /// </para>
     /// <para>
     /// The method waits for a rendered Quasar dialog host. Calling it without a
-    /// mounted <c language="csharp">QuasarDialogHost</c> leaves the returned task pending;
-    /// cancellation cannot complete that task until a host renders the dialog.
+    /// mounted <c language="csharp">QuasarDialogHost</c> leaves the returned task pending
+    /// until the token is canceled; cancellation completes it with
+    /// <c language="csharp">null</c>.
     /// </para>
     /// <para>
     /// This member is additive for callers. Custom implementations of this

@@ -28,6 +28,7 @@
     /// </summary>
     protected override void OnInitialized()
     {
+        Dialogs.HostMounted();
         Dialogs.Changed += OnChanged;
         Navigation.LocationChanged += OnLocationChanged;
     }
@@ -54,5 +55,6 @@
     {
         Dialogs.Changed -= OnChanged;
         Navigation.LocationChanged -= OnLocationChanged;
+        Dialogs.HostUnmounted();
     }
 }

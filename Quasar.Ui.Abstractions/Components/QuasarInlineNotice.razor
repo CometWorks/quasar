@@ -1,7 +1,8 @@
-@namespace Quasar.Components.Shared
+@namespace Quasar.Ui.Components
 @using Quasar.Ui
 
-<div class="quasar-notice @VariantClass @SeverityClass @(Dense ? "quasar-notice-dense" : null) @Class"
+<div @attributes="MergedAttributes"
+     class="quasar-notice @VariantClass @SeverityClass @(Dense ? "quasar-notice-dense" : null) @Class"
      style="@Style" role="@AriaRole" aria-atomic="true">@ChildContent</div>
 
 @code {
@@ -40,6 +41,39 @@
     /// CSS can load external URLs and reposition content.
     /// </remarks>
     [Parameter] public string? Style { get; set; }
+
+    /// <summary>
+    /// Additional attributes forwarded to the root element, such as
+    /// <c language="html">id</c>, <c language="html">data-*</c>, or
+    /// <c language="html">aria-label</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c language="html">class</c>, <c language="html">style</c>,
+    /// <c language="html">role</c>, and <c language="html">aria-atomic</c> are
+    /// component-owned; use <see cref="Class"/>, <see cref="Style"/>, and
+    /// <see cref="Severity"/> instead. Values that remain are trusted markup
+    /// attributes from the caller.
+    /// </remarks>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private IReadOnlyDictionary<string, object>? MergedAttributes
+    {
+        get
+        {
+            if (AdditionalAttributes is null || AdditionalAttributes.Count == 0)
+                return null;
+
+            var merged = new Dictionary<string, object>(StringComparer.Ordinal);
+            foreach (var pair in AdditionalAttributes)
+            {
+                if (pair.Key is "class" or "style" or "role" or "aria-atomic")
+                    continue;
+                merged[pair.Key] = pair.Value;
+            }
+            return merged.Count == 0 ? null : merged;
+        }
+    }
 
     private string? VariantClass => Variant switch
     {

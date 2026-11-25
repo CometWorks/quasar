@@ -125,6 +125,28 @@ async function check(browser, prefix) {
         await page.keyboard.press("Escape");
         await sync.waitFor({ state: "hidden", timeout: 10000 });
 
+        // A description rendered after the dialog opens must still become the
+        // accessible description.
+        await page.getByRole("button", { name: "Open late description" }).click();
+        const late = page.locator('dialog.quasar-dialog[aria-label="Late description dialog"]');
+        await late.waitFor({ state: "visible", timeout: 10000 });
+        assert.equal(await late.getAttribute("aria-describedby"), null);
+        await late.getByRole("button", { name: "Add description" }).click();
+        await page.waitForFunction(() => {
+            const dialog = [...document.querySelectorAll("dialog.quasar-dialog")]
+                .find(element => element.getAttribute("aria-label") === "Late description dialog");
+            const id = dialog?.getAttribute("aria-describedby");
+            return (id ? document.getElementById(id)?.textContent : null)
+                ?.includes("Late description added after open.") ?? false;
+        }, null, { timeout: 10000 });
+        const lateDescription = await late.evaluate(element => {
+            const id = element.getAttribute("aria-describedby");
+            return id ? document.getElementById(id)?.textContent ?? null : null;
+        });
+        assert.equal(lateDescription, "Late description added after open.");
+        await page.keyboard.press("Escape");
+        await late.waitFor({ state: "hidden", timeout: 10000 });
+
         // A locked modal must swallow Escape on every press and remain open
         // until a control closes it.
         await page.getByRole("button", { name: "Open locked dialog" }).click();
