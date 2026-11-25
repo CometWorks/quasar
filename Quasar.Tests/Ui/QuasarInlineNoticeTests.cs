@@ -11,7 +11,7 @@ public sealed class QuasarInlineNoticeTests
     [Fact]
     public void RendersContentAndDefaultStatusRole()
     {
-        using var context = new QuasarBunitContext();
+        using var context = CreateContext();
         using var cut = context.Render<QuasarInlineNotice>(parameters => parameters
             .Add(p => p.ChildContent, builder => builder.AddContent(0, "Maintenance starts soon.")));
 
@@ -24,7 +24,7 @@ public sealed class QuasarInlineNoticeTests
     [Fact]
     public void RoleOverridesSeverityDefault()
     {
-        using var context = new QuasarBunitContext();
+        using var context = CreateContext();
         using var cut = context.Render<QuasarInlineNotice>(parameters => parameters
             .Add(p => p.Severity, QuasarSeverity.Warning)
             .Add(p => p.Role, "status"));
@@ -40,7 +40,7 @@ public sealed class QuasarInlineNoticeTests
     [InlineData(QuasarSeverity.Error, "quasar-notice-error", "alert")]
     public void SeverityMapsToClassAndRole(QuasarSeverity severity, string? expectedClass, string expectedRole)
     {
-        using var context = new QuasarBunitContext();
+        using var context = CreateContext();
         using var cut = context.Render<QuasarInlineNotice>(parameters => parameters
             .Add(p => p.Severity, severity));
 
@@ -65,7 +65,7 @@ public sealed class QuasarInlineNoticeTests
     [InlineData(QuasarInlineNoticeVariant.Text, "quasar-notice-text")]
     public void VariantMapsToClass(QuasarInlineNoticeVariant variant, string? expectedClass)
     {
-        using var context = new QuasarBunitContext();
+        using var context = CreateContext();
         using var cut = context.Render<QuasarInlineNotice>(parameters => parameters
             .Add(p => p.Variant, variant));
 
@@ -84,7 +84,7 @@ public sealed class QuasarInlineNoticeTests
     [Fact]
     public void DenseAddsDensityClass()
     {
-        using var context = new QuasarBunitContext();
+        using var context = CreateContext();
         using var cut = context.Render<QuasarInlineNotice>(parameters => parameters
             .Add(p => p.Dense, true));
 
@@ -94,7 +94,7 @@ public sealed class QuasarInlineNoticeTests
     [Fact]
     public void ClassAndStylePassThrough()
     {
-        using var context = new QuasarBunitContext();
+        using var context = CreateContext();
         using var cut = context.Render<QuasarInlineNotice>(parameters => parameters
             .Add(p => p.Severity, QuasarSeverity.Info)
             .Add(p => p.Class, "custom-notice")
@@ -108,7 +108,7 @@ public sealed class QuasarInlineNoticeTests
     [Fact]
     public void AdditionalAttributesPassThroughWithoutOverridingComponentAttributes()
     {
-        using var context = new QuasarBunitContext();
+        using var context = CreateContext();
         using var cut = context.Render<QuasarInlineNotice>(parameters => parameters
             .Add(p => p.Class, "custom-notice")
             .Add(p => p.Style, "color: red")
@@ -137,7 +137,7 @@ public sealed class QuasarInlineNoticeTests
     [Fact]
     public void ClassAndStyleCannotBreakOutOfAttributes()
     {
-        using var context = new QuasarBunitContext();
+        using var context = CreateContext();
         using var cut = context.Render<QuasarInlineNotice>(parameters => parameters
             .Add(p => p.Class, "custom\" onclick=\"alert(1)")
             .Add(p => p.Style, "color:red\" onmouseover=\"alert(1)"));
@@ -147,5 +147,12 @@ public sealed class QuasarInlineNoticeTests
         Assert.Equal("color:red\" onmouseover=\"alert(1)", notice.GetAttribute("style"));
         Assert.False(notice.HasAttribute("onclick"));
         Assert.False(notice.HasAttribute("onmouseover"));
+    }
+
+    private static QuasarBunitContext CreateContext()
+    {
+        var context = new QuasarBunitContext();
+        context.Renderer.SetRendererInfo(new RendererInfo("WebAssembly", true));
+        return context;
     }
 }
