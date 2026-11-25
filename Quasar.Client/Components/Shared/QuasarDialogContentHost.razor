@@ -1,0 +1,38 @@
+@namespace Quasar.Components.Shared
+@using Microsoft.AspNetCore.Components
+@using Quasar.Client.Ui.Dialogs
+
+@*
+    Renders one dialog component and holds its parameter snapshot for the
+    dialog's lifetime.
+
+    QuasarDialogHost re-renders whenever any dialog opens or closes. Without this
+    wrapper, Blazor would call SetParametersAsync on every open dialog during
+    that render, so OnParametersSet/OnParametersSetAsync would repeat work even
+    though the open-time parameters did not change. The wrapper renders once;
+    the dialog component can still re-render itself through StateHasChanged and
+    still receives cascading values.
+
+    Dialog parameters are deliberately a snapshot taken when the dialog opens.
+    For live data, use a service or the component's own state.
+*@
+<DynamicComponent Type="Entry.ComponentType" Parameters="Entry.ComponentParameters" />
+
+@code {
+    /// <summary>The dialog model to render. Supplied by <see cref="QuasarDialogInstanceHost"/>.</summary>
+    [Parameter, EditorRequired] public QuasarDialogEntry Entry { get; set; } = default!;
+
+    private bool _rendered;
+
+    /// <summary>
+    /// Allows the first render only. Later parent renders do not re-apply the
+    /// parameter dictionary to the dialog component.
+    /// </summary>
+    protected override bool ShouldRender() => !_rendered;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+            _rendered = true;
+    }
+}

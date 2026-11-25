@@ -16,7 +16,9 @@ public static class QuasarWebReleaseLayout
     public static string WorkerExecutableFileName =>
         RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "Quasar.exe" : WorkerExecutableName;
 
-    // Web payload files required in every release archive, independent of platform.
+    // Historical baseline: files every complete package has carried since before
+    // the native dialog/toast release. Keep this list stable so older complete
+    // archives remain valid rollback targets.
     public static readonly string[] RequiredWebAssetFiles =
     [
         "wwwroot/_framework/blazor.web.js",
@@ -27,6 +29,19 @@ public static class QuasarWebReleaseLayout
         "wwwroot/quasar-charts.js",
         "wwwroot/lib/uplot/uPlot.min.css",
         "wwwroot/lib/uplot/uPlot.iife.min.js",
+    ];
+
+    // Native dialog/toast and plugin-host assets added in the native UI release.
+    // A package opts in by declaring "webUi": 1 in release.json. Packages without
+    // the marker predate these assets and are validated against the baseline only.
+    public static readonly string[] NativeUiWebAssetFiles =
+    [
+        "wwwroot/quasar-sdk.js",
+        "wwwroot/quasar-push.js",
+        "wwwroot/quasar-ui.css",
+        "wwwroot/quasar-ui.js",
+        "wwwroot/ui-plugins.css",
+        "wwwroot/_quasar/sdk/v1/boot.js",
     ];
 
     public static readonly string[] RequiredRelativeFiles =

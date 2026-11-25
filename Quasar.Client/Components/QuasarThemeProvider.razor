@@ -1,14 +1,20 @@
 @using Microsoft.JSInterop
 @using MudBlazor
+@using Quasar.Components.Shared
 @using Quasar.Models
 @using Quasar.Services
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 
+@* Mud providers remain during the migration. The native dialog and toast
+   hosts live beside them, not inside them, so the two stacks coexist without
+   sharing state or markup. Both hosts are outside the routed page. *@
 <MudThemeProvider Theme="_theme" IsDarkMode="_dark" ObserveSystemDarkModeChange="false" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
+<QuasarDialogHost />
+<QuasarToastHost />
 
 @code {
     [Parameter, EditorRequired] public BrandingSettings Branding { get; set; } = default!;

@@ -1,0 +1,172 @@
+@namespace Quasar.Components.Shared
+@using Microsoft.AspNetCore.Components
+@using Microsoft.JSInterop
+@using Quasar.Client.Ui.Dialogs
+@using Quasar.Ui
+@inject QuasarDialogService Dialogs
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@*
+    One native <dialog> element for one QuasarDialogEntry.
+
+    The browser element is the source of truth for open/closed state. Blazor
+    renders the component inside it, then this host calls quasarUi.dialogs.show
+    once. Closing also runs through JavaScript: the host asks JS to close the
+    element, and the native close event calls back into OnNativeClosedAsync,
+    which lets the service complete the caller's result and remove the entry.
+
+    The drag handle is rendered only for modeless dialogs that still have
+    Draggable enabled. It is keyboard-operable and exists so users can move a
+    modeless panel out of the way without a window manager.
+
+    The resize handle is the standard bottom-right corner grip. It is rendered
+    only for modeless dialogs with Resizable enabled. It is absolutely
+    positioned so it does not take layout space, and it is keyboard-operable.
+
+    The dialog class list is part of the plugin UI contract:
+      quasar-dialog             base surface, sizing, colors, and layout
+      quasar-dialog-width-*     public width class for plugin CSS
+      quasar-dialog-full-width  fill the available width up to the maximum
+      quasar-dialog-modeless    fixed positioning and no backdrop
+      quasar-dialog-resizable   reserves footer padding for the corner grip
+    Caller-supplied Class is appended last so plugin CSS can override.
+*@
+<dialog @ref="_element"
+        class="quasar-dialog @QuasarDialogWidths.ToClass(Entry.Options.MaxWidth) @(Entry.Options.FullWidth ? "quasar-dialog-full-width" : null) @(!Entry.Options.Modal ? "quasar-dialog-modeless" : null) @(!Entry.Options.Modal && Entry.Options.Resizable ? "quasar-dialog-resizable" : null) @Entry.Options.Class"
+        style="@Style"
+        aria-label="@Entry.AriaLabel">
+    @if (!Entry.Options.Modal && Entry.Options.Draggable)
+    {
+        <div class="quasar-dialog-drag-handle" role="group" tabindex="0"
+             aria-roledescription="drag handle"
+             aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown"
+             aria-label="Move dialog. Drag or use the arrow keys." title="Drag to move">
+            <span class="quasar-dialog-drag-grip" aria-hidden="true"></span>
+        </div>
+    }
+    @* The instance is fixed for the dialog's lifetime, so the component can
+       cache it and close itself from any event handler. *@
+    <CascadingValue TValue="IQuasarDialogInstance" Value="Entry.Instance" IsFixed="true">
+        <QuasarDialogContentHost @key="Entry.Id" Entry="Entry" />
+    </CascadingValue>
+    @if (!Entry.Options.Modal && Entry.Options.Resizable)
+    {
+        <div class="quasar-dialog-resize-handle" role="group" tabindex="0"
+             aria-roledescription="resize handle"
+             aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown"
+             aria-label="Resize dialog. Drag or use the arrow keys." title="Drag to resize">
+            <span class="quasar-dialog-resize-grip" aria-hidden="true"></span>
+        </div>
+    }
+</dialog>
+
+@code {
+    /// <summary>The dialog model to render. Supplied by <see cref="QuasarDialogHost"/>.</summary>
+    [Parameter, EditorRequired] public QuasarDialogEntry Entry { get; set; } = default!;
+
+    private ElementReference _element;
+    private DotNetObjectReference<QuasarDialogInstanceHost>? _dotNetReference;
+    private bool _showCalled;
+    private bool _closeSent;
+
+    /// <summary>
+    /// The host writes the maximum width as a variable, then appends the
+    /// caller's style. A caller can therefore override the width or any other
+    /// documented <c>--quasar-dialog-*</c> token.
+    /// </summary>
+    private string Style =>
+        $"--quasar-dialog-max-width:{QuasarDialogWidths.ToCss(Entry.Options.MaxWidth)};{Entry.Options.Style}";
+
+    /// <summary>
+    /// Opens the native dialog on the first render and forwards later close
+    /// requests to JavaScript.
+    /// </summary>
+    /// <remarks>
+    /// A JavaScript failure is treated as a close: finishing the entry keeps
+    /// the caller's result from hanging, and the host removes the broken
+    /// dialog. The close request is sent only once; the native close callback
+    /// completes the handshake.
+    /// </remarks>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetReference = DotNetObjectReference.Create(this);
+            _showCalled = true;
+            try
+            {
+                await JS.InvokeVoidAsync("quasarUi.dialogs.show", _element, new
+                {
+                    // Modal vs modeless is the only branch inside the JS helper.
+                    modal = Entry.Options.Modal,
+                    // Modal dialogs never get drag or resize handles.
+                    draggable = !Entry.Options.Modal && Entry.Options.Draggable,
+                    resizable = !Entry.Options.Modal && Entry.Options.Resizable,
+                    closeOnEscapeKey = Entry.Options.CloseOnEscapeKey,
+                    backdropClick = Entry.Options.BackdropClick,
+                    lockScroll = Entry.Options.LockScroll,
+                    focusDialog = Entry.Options.DefaultFocus == QuasarDialogFocus.Dialog,
+                }, _dotNetReference);
+            }
+            catch (Exception error) when (error is JSException or JSDisconnectedException or InvalidOperationException)
+            {
+                await InvokeAsync(() => Dialogs.FinishClose(Entry.Id));
+                return;
+            }
+        }
+
+        // A caller or the dialog component can request a close before the
+        // first render. Send it in the same pass instead of dropping it.
+        if (Entry.CloseRequested && !_closeSent)
+        {
+            _closeSent = true;
+            try
+            {
+                await JS.InvokeVoidAsync("quasarUi.dialogs.close", _element);
+            }
+            catch (Exception error) when (error is JSException or JSDisconnectedException or InvalidOperationException)
+            {
+                await InvokeAsync(() => Dialogs.FinishClose(Entry.Id));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Called by <c>quasar-ui.js</c> when the native dialog reports
+    /// <c>close</c>, whether from our close request, Escape, or a backdrop
+    /// click. The reason is informational; the service records the result that
+    /// the first close request supplied.
+    /// </summary>
+    [JSInvokable]
+    public Task OnNativeClosedAsync(string? reason)
+    {
+        Dialogs.FinishClose(Entry.Id);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Releases the JS event listeners and the .NET callback reference. Also
+    /// finishes the entry in case the component is removed before the native
+    /// close event arrives.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_showCalled)
+                await JS.InvokeVoidAsync("quasarUi.dialogs.dispose", _element);
+        }
+        catch (Exception error)
+        {
+            // The circuit can already be gone during shutdown. Cleanup must
+            // still run, so the catch is intentionally broad and final.
+            System.Diagnostics.Debug.WriteLine(error);
+        }
+        finally
+        {
+            _dotNetReference?.Dispose();
+            Dialogs.FinishClose(Entry.Id);
+        }
+    }
+}

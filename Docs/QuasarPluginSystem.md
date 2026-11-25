@@ -638,9 +638,13 @@ Suggested zones:
 - `nav.hidden`
 
 The native nav renderer applies auth policies, sort order, and Quasar link
-styling. `Icon` accepts SVG markup or an existing font icon. Retain established
-Material SVG paths instead of taking a dependency on MudBlazor's icon constants.
-The native plugin template demonstrates this with `TemplateIcons.Extension`.
+styling. `Icon` accepts a standard SVG drawing fragment or an existing font icon
+name. The catalog validates SVG fragments once at load; script elements, event
+attributes, and external references are rejected and replaced with a built-in
+icon. Navigation icons are trusted plugin metadata, not administrator- or
+user-supplied data. Retain established Material SVG paths instead of taking a
+dependency on MudBlazor's icon constants. The native plugin template demonstrates
+this with `TemplateIcons.Extension`.
 
 ## Page and Component Replacement
 
@@ -1023,6 +1027,88 @@ their replacement preserves validation, permissions, focus, keyboard operation,
 and busy/error states. Domain-specific surfaces such as Three.js viewers remain
 appropriate uses of custom HTML/CSS.
 
+### Native dialogs and toasts
+
+Quasar 1.7.1 adds a native dialog and toast host with a public contract in
+`Quasar.Ui.Abstractions.dll`. Plugins can opt in without referencing
+`Quasar.Client` or MudBlazor:
+
+- The browser plugin project references `Quasar.Ui.Abstractions.dll` with the
+  worker's published DLL. QuasarHub passes it as
+  `-p:QuasarUiAbstractionsAssembly=<worker>/Quasar.Ui.Abstractions.dll`; a source
+  checkout can use a project reference instead.
+- Inject `IQuasarDialogService` or `IQuasarToastService` in a browser component.
+  `Show<TComponent>` returns the dialog reference immediately and
+  `ShowAsync<TComponent>` is the awaitable convenience overload. Both render the
+  plugin component in a native modal `<dialog>`; the component can inject
+  `IQuasarDialogInstance` to close with a `QuasarDialogResult`. A supplied
+  cancellation token is observed for the dialog's lifetime: canceling before it
+  opens returns a canceled result, and canceling while it is open closes it with
+  a canceled result. Toasts support severity, duration, actions, icons, and
+  interaction-required mode.
+- The host supplies focus trapping, focus return, Escape/backdrop policy, top-layer
+  stacking, scroll locking, accessible roles, and the active palette.
+- Set `QuasarDialogOptions.Modal = false` for a modeless dialog. It uses the
+  native `show()` behavior: no backdrop, no focus trap, no scroll lock, and the
+  page stays interactive. Modeless dialogs show a small drag handle by default;
+  set `Draggable = false` to turn it off. They also show a standard bottom-right
+  resize grip by default; set `Resizable = false` for a fixed-size panel. The
+  dialog keeps its top-left corner while resizing and is clamped to a minimum
+  size and to the viewport. `BackdropClick` and `LockScroll` are ignored while
+  modeless. Both handles are keyboard-operable with the arrow keys.
+- A modeless dialog closes on navigation by default. Set
+  `CloseOnNavigation = false` to keep it open across page changes. The dialog
+  component survives because the host lives in the shell, but the page that
+  opened it is disposed; pass IDs or data, not page-local objects.
+- `IQuasarDialogService` is implemented by the Quasar host. New members are a
+  breaking change only for third-party implementations; plugins should consume
+  the interface, not implement it.
+
+A native modal uses `showModal()`, which makes everything outside the dialog
+inert. MudBlazor selects, menus, autocomplete lists, tooltips, and date pickers
+render their popovers at shell level, so those popovers cannot appear above a
+native modal. Keep Mud popover controls out of native modal dialogs until the
+host provides a dialog-local popover provider; use a modeless dialog or a legacy
+Mud dialog for those controls.
+
+See the [Quasar plugin template](https://github.com/CometWorks/quasar-plugin-template)
+for a complete two-half plugin: a worker adapter, a browser Razor page, a
+reusable dialog component, and a modeless panel that reads a worker operation
+across page navigation. Prefer an `AddQuasarSubscription` stream over polling
+when the core can push changes.
+
+Customization is a documented contract, not a fixed look:
+
+- `QuasarDialogOptions.Class`/`Style` and `QuasarToastOptions.Class`/`Style` apply
+  per invocation. Use a plugin-specific class and scope plugin CSS under it.
+- Public CSS variables include `--quasar-dialog-surface`, `--quasar-dialog-text`,
+  `--quasar-dialog-border`, `--quasar-dialog-divider`,
+  `--quasar-dialog-actions-surface`, `--quasar-dialog-backdrop`,
+  `--quasar-dialog-radius`, `--quasar-dialog-shadow`,
+  `--quasar-dialog-max-width`, `--quasar-dialog-drag-handle-height`,
+  `--quasar-dialog-resize-handle-size`, `--quasar-toast-surface`,
+  `--quasar-toast-text`, `--quasar-toast-border`, `--quasar-toast-radius`,
+  `--quasar-toast-shadow`, `--quasar-toast-width`, and `--quasar-toast-z`.
+- `--quasar-dialog-backdrop` styles the modal backdrop, which covers the whole
+  viewport while that dialog is open. It is not scoped to the dialog surface;
+  use the neutral default unless the plugin intentionally tints the page for
+  that dialog's lifetime.
+- Public classes include `.quasar-dialog`, `.quasar-dialog-header`,
+  `.quasar-dialog-title`, `.quasar-dialog-content`, `.quasar-dialog-actions`,
+  `.quasar-dialog-modeless`, `.quasar-dialog-resizable`,
+  `.quasar-dialog-drag-handle`, `.quasar-dialog-resize-handle`, `.quasar-toast`,
+  `.quasar-toast-icon`, `.quasar-toast-content`, and `.quasar-toast-close`.
+  Plugins that prefer complete control can render native `<dialog>` markup with
+  these classes and inherit the same tokens.
+- The contract is additive-only within a major host version. QuasarHub builds a
+  plugin against the exact DLL from the running worker, so a hub-installed
+  plugin matches the host that built it. A plugin installed manually can still
+  be built against a different contract; the loader does not inspect its
+  assembly versions.
+
+Plugins that do not need the shared hosts keep the existing CSS/native-markup
+path and do not need the `Quasar.Ui.Abstractions` reference.
+
 ## Security and Trust
 
 Quasar UI plugins are not sandboxed. They can execute arbitrary .NET code inside
@@ -1035,6 +1121,12 @@ the Quasar process. Therefore:
   enabling a plugin
 - require admin approval for plugins that replace built-in pages
 - make update diffs visible before applying them
+
+The dialog and toast services are shared by the browser application. A plugin
+can read the toast snapshot, remove another plugin's toast, change the global
+toast host options, and open any concrete `IComponent` with arbitrary
+parameters. This is consistent with the trusted-plugin model; Quasar does not
+isolate plugins from one another.
 
 ## Implementation Phases
 

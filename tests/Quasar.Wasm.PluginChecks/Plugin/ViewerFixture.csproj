@@ -7,4 +7,15 @@
     <PackageReference Include="Microsoft.AspNetCore.Authorization" Version="10.0.14" />
     <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.13" />
   </ItemGroup>
+
+  <ItemGroup Condition="'$(QuasarUiAbstractionsAssembly)' != ''">
+    <Reference Include="Quasar.Ui.Abstractions">
+      <HintPath>$(QuasarUiAbstractionsAssembly)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(QuasarUiAbstractionsAssembly)' == '' and Exists('../../../Quasar.Ui.Abstractions/Quasar.Ui.Abstractions.csproj')">
+    <ProjectReference Include="../../../Quasar.Ui.Abstractions/Quasar.Ui.Abstractions.csproj" Private="false" />
+  </ItemGroup>
 </Project>

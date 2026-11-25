@@ -69,7 +69,7 @@
                 {
                     <MudListItem T="string" OnClick="@(() => NavigateTo(entry.FullPath))">
                         <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
-                            <QuasarIcon Icon="@Icons.Material.Filled.Folder" />
+                            <QuasarIcon Icon="@Icons.Material.Filled.Folder" TrustedMarkup="true" />
                             <p class="quasar-text quasar-type-body2">@entry.Name</p>
                         </div>
                     </MudListItem>
@@ -79,7 +79,7 @@
                     var isSelected = string.Equals(xml.FullPath, _selectedXmlPath, StringComparison.OrdinalIgnoreCase);
                     <MudListItem T="string" OnClick="@(() => SelectXml(xml.FullPath))" Class="@(isSelected ? "mud-selected-item" : string.Empty)">
                         <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
-                            <QuasarIcon Icon="@Icons.Material.Filled.Description" Class="@("quasar-tone-" + ((isSelected ? Color.Primary : Color.Default)).ToString().ToLowerInvariant())" />
+                            <QuasarIcon Icon="@Icons.Material.Filled.Description" TrustedMarkup="true" Class="@("quasar-tone-" + (isSelected ? Color.Primary : Color.Default).ToString().ToLowerInvariant())" />
                             <p class="quasar-text quasar-type-body2">@xml.Name</p>
                             @if (isSelected)
                             {

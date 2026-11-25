@@ -286,7 +286,12 @@ Build-PackagedReadme (Join-Path $RepoDir 'README.md') (Join-Path $ScriptDir 'rea
 # Use the running application's normalized identity, not the NuGet build version.
 $ReleaseVersion = & (Join-Path $PublishDir 'Quasar.exe') --version
 if ($LASTEXITCODE) { throw 'Cannot read the packaged release identity.' }
-@{version=$ReleaseVersion.Trim();updaterProtocol=1;browserTransport=1}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $PackageDir 'release.json') -Encoding utf8
+@{
+    version          = $ReleaseVersion.Trim()
+    updaterProtocol  = 1
+    browserTransport = 1
+    webUi            = 1
+} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $PackageDir 'release.json') -Encoding utf8
 $launcherFiles = Get-ChildItem -LiteralPath $PackageDir -File -Recurse | ForEach-Object {
     $_.FullName.Substring($PackageDir.Length).TrimStart('\', '/').Replace('\', '/')
 } | Where-Object { $_ -notlike 'Updater/*' -and $_ -notin @('appsettings.json', 'service-installation.json', 'launcher-files.txt') } | Sort-Object

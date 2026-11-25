@@ -2,27 +2,39 @@
 @using Microsoft.AspNetCore.Components
 @using Microsoft.JSInterop
 @using Quasar.Client.Components
+@using Quasar.Components.Shared
+@using Quasar.Models
+@using Quasar.Services
 @inject HttpClient Http
 @inject Quasar.Services.ViewerTimeZone ViewerTime
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
 
-@if (_component is null)
-{
-    <p>Loading plugin…</p>
-}
-else
-{
-    <DynamicComponent Type="_component" Parameters="_parameters" />
-}
+<div class="quasar-shell" data-theme="dark" style="@DarkPalette;grid-template-columns:minmax(0,1fr)">
+    @if (_component is null)
+    {
+        <p>Loading plugin…</p>
+    }
+    else
+    {
+        <DynamicComponent Type="_component" Parameters="_parameters" />
+    }
 
-@if (ViewerTime.Resolved)
-{
-    <TimeZoneSettings />
-}
+    @if (ViewerTime.Resolved)
+    {
+        <TimeZoneSettings />
+    }
+
+    <QuasarDialogHost />
+    <QuasarToastHost />
+</div>
 
 @code {
     private Type? _component;
     private readonly Dictionary<string, object> _parameters = new() { ["EntityName"] = "Test grid" };
+
+    private static string DarkPalette =>
+        QuasarTheme.BuildCss(BrandingSettings.Normalize(null).DarkPalette, true);
 
     protected override async Task OnInitializedAsync()
     {
@@ -30,6 +42,9 @@ else
         // Fixed, test-owned artifact. Production must resolve enabled plugins through Quasar.
         var bytes = await Http.GetByteArrayAsync("plugins/ViewerFixture.dll");
         var assembly = Assembly.Load(bytes);
-        _component = assembly.GetType("ViewerFixture.ViewerAction", throwOnError: true);
+        var uiFixture = Navigation.Uri.Contains("ui=1", StringComparison.Ordinal);
+        _component = assembly.GetType(uiFixture ? "ViewerFixture.UiFixturePage" : "ViewerFixture.ViewerAction", throwOnError: true);
+        if (uiFixture)
+            _parameters.Clear();
     }
 }

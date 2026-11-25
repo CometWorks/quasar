@@ -74,7 +74,7 @@
                 {
                     <MudListItem T="FileBrowserEntry" OnClick="@(() => NavigateTo(entry.FullPath))">
                         <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
-                            <QuasarIcon Icon="@(entry.IsWorldFolder ? Icons.Material.Filled.Public : Icons.Material.Filled.Folder)" Class="@("quasar-tone-" + ((entry.IsWorldFolder ? Color.Success : Color.Default)).ToString().ToLowerInvariant())" />
+                            <QuasarIcon Icon="@(entry.IsWorldFolder ? Icons.Material.Filled.Public : Icons.Material.Filled.Folder)" TrustedMarkup="true" Class="@("quasar-tone-" + (entry.IsWorldFolder ? Color.Success : Color.Default).ToString().ToLowerInvariant())" />
                             <p class="quasar-text quasar-type-body2">@entry.Name</p>
                             @if (entry.IsWorldFolder)
                             {

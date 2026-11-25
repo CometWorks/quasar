@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Quasar.Ui.Abstractions</AssemblyName>
+    <RootNamespace>Quasar.Ui</RootNamespace>
+    <PackageId>Quasar.Ui.Abstractions</PackageId>
+    <Description>Public dialog and toast contracts for Quasar dashboard components and UI plugins.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components" Version="10.0.14" />
+  </ItemGroup>
+
+</Project>

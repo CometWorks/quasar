@@ -5,7 +5,7 @@
 
     if (string.IsNullOrWhiteSpace(policy))
     {
-        <NavLink @key="navItem.Href" class="quasar-nav-link" href="@PanelNavigation.PanelUrl(navItem.Href)"><QuasarIcon Icon="@navItem.Icon" />
+        <NavLink @key="navItem.Href" class="quasar-nav-link" href="@PanelNavigation.PanelUrl(navItem.Href)"><QuasarIcon Icon="@navItem.Icon" TrustedMarkup="true" />
             @navItem.Text
         </NavLink>
     }
@@ -13,7 +13,7 @@
     {
         <AuthorizeView @key="navItem.Href" Policy="@policy">
             <Authorized>
-                <NavLink class="quasar-nav-link" href="@PanelNavigation.PanelUrl(navItem.Href)"><QuasarIcon Icon="@navItem.Icon" />
+                <NavLink class="quasar-nav-link" href="@PanelNavigation.PanelUrl(navItem.Href)"><QuasarIcon Icon="@navItem.Icon" TrustedMarkup="true" />
                     @navItem.Text
                 </NavLink>
             </Authorized>

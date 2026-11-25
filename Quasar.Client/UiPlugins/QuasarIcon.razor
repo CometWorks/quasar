@@ -1,15 +1,24 @@
 @namespace Quasar.Components.Shared
-@if (Icon.Contains('<', StringComparison.Ordinal))
+@if ((TrustedMarkup || QuasarIconTrust.IsTrusted(Icon)) && Icon.Contains('<', StringComparison.Ordinal))
 {
     <svg class="quasar-icon @Class" viewBox="0 0 24 24" aria-hidden="true" focusable="false">@((MarkupString)Icon)</svg>
 }
 else
 {
-    @* Legacy UI plugins may contribute an icon-font name rather than SVG paths. *@
+    @* Legacy UI plugins may contribute an icon-font name rather than SVG paths.
+       Untrusted strings fall through here and are encoded as text. *@
     <span class="quasar-icon material-icons @Class" aria-hidden="true">@Icon</span>
 }
 
 @code {
     [Parameter, EditorRequired] public string Icon { get; set; } = string.Empty;
     [Parameter] public string? Class { get; set; }
+
+    /// <summary>
+    /// Enables raw SVG markup for a custom icon. Leave this false for values
+    /// supplied by plugins or other data that crosses a trust boundary; they
+    /// are rendered as text. Compiled-in icon constants are trusted
+    /// automatically.
+    /// </summary>
+    [Parameter] public bool TrustedMarkup { get; set; }
 }

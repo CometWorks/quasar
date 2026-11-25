@@ -7,6 +7,8 @@
   <ItemGroup>
     <ProjectReference Include="../../../Quasar.Client/Quasar.Client.csproj" />
     <Content Include="../../../Quasar/wwwroot/quasar-configs.js" Link="wwwroot/quasar-configs.js" />
+    <Content Include="../../../Quasar/wwwroot/quasar-ui.js" Link="wwwroot/quasar-ui.js" />
+    <Content Include="../../../Quasar/wwwroot/quasar-ui.css" Link="wwwroot/quasar-ui.css" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.13" />
   </ItemGroup>
   <Import Project="../../../Quasar.WebAssembly/BrowserRuntime.props" />

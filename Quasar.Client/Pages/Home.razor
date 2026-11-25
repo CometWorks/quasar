@@ -373,7 +373,7 @@
                         }
                         @if (CurrentSetupStep < 4 && IsSetupStepComplete(CurrentSetupStep))
                         {
-                            <button class="quasar-button quasar-button-primary" type="button" @onclick="GoToNextSetupStep"><QuasarIcon Icon="@Icons.Material.Filled.ArrowForward" />Next</button>
+                            <button class="quasar-button quasar-button-primary" type="button" @onclick="GoToNextSetupStep"><QuasarIcon Icon="@Icons.Material.Filled.ArrowForward" TrustedMarkup="true" />Next</button>
                         }
                     </div>
                 }

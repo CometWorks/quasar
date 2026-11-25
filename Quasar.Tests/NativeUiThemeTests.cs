@@ -18,6 +18,7 @@ using Quasar.Client.Formatting;
 using Quasar.Components.Shared;
 using Quasar.Client.Components;
 using Quasar.Client.Fleet;
+using Quasar.Client.Ui;
 using Quasar.Models;
 using Quasar.Services;
 using Quasar.Services.Analytics;
@@ -56,6 +57,7 @@ public sealed class NativeUiThemeTests
     {
         await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
+        context.Services.AddQuasarUi();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var branding = BrandingSettings.Normalize(null);
         branding.LightPalette.Surface = "#faf0d4";

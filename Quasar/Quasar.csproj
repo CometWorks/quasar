@@ -127,16 +127,37 @@
   </Target>
 
   <Target Name="StageQuasarPluginAbstractionsForPublish" AfterTargets="Publish">
+    <!-- Both contract DLLs and the UI contract XML documentation must sit
+         beside the worker so QuasarHub can pass their exact paths to plugin
+         builds. The XML file is what supplies IntelliSense and the API
+         examples. The single-file publish checks below fail the build instead
+         of shipping an install that cannot build plugins. -->
     <PropertyGroup>
       <_QuasarPluginAbstractionsBuildFile>$(TargetDir)Quasar.Plugin.Abstractions.dll</_QuasarPluginAbstractionsBuildFile>
       <_QuasarPluginAbstractionsPublishFile>$(PublishDir)Quasar.Plugin.Abstractions.dll</_QuasarPluginAbstractionsPublishFile>
+      <_QuasarUiAbstractionsBuildFile>$(TargetDir)Quasar.Ui.Abstractions.dll</_QuasarUiAbstractionsBuildFile>
+      <_QuasarUiAbstractionsPublishFile>$(PublishDir)Quasar.Ui.Abstractions.dll</_QuasarUiAbstractionsPublishFile>
+      <_QuasarUiAbstractionsBuildXml>$(TargetDir)Quasar.Ui.Abstractions.xml</_QuasarUiAbstractionsBuildXml>
+      <_QuasarUiAbstractionsPublishXml>$(PublishDir)Quasar.Ui.Abstractions.xml</_QuasarUiAbstractionsPublishXml>
     </PropertyGroup>
     <Copy SourceFiles="$(_QuasarPluginAbstractionsBuildFile)"
           DestinationFiles="$(_QuasarPluginAbstractionsPublishFile)"
           Condition="Exists('$(_QuasarPluginAbstractionsBuildFile)')"
           SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(_QuasarUiAbstractionsBuildFile)"
+          DestinationFiles="$(_QuasarUiAbstractionsPublishFile)"
+          Condition="Exists('$(_QuasarUiAbstractionsBuildFile)')"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(_QuasarUiAbstractionsBuildXml)"
+          DestinationFiles="$(_QuasarUiAbstractionsPublishXml)"
+          Condition="Exists('$(_QuasarUiAbstractionsBuildXml)')"
+          SkipUnchangedFiles="true" />
     <Error Condition="'$(PublishSingleFile)' == 'true' and !Exists('$(_QuasarPluginAbstractionsPublishFile)')"
            Text="Quasar.Plugin.Abstractions.dll was not staged beside the single-file worker. Quasar UI plugin hub installs require this file." />
+    <Error Condition="'$(PublishSingleFile)' == 'true' and !Exists('$(_QuasarUiAbstractionsPublishFile)')"
+           Text="Quasar.Ui.Abstractions.dll was not staged beside the single-file worker. Quasar UI plugin hub installs require this file." />
+    <Warning Condition="!Exists('$(_QuasarUiAbstractionsPublishXml)')"
+             Text="Quasar.Ui.Abstractions.xml was not staged; plugin IntelliSense for the native dialog/toast contract will be unavailable." />
   </Target>
 
 </Project>

@@ -65,7 +65,13 @@ public sealed partial class QuasarUiPluginCatalog
                     else _loadErrors.Add($"{plugin.Id}: outlet {outlet.TargetKey} must use a component from its declared browserAssembly.");
                 }
             }
-            nav.AddRange(CollectPluginValues(plugin, p => p.Plugin.GetNavItems(), "nav items"));
+            foreach (var item in CollectPluginValues(plugin, p => p.Plugin.GetNavItems(), "nav items"))
+            {
+                var icon = QuasarNavIconSanitizer.Sanitize(item.Icon, out var replaced);
+                if (replaced)
+                    _loadErrors.Add($"{plugin.Id}: nav item '{item.Text}' has an invalid SVG icon; using the built-in fallback.");
+                nav.Add(replaced ? item with { Icon = icon } : item);
+            }
             styles.AddRange(GetStylesheetHrefs(plugin));
         }
         RazorAssemblies = assemblies.ToArray();

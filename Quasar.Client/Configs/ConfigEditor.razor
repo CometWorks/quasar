@@ -653,7 +653,7 @@ else
                                         <MudExpansionPanel Class="configs-expansion-panel mod-dependency-outline-panel" KeepContentAlive="false">
                                             <TitleContent>
                                                 <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
-                                                    <QuasarIcon Icon="@Icons.Material.Filled.AccountTree" />
+                                                    <QuasarIcon Icon="@Icons.Material.Filled.AccountTree" TrustedMarkup="true" />
                                                     <h3 class="quasar-text quasar-type-subtitle2">Dependency outline</h3>
                                                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_modDependencyTreeRows.Count row(s)</MudChip>
                                                 </div>
@@ -670,7 +670,7 @@ else
                                                              @key="GetDependencyTreeRowKey(row, rowIndex)">
                                                             <div class="mod-dependency-tree-guide" aria-hidden="true">
                                                                 <span class="mod-dependency-tree-node">
-                                                                    <QuasarIcon Icon="@GetDependencyTreeIcon(row)" Class="@("quasar-tone-" + (GetDependencyTreeIconColor(row)).ToString().ToLowerInvariant())" />
+                                                                    <QuasarIcon Icon="@GetDependencyTreeIcon(row)" TrustedMarkup="true" Class="@("quasar-tone-" + (GetDependencyTreeIconColor(row)).ToString().ToLowerInvariant())" />
                                                                 </span>
                                                             </div>
                                                             <div class="mod-dependency-tree-content">
@@ -753,7 +753,7 @@ else
                                             <ItemRenderer>
                                                 <div class="mod-load-order-row" role="row" @key="context.WorkshopId">
                                                     <div class="mod-load-order-priority" role="cell">
-                                                        <QuasarIcon Icon="@Icons.Material.Filled.DragIndicator" Class="mod-load-order-drag-icon" />
+                                                        <QuasarIcon Icon="@Icons.Material.Filled.DragIndicator" TrustedMarkup="true" Class="mod-load-order-drag-icon" />
                                                         <span class="quasar-text quasar-type-caption">@GetModLoadOrderLabel(context.WorkshopId)</span>
                                                     </div>
                                                     <div role="cell">
