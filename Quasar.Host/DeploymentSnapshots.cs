@@ -187,10 +187,10 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
             var files = new Dictionary<string, string>(StringComparer.Ordinal);
             var modes = new Dictionary<string, int>(StringComparer.Ordinal);
             var directoryModes = new Dictionary<string, int>(StringComparer.Ordinal);
-            var rate = request.Online ? new ByteRate(request.BytesPerSecond) : null;
             using (var output = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
             {
-                using (var writer = new TarWriter(output, leaveOpen: true))
+                Stream archiveOutput = request.Online ? new PacedArchiveStream(output, request.BytesPerSecond) : output;
+                using (var writer = new TarWriter(archiveOutput, leaveOpen: true))
                 {
                     foreach (string source in directories.Order(StringComparer.Ordinal))
                     {
@@ -206,12 +206,12 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
                     {
                         string relative = Path.GetRelativePath(runtime, source).Replace('\\', '/');
                         if (Skip(relative)) continue;
-                        WriteFile(writer, source, "runtime/" + relative, request.Online, rate, files, modes);
+                        WriteFile(writer, source, "runtime/" + relative, request.Online, files, modes);
                     }
                     if (registry is not null)
                     {
                         string name = "runtime/gateway/registry/" + RegistryFile;
-                        if (!WriteFile(writer, registry, name, false, rate, files, modes)
+                        if (!WriteFile(writer, registry, name, false, files, modes)
                             || !files[name].Equals(request.RegistrySha256, StringComparison.OrdinalIgnoreCase))
                             throw new InvalidDataException("The Gateway's registry copy does not match its checksum.");
                     }
@@ -357,7 +357,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
     }
 
     // False when an online source vanished before it was opened.
-    private static bool WriteFile(TarWriter writer, string source, string name, bool online, ByteRate? rate,
+    private static bool WriteFile(TarWriter writer, string source, string name, bool online,
         Dictionary<string, string> files, Dictionary<string, int> modes)
     {
         FileStream input;
@@ -366,7 +366,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
         using (input)
         {
             int mode = OperatingSystem.IsWindows() ? 448 : (int)File.GetUnixFileMode(input.SafeFileHandle) & 511;
-            using var data = new SnapshotFileStream(input, rate);
+            using var data = new SnapshotFileStream(input);
             writer.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, name) { DataStream = data, Mode = (UnixFileMode)mode });
             if (data.Shrunk) Console.Error.WriteLine($"snapshot: {name} shrank while it was copied; its end is zero-filled.");
             files.Add(name, data.Sha256());
@@ -602,8 +602,8 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
 
 // A source file read once into the archive. Its length is fixed when it is opened: a file that keeps
 // growing is cut there, and one that shrinks is zero-filled to keep the archive valid. The bytes are
-// hashed as they pass and paced to the online byte rate.
-internal sealed class SnapshotFileStream(FileStream source, ByteRate? rate) : Stream
+// hashed as they pass.
+internal sealed class SnapshotFileStream(FileStream source) : Stream
 {
     private readonly long _length = source.Length;
     private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -628,7 +628,6 @@ internal sealed class SnapshotFileStream(FileStream source, ByteRate? rate) : St
         }
         _hash.AppendData(buffer[..read]);
         _position += read;
-        rate?.Pace(read);
         return read;
     }
     internal string Sha256() => Convert.ToHexString(_hash.GetHashAndReset()).ToLowerInvariant();
@@ -640,19 +639,5 @@ internal sealed class SnapshotFileStream(FileStream source, ByteRate? rate) : St
     {
         if (disposing) _hash.Dispose();
         base.Dispose(disposing);
-    }
-}
-
-// Keeps an online copy to its byte rate, so it does not starve the game's own saves of disk bandwidth.
-internal sealed class ByteRate(long bytesPerSecond)
-{
-    private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
-    private long _bytes;
-
-    internal void Pace(int count)
-    {
-        _bytes += count;
-        long ahead = (long)(_bytes * 1000.0 / bytesPerSecond) - _clock.ElapsedMilliseconds;
-        if (ahead > 0) Thread.Sleep(TimeSpan.FromMilliseconds(ahead));
     }
 }

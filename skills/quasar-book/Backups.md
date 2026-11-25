@@ -137,7 +137,7 @@ Take a fresh configuration backup after each Quasar update that changes the majo
 
 ## Cluster backups
 
-Managed clusters follow the **Servers** rule's schedule and retention. A cluster that is proven stopped gets a clean backup. A running cluster is copied without downtime at up to **Running cluster copy rate (MiB/s)** (default 32, range 1 to 4096) and restores to the state of a crash at the start of the copy. Retention always keeps the newest clean backup in addition to the last N. A failed scheduled cluster backup is retried one hour later.
+Managed clusters follow the **Servers** rule's schedule and retention. A cluster that is proven stopped gets a clean backup. A running cluster is copied without downtime at up to **Running cluster copy rate (MiB/s)** (default 32, range 1 to 4096). Each Host counts the full tar archive, including file headers and the manifest. The backup restores to the state of a crash at the start of the copy. Retention always keeps the newest clean backup in addition to the last N. A failed scheduled cluster backup is retried one hour later.
 
 Quasar also backs up a cluster before each managed update and before converting it to a standalone server. It keeps the three newest backups of each of these two kinds; older ones are deleted when a new one is taken. The backup just taken is never deleted, since it is the way back from that update or conversion.
 
