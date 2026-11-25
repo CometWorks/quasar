@@ -1,5 +1,6 @@
 @namespace Quasar.Client.Ui.Dialogs
 @using Microsoft.AspNetCore.Components.Web
+@using Quasar.Components.Shared
 @using Quasar.Ui
 
 @*
@@ -10,17 +11,20 @@
     contains the service contract and the shared QuasarInlineNotice component;
     this message box and its rendering stay in the host client.
 
-    The footer order is Cancel, No, Yes. The No and Cancel buttons are omitted
-    when the caller did not provide their labels. Escape, a backdrop click, or
-    navigation still produce a canceled result (null for the caller), matching
-    the service method's documented behavior.
+    The footer order is Cancel, No, Yes. The No and Cancel footer buttons are
+    omitted when the caller did not provide their labels; the header close
+    button is always shown. The header close button, Escape, a backdrop click,
+    or navigation still produce a canceled result (null for the caller),
+    matching the service method's documented behavior.
 *@
-@if (!string.IsNullOrWhiteSpace(Dialog?.Title))
-{
-    <header class="quasar-dialog-header">
+<header class="quasar-dialog-header">
+    @if (!string.IsNullOrWhiteSpace(Dialog?.Title))
+    {
         <h2 class="quasar-dialog-title">@Dialog?.Title</h2>
-    </header>
-}
+    }
+    <QuasarIconButton Label="Close dialog" Icon="@QuasarIcons.Close"
+                      TrustedMarkup="true" OnClick="Cancel" Class="quasar-dialog-close" />
+</header>
 <div class="quasar-dialog-content">
     <p class="quasar-text quasar-dialog-message" data-quasar-dialog-description>@Message</p>
 </div>
@@ -52,7 +56,10 @@
     /// <summary>Optional secondary button label. Hidden when blank.</summary>
     [Parameter] public string? NoText { get; set; }
 
-    /// <summary>Optional cancel button label. Hidden when blank.</summary>
+    /// <summary>
+    /// Optional cancel button label. The footer button is hidden when blank;
+    /// the header close button is always shown.
+    /// </summary>
     [Parameter] public string? CancelText { get; set; }
 
     private void Yes() => Close(QuasarDialogResult.Ok(true));

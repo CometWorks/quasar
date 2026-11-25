@@ -1,5 +1,6 @@
 using Bunit;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.JSInterop;
@@ -19,6 +20,8 @@ public class QuasarBunitContext : BunitContext
 
     public QuasarBunitContext()
     {
+        // The notice chooses its live-region timing from the renderer mode.
+        Renderer.SetRendererInfo(new RendererInfo("WebAssembly", true));
         Services.AddScoped<ViewerTimeZone>();
         Services.AddQuasarUi();
         // Native dialogs complete when the browser raises the dialog close event.

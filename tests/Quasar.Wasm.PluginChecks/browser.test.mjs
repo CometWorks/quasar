@@ -77,6 +77,10 @@ async function check(browser, prefix) {
         }));
         assert.notEqual(filledColors.left, filledColors.top,
             "Filled notices must keep the severity accent on the left border");
+        const accentNotice = page.locator(".quasar-notice", { hasText: "Accent override notice." });
+        await accentNotice.waitFor({ state: "visible", timeout: 10000 });
+        assert.equal(await accentNotice.evaluate(element => getComputedStyle(element).borderLeftColor),
+            "rgb(1, 2, 3)", "An ancestor --quasar-notice-accent must override the severity accent");
         await page.getByRole("button", { name: "Open basic dialog" }).click();
         const basic = page.locator('dialog.quasar-dialog[aria-label="UI fixture dialog"]');
         await basic.waitFor({ state: "visible", timeout: 10000 });
@@ -100,6 +104,7 @@ async function check(browser, prefix) {
         await page.getByRole("button", { name: "Open message box" }).click();
         const messageBox = page.locator('dialog.quasar-dialog[aria-label="Delete backup?"]');
         await messageBox.waitFor({ state: "visible", timeout: 10000 });
+        await messageBox.getByRole("button", { name: "Close dialog" }).waitFor({ timeout: 10000 });
         const messageText = messageBox.locator("[data-quasar-dialog-description]");
         assert.equal(await messageText.evaluate(element => getComputedStyle(element).whiteSpace),
             "pre-line", "Message box text must preserve line breaks");

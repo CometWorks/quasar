@@ -15,9 +15,21 @@ public sealed class QuasarInlineNoticeTests
         using var cut = context.Render<QuasarInlineNotice>(parameters => parameters
             .Add(p => p.ChildContent, builder => builder.AddContent(0, "Maintenance starts soon.")));
 
-        Assert.Contains("Maintenance starts soon.", cut.Markup, StringComparison.Ordinal);
+        cut.WaitForAssertion(() =>
+            Assert.Contains("Maintenance starts soon.", cut.Markup, StringComparison.Ordinal));
         Assert.Equal("status", cut.Find(".quasar-notice").GetAttribute("role"));
         Assert.Equal("true", cut.Find(".quasar-notice").GetAttribute("aria-atomic"));
+    }
+
+    [Fact]
+    public void RoleOverridesSeverityDefault()
+    {
+        using var context = new QuasarBunitContext();
+        using var cut = context.Render<QuasarInlineNotice>(parameters => parameters
+            .Add(p => p.Severity, QuasarSeverity.Warning)
+            .Add(p => p.Role, "status"));
+
+        Assert.Equal("status", cut.Find(".quasar-notice").GetAttribute("role"));
     }
 
     [Theory]

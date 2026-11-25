@@ -358,11 +358,31 @@ public sealed class QuasarUiHostTests
         var task = dialogs.ShowMessageBoxAsync("Question", "Choose", "OK", cancelText: "Cancel");
         await cut.WaitForAssertionAsync(() =>
         {
-            var labels = cut.FindAll("button").Select(button => button.TextContent.Trim()).ToArray();
+            var labels = cut.FindAll("button")
+                .Select(button => button.TextContent.Trim())
+                .Where(label => label.Length > 0)
+                .ToArray();
             Assert.Equal(["Cancel", "OK"], labels);
         });
 
         await cut.FindAll("button").Single(button => button.TextContent.Trim() == "Cancel").ClickAsync();
+        await cut.WaitForAssertionAsync(() =>
+            Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "quasarUi.dialogs.close"));
+        Assert.Null(await task);
+    }
+
+    [Fact]
+    public async Task MessageBoxHeaderCloseCancels()
+    {
+        using var context = CreateContext();
+        using var cut = context.Render<QuasarDialogHost>();
+        var dialogs = context.Services.GetRequiredService<IQuasarDialogService>();
+
+        var task = dialogs.ShowMessageBoxAsync("Question", "Choose");
+        await cut.WaitForAssertionAsync(() =>
+            Assert.Contains("Choose", cut.Markup, StringComparison.Ordinal));
+
+        await cut.Find("button[aria-label='Close dialog']").ClickAsync();
         await cut.WaitForAssertionAsync(() =>
             Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "quasarUi.dialogs.close"));
         Assert.Null(await task);

@@ -34,6 +34,9 @@ component; add `@using Quasar.Ui.Components` for the component and
 `@using Quasar.Ui` for `QuasarSeverity`, then use it for inline page notices in
 core pages or plugin pages. `AdditionalAttributes` forwards `id`, `data-*`, and
 extra `aria-*`; `Class`, `Style`, `role`, and `aria-atomic` stay component-owned.
+`Role` overrides the severity default; use `Role="status"` for a static warning
+that should not interrupt. The component renders its live region before the
+content, so a dynamically inserted notice can be announced.
 
 `Modal = false` gives a modeless dialog that leaves
 the page interactive and shows a keyboard-operable drag handle by default;
@@ -42,10 +45,10 @@ A cancellation token supplied to `Show`/`ShowAsync` is observed for the dialog's
 lifetime: canceling it before the dialog opens returns a canceled result, and
 canceling it while the dialog is open closes it with a canceled result.
 Per-call `Class`/`Style`, the documented
-`--quasar-dialog-*` and `--quasar-toast-*` tokens, and the public
-`.quasar-dialog`/`.quasar-toast` classes cover plugin-specific styling. Plugins
-that do not use the shared hosts keep the native HTML/CSS path and need no new
-reference.
+`--quasar-dialog-*`, `--quasar-toast-*` and `--quasar-notice-accent` tokens, and
+the public `.quasar-dialog`/`.quasar-toast`/`.quasar-notice` classes cover
+plugin-specific styling. Plugins that do not use the shared hosts keep the
+native HTML/CSS path and need no new reference.
 
 A native modal makes the page behind it inert. MudBlazor selects, menus,
 autocomplete lists, tooltips and date pickers render their popovers at shell
@@ -55,10 +58,12 @@ popover provider. Native controls work inside either dialog mode.
 
 For simple confirmations, `IQuasarDialogService.ShowMessageBoxAsync` uses the
 same native host and returns `bool?`: `true` for Yes, `false` for No, and
-`null` for Cancel or dismissal. Line breaks in the message are preserved. A
-cancellation closes the dialog only while it is still open; a button pressed
-before the cancellation wins. Without a mounted dialog host the task stays
-pending until the token is canceled, which completes it with `null`.
+`null` for Cancel, the header close button, or dismissal. The header close
+button is always shown. Line breaks in the message are preserved. A cancellation
+closes the dialog only while it is still open; a button pressed before the
+cancellation wins. A call made before a host is mounted is queued and completes
+when a host renders and closes it; if no host ever mounts, the task stays pending
+until the token is canceled, which completes it with `null`.
 
 A modeless panel with `CloseOnNavigation = false` stays open while the admin
 moves between pages. A plugin can feed it live data from its worker half through
