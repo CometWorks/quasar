@@ -135,12 +135,16 @@ public interface IQuasarDialogService
     /// Shows a native message box and returns the user's choice.
     /// </summary>
     /// <param name="title">Accessible name and visible title. Must not be blank.</param>
-    /// <param name="message">Plain-text message. It is rendered as text, not HTML.</param>
+    /// <param name="message">Plain-text message. It is rendered as text, not HTML; line breaks are preserved.</param>
     /// <param name="yesText">Label for the primary button. The primary button is always shown; blank values fall back to <c language="csharp">OK</c>.</param>
     /// <param name="noText">Optional label for the secondary button. When omitted or blank, no button is shown.</param>
     /// <param name="cancelText">Optional label for the cancel button. When omitted or blank, no button is shown; Escape and backdrop dismissal still return <c language="csharp">null</c>.</param>
     /// <param name="options">Dialog behavior and appearance overrides. Keep <see cref="QuasarDialogOptions.Modal"/> and <see cref="QuasarDialogOptions.CloseOnNavigation"/> enabled for a blocking confirmation.</param>
-    /// <param name="cancellationToken">Cancels opening the dialog or closes it if already open; the result is <c language="csharp">null</c>.</param>
+    /// <param name="cancellationToken">
+    /// Cancels opening the dialog or closes it if already open; the result is
+    /// <c language="csharp">null</c>. A token canceled before the result is observed returns
+    /// <c language="csharp">null</c> even if a button was already pressed.
+    /// </param>
     /// <returns>
     /// <c language="csharp">true</c> for Yes, <c language="csharp">false</c> for No, and <c language="csharp">null</c> for Cancel,
     /// Escape, a backdrop click, navigation, or a canceled token.
@@ -157,8 +161,14 @@ public interface IQuasarDialogService
     /// message needs rich content, validation, or more than three choices.
     /// </para>
     /// <para>
+    /// With no <paramref name="noText"/> or <paramref name="cancelText"/>, the
+    /// box has a single primary button. It is a confirmation, not a notification;
+    /// use <see cref="IQuasarToastService"/> for non-blocking messages.
+    /// </para>
+    /// <para>
     /// The method waits for a rendered Quasar dialog host. Calling it without a
-    /// mounted <c language="csharp">QuasarDialogHost</c> leaves the returned task pending.
+    /// mounted <c language="csharp">QuasarDialogHost</c> leaves the returned task pending;
+    /// cancellation cannot complete that task until a host renders the dialog.
     /// </para>
     /// <para>
     /// This member is additive for callers. Custom implementations of this

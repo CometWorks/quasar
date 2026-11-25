@@ -67,11 +67,21 @@ async function check(browser, prefix) {
         await page.goto("https://panel.invalid" + prefix + "?ui=1");
         await page.getByText("UI fixture (test plugin)").waitFor({ timeout: 15000 });
         await page.getByText("Native inline notice rendered by the fixture plugin.").waitFor({ timeout: 10000 });
+        const filledNotice = page.locator(".quasar-notice-filled", {
+            hasText: "Filled warning notice rendered by the fixture plugin.",
+        });
+        await filledNotice.waitFor({ state: "visible", timeout: 10000 });
+        const filledColors = await filledNotice.evaluate(element => ({
+            left: getComputedStyle(element).borderLeftColor,
+            top: getComputedStyle(element).borderTopColor,
+        }));
+        assert.notEqual(filledColors.left, filledColors.top,
+            "Filled notices must keep the severity accent on the left border");
         await page.getByRole("button", { name: "Open basic dialog" }).click();
-        const surface = page.locator("dialog.quasar-dialog").first();
-        await surface.waitFor({ state: "visible", timeout: 10000 });
-        assert.equal(await surface.evaluate(element => element.open), true);
-        const surfaceColors = await surface.evaluate(element => {
+        const basic = page.locator('dialog.quasar-dialog[aria-label="UI fixture dialog"]');
+        await basic.waitFor({ state: "visible", timeout: 10000 });
+        assert.equal(await basic.evaluate(element => element.open), true);
+        const surfaceColors = await basic.evaluate(element => {
             const probe = document.createElement("span");
             probe.style.display = "none";
             probe.style.background = "var(--quasar-dialog-surface)";
@@ -85,12 +95,15 @@ async function check(browser, prefix) {
             `Dialog must use the resolved surface token; got ${surfaceColors.actual}`);
         assert.notEqual(surfaceColors.actual, "rgba(0, 0, 0, 0)");
         await page.keyboard.press("Escape");
-        await surface.waitFor({ state: "hidden", timeout: 10000 });
+        await basic.waitFor({ state: "hidden", timeout: 10000 });
 
         await page.getByRole("button", { name: "Open message box" }).click();
-        await surface.waitFor({ state: "visible", timeout: 10000 });
-        assert.equal(await surface.getAttribute("aria-label"), "Delete backup?");
-        const description = await surface.evaluate(element => {
+        const messageBox = page.locator('dialog.quasar-dialog[aria-label="Delete backup?"]');
+        await messageBox.waitFor({ state: "visible", timeout: 10000 });
+        const messageText = messageBox.locator("[data-quasar-dialog-description]");
+        assert.equal(await messageText.evaluate(element => getComputedStyle(element).whiteSpace),
+            "pre-line", "Message box text must preserve line breaks");
+        const description = await messageBox.evaluate(element => {
             const id = element.getAttribute("aria-describedby");
             const target = id ? document.getElementById(id) : null;
             return {
@@ -102,14 +115,15 @@ async function check(browser, prefix) {
         assert.ok(description.id);
         assert.equal(description.owned, true);
         assert.equal(description.text, "Permanently delete it?");
-        await page.getByRole("button", { name: "Delete", exact: true }).click();
+        await messageBox.getByRole("button", { name: "Delete", exact: true }).click();
         await page.getByText("Message box: True").waitFor({ timeout: 5000 });
 
         await page.getByRole("button", { name: "Open sync dialog" }).click();
-        await surface.waitFor({ state: "visible", timeout: 10000 });
-        assert.equal(await surface.evaluate(element => element.open), true);
+        const sync = page.locator('dialog.quasar-dialog[aria-label="Sync dialog"]');
+        await sync.waitFor({ state: "visible", timeout: 10000 });
+        assert.equal(await sync.evaluate(element => element.open), true);
         await page.keyboard.press("Escape");
-        await surface.waitFor({ state: "hidden", timeout: 10000 });
+        await sync.waitFor({ state: "hidden", timeout: 10000 });
 
         // A locked modal must swallow Escape on every press and remain open
         // until a control closes it.

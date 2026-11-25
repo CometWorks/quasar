@@ -1036,7 +1036,11 @@ Quasar 1.7.1 adds a native dialog and toast host with a public contract in
 - The browser plugin project references `Quasar.Ui.Abstractions.dll` with the
   worker's published DLL. QuasarHub passes it as
   `-p:QuasarUiAbstractionsAssembly=<worker>/Quasar.Ui.Abstractions.dll`; a source
-  checkout can use a project reference instead.
+  checkout can use a project reference instead. The assembly is a Razor class
+  library. A raw DLL reference does not import static web assets or implicit
+  framework references; the notice component currently has no static assets, but
+  a future `wwwroot` or scoped CSS would need a project reference or an explicit
+  import.
 - Inject `IQuasarDialogService` or `IQuasarToastService` in a browser component.
   `Show<TComponent>` returns the dialog reference immediately;
   `ShowAsync<TComponent>` returns the same reference as an awaitable task.
@@ -1053,8 +1057,14 @@ Quasar 1.7.1 adds a native dialog and toast host with a public contract in
   `noText` or `cancelText` to hide that button. It renders the built-in native
   message box and does not reference MudBlazor. Keep `Modal` and
   `CloseOnNavigation` enabled for a blocking confirmation; the primary button is
-  always shown. A canceled token also closes a box that is already open. Use
+  always shown. Line breaks in `message` are preserved. With no `noText` or
+  `cancelText`, the box has one primary button; it is a confirmation, not a
+  notification. A canceled token also closes a box that is already open. Use
   `ShowAsync<TComponent>` for rich content or more than three choices.
+- A canceled token is authoritative: if it is canceled before the result is
+  observed, the result is `null` even when a button was pressed. Calling the
+  message box without a mounted dialog host leaves the task pending; cancellation
+  cannot complete it until a host renders the dialog.
 - The host supplies focus trapping, focus return, Escape/backdrop policy, top-layer
   stacking, scroll locking, accessible roles, and the active palette.
 - Set `QuasarDialogOptions.Modal = false` for a modeless dialog. It uses the
@@ -1073,9 +1083,10 @@ Quasar 1.7.1 adds a native dialog and toast host with a public contract in
   breaking change only for third-party implementations; plugins should consume
   the interface, not implement it.
 - `QuasarInlineNotice` is also in `Quasar.Ui.Abstractions.dll`, so dashboard and
-  plugin browser pages use the same native notice component. It supports
+  plugin browser pages can use the same native notice component. It supports
   `Severity`, `Variant` (Outlined/Filled/Text), `Dense`, `Class`, `Style`, and
-  automatic `status`/`alert` roles. Add `@using Quasar.Components.Shared` to use it.
+  automatic `status`/`alert` roles. Add `@using Quasar.Components.Shared` for the
+  component and `@using Quasar.Ui` for `QuasarSeverity`.
 
 A native modal uses `showModal()`, which makes everything outside the dialog
 inert. MudBlazor selects, menus, autocomplete lists, tooltips, and date pickers
@@ -1117,6 +1128,10 @@ Customization is a documented contract, not a fixed look:
   `.quasar-notice-text`, and `.quasar-notice-dense`.
   Plugins that prefer complete control can render native `<dialog>` markup with
   these classes and inherit the same tokens.
+- A dialog body element marked `data-quasar-dialog-description` becomes the
+  dialog's `aria-describedby` target. The hook is read when the dialog opens;
+  provide the description element in the first render. The built-in message box
+  uses it for the message body.
 - The contract is additive-only within a major host version. QuasarHub builds a
   plugin against the exact DLL from the running worker, so a hub-installed
   plugin matches the host that built it. A plugin installed manually can still

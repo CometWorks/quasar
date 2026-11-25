@@ -209,7 +209,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-notice-error { --quasar-notice-accent: var(--quasar-palette-error); }
 .quasar-notice-warning { --quasar-notice-accent: var(--quasar-palette-warning); }
 .quasar-notice-success { --quasar-notice-accent: var(--quasar-palette-success); }
-.quasar-notice-filled { border-color: color-mix(in srgb, var(--quasar-notice-accent) 35%, var(--quasar-palette-lines-default)); background: color-mix(in srgb, var(--quasar-notice-accent) 12%, var(--quasar-palette-surface)); }
+.quasar-notice-filled { border-top-color: color-mix(in srgb, var(--quasar-notice-accent) 35%, var(--quasar-palette-lines-default)); border-right-color: color-mix(in srgb, var(--quasar-notice-accent) 35%, var(--quasar-palette-lines-default)); border-bottom-color: color-mix(in srgb, var(--quasar-notice-accent) 35%, var(--quasar-palette-lines-default)); background: color-mix(in srgb, var(--quasar-notice-accent) 12%, var(--quasar-palette-surface)); }
 .quasar-notice-text { padding: 0; margin-bottom: 8px; border: 0; background: transparent; }
 .quasar-notice-dense { padding: 8px 11px; margin-bottom: 10px; }
 .quasar-notice-text.quasar-notice-dense { padding: 0; margin-bottom: 6px; }
@@ -1018,6 +1018,12 @@ html.quasar-dialog-open {
     padding: 20px 22px;
     overflow: auto;
     overscroll-behavior: contain;
+}
+
+/* Plain-text message bodies preserve the caller's line breaks while still
+   collapsing runs of spaces, which is what confirmation text expects. */
+.quasar-dialog-message {
+    white-space: pre-line;
 }
 
 /* Footer: stays visible while the body scrolls. The muted surface separates

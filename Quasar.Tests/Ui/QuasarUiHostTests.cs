@@ -341,9 +341,10 @@ public sealed class QuasarUiHostTests
             Assert.Empty(cut.FindAll("b"));
             Assert.Equal("<img src=x onerror=alert(1)>", cut.Find("dialog").GetAttribute("aria-label"));
             Assert.Equal("<img src=x onerror=alert(1)>", cut.Find("h2.quasar-dialog-title").TextContent);
-            Assert.Equal("<script>alert(1)</script>", cut.Find("p[data-quasar-dialog-description]").TextContent);
+            var description = cut.Find("p[data-quasar-dialog-description]");
+            Assert.Equal("<script>alert(1)</script>", description.TextContent);
+            Assert.Contains("quasar-dialog-message", description.ClassList, StringComparer.Ordinal);
             Assert.Contains(cut.FindAll("button"), button => button.TextContent.Trim() == "<b>Yes</b>");
-            Assert.NotNull(cut.Find("p[data-quasar-dialog-description]"));
         });
     }
 

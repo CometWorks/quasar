@@ -422,7 +422,7 @@
         states.set(dialog, state);
 
         const description = dialog.querySelector("[data-quasar-dialog-description]");
-        if (description) {
+        if (description && description.textContent.trim()) {
             if (!description.id || document.getElementById(description.id) !== description) {
                 let id;
                 do {
