@@ -487,12 +487,12 @@ public sealed class ClusterConversionTests : IDisposable
     {
         string steamCmd = Path.Combine(root, "SteamCMD"), home = Path.Combine(root, "home");
         Assert.Null(ClusterSteamClientLibrary.FindSource(steamCmd, home));
-        Directory.CreateDirectory(Path.Combine(home, ".steam/sdk64"));
-        File.WriteAllText(Path.Combine(home, ".steam/sdk64/steamclient.so"), "account");
-        Assert.Equal(Path.Combine(home, ".steam/sdk64/steamclient.so"), ClusterSteamClientLibrary.FindSource(steamCmd, home));
+        Directory.CreateDirectory(Path.Combine(home, ".steam", "sdk64"));
+        File.WriteAllText(Path.Combine(home, ".steam", "sdk64", "steamclient.so"), "account");
+        Assert.Equal(Path.Combine(home, ".steam", "sdk64", "steamclient.so"), ClusterSteamClientLibrary.FindSource(steamCmd, home));
         Directory.CreateDirectory(Path.Combine(steamCmd, "linux64"));
-        File.WriteAllText(Path.Combine(steamCmd, "linux64/steamclient.so"), "managed");
-        Assert.Equal(Path.Combine(steamCmd, "linux64/steamclient.so"), ClusterSteamClientLibrary.FindSource(steamCmd, home));
+        File.WriteAllText(Path.Combine(steamCmd, "linux64", "steamclient.so"), "managed");
+        Assert.Equal(Path.Combine(steamCmd, "linux64", "steamclient.so"), ClusterSteamClientLibrary.FindSource(steamCmd, home));
         // Direct Transport only: no Host call at all (a null client would throw).
         Assert.Null(await ClusterSteamClientLibrary.ProvisionAsync(null!, new() { UniqueName = "demo" },
             ClusterTestFrontend.Create("127.0.0.1:31600", "true"), null, default));

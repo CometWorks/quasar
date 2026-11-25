@@ -61,7 +61,8 @@ public sealed class QuasarPlayerLinksTests : IDisposable
         var links = new QuasarPlayerLinks(path);
         Assert.Empty(links.GetLinks());
         Directory.CreateDirectory(path);
-        await Assert.ThrowsAnyAsync<IOException>(() => links.AuthenticateAsync(Pilot, "111"));
+        var error = await Assert.ThrowsAnyAsync<Exception>(() => links.AuthenticateAsync(Pilot, "111"));
+        Assert.True(error is IOException or UnauthorizedAccessException, error.GetType().Name);
         Assert.Null(links.FindBySteamId(Pilot));
     }
 

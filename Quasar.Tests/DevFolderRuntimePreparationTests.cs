@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using System.Xml.Linq;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.DataProtection;
@@ -115,7 +116,10 @@ public sealed class DevFolderRuntimePreparationTests : IDisposable
 
         // Older releases stored the folder name as the dev folder's id.
         File.WriteAllText(Path.Combine(_root, "dev-folders.json"),
-            $$"""[{ "name": "Octahedron", "folderPath": "{{folder}}", "dataFile": "Octahedron.xml", "pluginId": "plugin", "debugBuild": true }]""");
+            JsonSerializer.Serialize(new[]
+            {
+                new { name = "Octahedron", folderPath = folder, dataFile = "Octahedron.xml", pluginId = "plugin", debugBuild = true },
+            }, JsonSerializerOptions.Web));
         var devFolders = new QuasarDevFolderCatalog(NullLogger<QuasarDevFolderCatalog>.Instance);
         Assert.Equal(manifestId, Assert.Single(devFolders.GetDevFolders()).PluginId);
         using var migrated = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance, devFolders);

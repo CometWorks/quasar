@@ -376,16 +376,6 @@ public sealed class ClusterPackageTests
         Assert.Empty(Directory.GetFileSystemEntries(fixture.Root));
     }
 
-    private sealed class LinuxFactAttribute : FactAttribute
-    {
-        public LinuxFactAttribute() { if (!OperatingSystem.IsLinux()) Skip = "Cluster packages require Linux."; }
-    }
-
-    private sealed class LinuxTheoryAttribute : TheoryAttribute
-    {
-        public LinuxTheoryAttribute() { if (!OperatingSystem.IsLinux()) Skip = "Cluster packages require Linux."; }
-    }
-
     internal static byte[] CreateArchive(TarEntry? extra = null, string? omitted = null, bool wrongManifest = false)
     {
         using var output = new MemoryStream();
