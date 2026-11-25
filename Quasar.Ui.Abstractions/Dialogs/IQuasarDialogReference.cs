@@ -15,6 +15,9 @@ namespace Quasar.Ui;
 /// <see cref="Result"/> after the browser reports the native close event. This
 /// two-phase close keeps the DOM and the Blazor render tree in sync. Repeated
 /// close requests are ignored, and <see cref="Result"/> completes exactly once.
+/// With no mounted dialog host there is no native dialog to close, so
+/// <see cref="Close"/> or <see cref="Cancel"/> completes <see cref="Result"/>
+/// immediately.
 /// </para>
 /// <para>
 /// If the application is disposed, every open dialog is completed as canceled,

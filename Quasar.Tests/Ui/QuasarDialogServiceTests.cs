@@ -11,6 +11,7 @@ public sealed class QuasarDialogServiceTests
     public async Task ShowAddsEntryAndCloseCompletesResultOnce()
     {
         using var service = new QuasarDialogService();
+        service.HostMounted();
         var reference = await service.ShowAsync<TestDialog>("Test dialog");
 
         Assert.Single(service.Entries);
@@ -391,6 +392,32 @@ public sealed class QuasarDialogServiceTests
         var result = await reference.Result.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.False(result.Canceled);
         Assert.Equal("recorded", result.Data);
+    }
+
+    [Fact]
+    public async Task CloseWithoutHostCompletesImmediately()
+    {
+        using var service = new QuasarDialogService();
+        var reference = service.Show<TestDialog>();
+
+        reference.Close(QuasarDialogResult.Ok("closed"));
+
+        Assert.Empty(service.Entries);
+        var result = await reference.Result.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(result.Canceled);
+        Assert.Equal("closed", result.Data);
+    }
+
+    [Fact]
+    public async Task CancelWithoutHostCompletesImmediately()
+    {
+        using var service = new QuasarDialogService();
+        var reference = service.Show<TestDialog>();
+
+        reference.Cancel();
+
+        Assert.Empty(service.Entries);
+        Assert.True((await reference.Result.WaitAsync(TimeSpan.FromSeconds(2))).Canceled);
     }
 
     [Fact]

@@ -31,9 +31,9 @@ namespace Quasar.Client.Ui.Dialogs;
 /// whole lifetime. Cancellation before the entry is queued returns a canceled
 /// reference without rendering. Cancellation afterwards requests a close through
 /// the same two-phase path as <see cref="IQuasarDialogReference.Cancel"/>. If no
-/// dialog host is mounted, cancellation completes the entry immediately instead
-/// of leaving the caller waiting. The registration is disposed when the dialog
-/// finishes closing or the service is disposed.
+/// dialog host is mounted, cancellation or a caller-requested close completes
+/// the entry immediately instead of leaving the caller waiting. The registration
+/// is disposed when the dialog finishes closing or the service is disposed.
 /// </para>
 /// </remarks>
 internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
@@ -206,10 +206,12 @@ internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
 
     /// <summary>
     /// Records a caller-requested close. The native close event is handled
-    /// later by <see cref="FinishClose"/>.
+    /// later by <see cref="FinishClose"/>. With no mounted host, no native close
+    /// can arrive, so the entry is completed immediately.
     /// </summary>
     internal void RequestClose(QuasarDialogEntry entry, QuasarDialogResult? result)
     {
+        bool completeNow = false;
         lock (_sync)
         {
             // Ignore repeated requests from the close button, Escape, a backdrop
@@ -218,8 +220,18 @@ internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
                 return;
             entry.RequestedResult = result ?? QuasarDialogResult.Cancel();
             entry.CloseRequested = true;
+            if (_hostCount == 0)
+            {
+                _entries.Remove(entry);
+                completeNow = true;
+            }
         }
 
+        if (completeNow)
+        {
+            entry.Reference.Complete(entry.RequestedResult ?? QuasarDialogResult.Cancel());
+            entry.Cancellation.Dispose();
+        }
         RaiseChanged();
     }
 
