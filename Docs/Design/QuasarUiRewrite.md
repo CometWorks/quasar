@@ -211,6 +211,9 @@ need an explicitly requested smoketest.
 
 ## Remaining workflow inventory
 
+The component-level inventory and phased removal plan are in
+[MudBlazor removal plan](MudBlazorRemovalPlan.md).
+
 | Area | Work remaining |
 | --- | --- |
 | Shared infrastructure | Native dialog and toast hosts, `Quasar.Ui.Abstractions`, and plugin build wiring are delivered; migrate the remaining `IDialogService`/`ISnackbar` consumers and installed plugins. |
