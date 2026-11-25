@@ -20,12 +20,13 @@ public class QuasarBunitContext : BunitContext
 
     public QuasarBunitContext()
     {
-        // The notice chooses its live-region timing from the renderer mode.
-        Renderer.SetRendererInfo(new RendererInfo("WebAssembly", true));
         Services.AddScoped<ViewerTimeZone>();
         Services.AddQuasarUi();
         // Native dialogs complete when the browser raises the dialog close event.
         // bUnit has no browser event loop, so emulate that callback for tests.
         Services.AddScoped<IJSRuntime>(_ => new QuasarDialogJsRuntime(JSInterop.JSRuntime));
+        // Set this only after every service is registered: setting it initializes
+        // bUnit's service provider, and later registrations would throw.
+        Renderer.SetRendererInfo(new RendererInfo("WebAssembly", true));
     }
 }
