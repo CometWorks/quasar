@@ -216,7 +216,7 @@ build_packaged_readme "$REPO_DIR/README.md" "$SCRIPT_DIR/readme-install-linux.md
 chmod +x "$PACKAGE_DIR/Quasar" "$PACKAGE_DIR/install.sh" "$PACKAGE_DIR/uninstall.sh" "$PACKAGE_DIR/install-gui.sh" "$PACKAGE_DIR/Install.desktop"
 # Public release identity differs from the NuGet-compatible build version.
 RELEASE_VERSION="$("$PUBLISH_DIR/Quasar" --version)"
-printf '{"version":"%s","updaterProtocol":1,"browserTransport":1}\n' "$RELEASE_VERSION" > "$PACKAGE_DIR/release.json"
+printf '{"version":"%s","updaterProtocol":1,"browserTransport":1,"webUi":1}\n' "$RELEASE_VERSION" > "$PACKAGE_DIR/release.json"
 (cd "$PACKAGE_DIR"; find . -type f ! -path './Updater/*' ! -name appsettings.json ! -name service-installation.json ! -name launcher-files.txt -printf '%P\n' | LC_ALL=C sort > launcher-files.txt)
 tar -C "$ARTIFACT_DIR" -czf "$ARTIFACT_DIR/$PACKAGE_ARCHIVE_NAME" "$PACKAGE_ROOT_NAME"
 

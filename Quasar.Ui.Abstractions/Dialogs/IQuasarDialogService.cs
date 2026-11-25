@@ -28,6 +28,18 @@ namespace Quasar.Ui;
 /// <see cref="ShowAsync{TComponent}"/> is a convenience wrapper with the same
 /// behavior.
 /// </para>
+/// <para>
+/// Cancellation is observed for the dialog's whole lifetime. Cancellation before
+/// the dialog is queued returns a canceled reference without rendering;
+/// cancellation after it opens closes the dialog with a canceled result. The
+/// <see cref="IQuasarDialogReference.Cancel"/> method remains available when no
+/// token is used.
+/// </para>
+/// <para>
+/// Quasar implements this interface. Adding members is a breaking change for
+/// third-party implementations but not for callers; plugins should consume the
+/// interface rather than implement it.
+/// </para>
 /// </remarks>
 /// <example>
 /// <code language="csharp">
@@ -53,7 +65,9 @@ public interface IQuasarDialogService
     /// Use this overload when the caller does not need to await the open
     /// operation. The dialog result remains asynchronous through
     /// <see cref="IQuasarDialogReference.Result"/>. A modeless dialog is
-    /// requested through <see cref="QuasarDialogOptions.Modal"/>.
+    /// requested through <see cref="QuasarDialogOptions.Modal"/>. Cancellation
+    /// before the dialog is queued returns a canceled reference; cancellation
+    /// after it opens closes the dialog with a canceled result.
     /// </remarks>
     IQuasarDialogReference Show<TComponent>(
         string? title = null,
@@ -69,6 +83,7 @@ public interface IQuasarDialogService
     /// <remarks>
     /// Prefer the generic overload so the component type is statically checked.
     /// This overload supports dynamic component discovery in plugin hosts.
+    /// Cancellation behaves the same as the generic overload.
     /// </remarks>
     IQuasarDialogReference Show(
         Type componentType,
@@ -84,8 +99,9 @@ public interface IQuasarDialogService
     /// <param name="parameters">Component parameters. Keys must match component parameters.</param>
     /// <param name="options">Dialog behavior and appearance overrides.</param>
     /// <param name="cancellationToken">
-    /// An already-cancelled token returns a canceled reference immediately.
-    /// The token is not observed after the dialog has been queued.
+    /// Cancels the dialog. An already-canceled token returns a canceled
+    /// reference immediately; canceling after the dialog opens closes it with a
+    /// canceled result.
     /// </param>
     /// <returns>A reference whose <see cref="IQuasarDialogReference.Result"/> completes when the dialog closes.</returns>
     /// <remarks>
@@ -106,6 +122,7 @@ public interface IQuasarDialogService
     /// <remarks>
     /// Prefer the generic overload so the component type is statically checked.
     /// This overload supports dynamic component discovery in plugin hosts.
+    /// Cancellation behaves the same as the generic overload.
     /// </remarks>
     Task<IQuasarDialogReference> ShowAsync(
         Type componentType,

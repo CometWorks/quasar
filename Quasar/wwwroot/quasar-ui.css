@@ -1031,9 +1031,10 @@ html.quasar-dialog-open {
     to { opacity: 1; transform: none; }
 }
 
-/* Toast host: a fixed stack anchored to one viewport corner. The host ignores
-   pointer events so its empty area never blocks the page; each toast turns
-   pointer events back on. Top positions start below the dashboard top bar. */
+/* Toast host: a fixed stack anchored to one viewport corner. The host takes
+   pointer events so its scroll track stays usable when the stack overflows;
+   each toast remains interactive. Top positions start below the dashboard top
+   bar. */
 .quasar-toast-host {
     position: fixed;
     z-index: var(--quasar-toast-z);

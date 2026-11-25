@@ -48,7 +48,7 @@
     @* The instance is fixed for the dialog's lifetime, so the component can
        cache it and close itself from any event handler. *@
     <CascadingValue TValue="IQuasarDialogInstance" Value="Entry.Instance" IsFixed="true">
-        <DynamicComponent Type="Entry.ComponentType" Parameters="Entry.ComponentParameters" />
+        <QuasarDialogContentHost @key="Entry.Id" Entry="Entry" />
     </CascadingValue>
     @if (!Entry.Options.Modal && Entry.Options.Resizable)
     {

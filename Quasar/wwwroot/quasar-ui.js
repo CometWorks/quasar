@@ -373,13 +373,20 @@
             notifyClosed(state, state.closing ? "close" : "dismissed");
         };
 
+        // Modal dialogs close through the native "cancel" event. This keydown
+        // listener exists for the locked case: when Escape is disabled, the
+        // dialog itself must swallow it so page-level shortcuts cannot act on
+        // the key while the modal owns the screen.
         state.keydown = event => {
             if (event.key !== "Escape")
                 return;
             if (options.closeOnEscapeKey === false) {
                 event.preventDefault();
+                event.stopPropagation();
                 return;
             }
+            if (modal)
+                return;
             state.closing = true;
             dialog.close();
         };
@@ -402,12 +409,12 @@
 
         dialog.addEventListener("cancel", state.cancel);
         dialog.addEventListener("close", state.close);
+        dialog.addEventListener("keydown", state.keydown);
         if (modal) {
             dialog.addEventListener("pointerdown", state.pointerdown);
             dialog.addEventListener("pointerup", state.pointerup);
-        } else {
-            dialog.addEventListener("keydown", state.keydown);
         }
+
         states.set(dialog, state);
 
         if (modal) {

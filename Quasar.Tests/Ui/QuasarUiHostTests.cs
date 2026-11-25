@@ -253,6 +253,49 @@ public sealed class QuasarUiHostTests
         });
     }
 
+    [Fact]
+    public async Task OpeningAnotherDialogDoesNotReapplyParametersToOpenDialogs()
+    {
+        await using var context = CreateContext();
+        using var cut = context.Render<QuasarDialogHost>();
+        var dialogs = context.Services.GetRequiredService<IQuasarDialogService>();
+
+        var first = await dialogs.ShowAsync<ParameterCountingDialog>("First",
+            new QuasarDialogParameters<ParameterCountingDialog>
+            {
+                { dialog => dialog.Label, "first" },
+            });
+        await cut.WaitForAssertionAsync(() => Assert.Single(cut.FindAll("dialog")));
+        var firstContent = cut.FindComponent<ParameterCountingDialog>();
+        Assert.Equal(1, firstContent.Instance.ParameterSetCount);
+        Assert.Equal("first", firstContent.Instance.Label);
+
+        var second = await dialogs.ShowAsync<ParameterCountingDialog>("Second",
+            new QuasarDialogParameters<ParameterCountingDialog>
+            {
+                { dialog => dialog.Label, "second" },
+            });
+        await cut.WaitForAssertionAsync(() => Assert.Equal(2, cut.FindAll("dialog").Count));
+
+        // The first dialog must not receive its parameter dictionary again just
+        // because a sibling dialog joined the stack.
+        Assert.Equal(1, firstContent.Instance.ParameterSetCount);
+        Assert.Equal("first", firstContent.Instance.Label);
+
+        // Its own state changes still render.
+        await cut.InvokeAsync(() => firstContent.Instance.Increment());
+        await cut.WaitForAssertionAsync(() =>
+            Assert.Contains("first: 1", cut.Markup, StringComparison.Ordinal));
+        Assert.Equal(1, firstContent.Instance.ParameterSetCount);
+
+        second.Cancel();
+        await cut.WaitForAssertionAsync(() => Assert.Single(cut.FindAll("dialog")));
+        Assert.Equal(1, firstContent.Instance.ParameterSetCount);
+
+        first.Cancel();
+        await cut.WaitForAssertionAsync(() => Assert.Empty(cut.FindAll("dialog")));
+    }
+
     private static QuasarBunitContext CreateContext()
     {
         var context = new QuasarBunitContext();
@@ -277,5 +320,31 @@ public sealed class QuasarUiHostTests
         [CascadingParameter] private IQuasarDialogInstance Dialog { get; set; } = default!;
 
         protected override void OnInitialized() => Dialog.Cancel();
+    }
+
+    public sealed class ParameterCountingDialog : ComponentBase
+    {
+        [Parameter] public string Label { get; set; } = string.Empty;
+
+        [CascadingParameter] private IQuasarDialogInstance Dialog { get; set; } = default!;
+
+        public int ParameterSetCount { get; private set; }
+
+        private int _count;
+
+        protected override void OnParametersSet() => ParameterSetCount++;
+
+        public void Increment()
+        {
+            _count++;
+            StateHasChanged();
+        }
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            builder.OpenElement(0, "p");
+            builder.AddContent(1, FormattableString.Invariant($"{Label}: {_count} ({Dialog.Id})"));
+            builder.CloseElement();
+        }
     }
 }

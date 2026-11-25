@@ -32,11 +32,20 @@ dialogs, accessible toasts, and the active palette without a MudBlazor or
 `Quasar.Client` reference. `Modal = false` gives a modeless dialog that leaves
 the page interactive and shows a keyboard-operable drag handle by default;
 `Resizable = false` removes its standard bottom-right resize grip.
+A cancellation token supplied to `Show`/`ShowAsync` is observed for the dialog's
+lifetime: canceling it before the dialog opens returns a canceled result, and
+canceling it while the dialog is open closes it with a canceled result.
 Per-call `Class`/`Style`, the documented
 `--quasar-dialog-*` and `--quasar-toast-*` tokens, and the public
 `.quasar-dialog`/`.quasar-toast` classes cover plugin-specific styling. Plugins
 that do not use the shared hosts keep the native HTML/CSS path and need no new
 reference.
+
+A native modal makes the page behind it inert. MudBlazor selects, menus,
+autocomplete lists, tooltips and date pickers render their popovers at shell
+level, so they cannot appear above a native modal. Keep those Mud controls in a
+modeless dialog or a legacy Mud dialog until Quasar provides a dialog-local
+popover provider. Native controls work inside either dialog mode.
 
 A modeless panel with `CloseOnNavigation = false` stays open while the admin
 moves between pages. A plugin can feed it live data from its worker half through
@@ -313,12 +322,18 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar.Ui.Abstractions/Toasts/IQuasarToastService.cs`
 - `Quasar.Ui.Abstractions/Toasts/QuasarToastOptions.cs`
 - `Quasar.Client/Components/Shared/QuasarDialogHost.razor`
+- `Quasar.Client/Components/Shared/QuasarDialogInstanceHost.razor`
+- `Quasar.Client/Components/Shared/QuasarDialogContentHost.razor`
 - `Quasar.Client/Components/Shared/QuasarDialogFrame.razor`
 - `Quasar.Client/Components/Shared/QuasarToastHost.razor`
 - `Quasar.Client/Components/Shared/QuasarToastItem.razor`
 - `Quasar.Client/Ui/ServiceCollectionExtensions.cs`
 - `Quasar.Client/Ui/Dialogs/QuasarDialogService.cs`
+- `Quasar.Client/Ui/Dialogs/QuasarDialogEntry.cs`
+- `Quasar.Client/Ui/Dialogs/QuasarDialogCancellation.cs`
 - `Quasar.Client/Ui/Toasts/QuasarToastService.cs`
+- `Quasar/Components/Layout/PluginNavItems.razor`
+- `Quasar/Services/Plugins/QuasarNavIconSanitizer.cs`
 - `Quasar.Client/UiPlugins/UiPluginsView.razor`
 - `Quasar.Client/UiPlugins/PluginCatalogDescriptionDialog.razor`
 - `Quasar.Client/UiPlugins/PluginCatalogDescriptionDialog.razor.css`

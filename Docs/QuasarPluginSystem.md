@@ -638,9 +638,13 @@ Suggested zones:
 - `nav.hidden`
 
 The native nav renderer applies auth policies, sort order, and Quasar link
-styling. `Icon` accepts SVG markup or an existing font icon. Retain established
-Material SVG paths instead of taking a dependency on MudBlazor's icon constants.
-The native plugin template demonstrates this with `TemplateIcons.Extension`.
+styling. `Icon` accepts a standard SVG drawing fragment or an existing font icon
+name. The catalog validates SVG fragments once at load; script elements, event
+attributes, and external references are rejected and replaced with a built-in
+icon. Navigation icons are trusted plugin metadata, not administrator- or
+user-supplied data. Retain established Material SVG paths instead of taking a
+dependency on MudBlazor's icon constants. The native plugin template demonstrates
+this with `TemplateIcons.Extension`.
 
 ## Page and Component Replacement
 
@@ -1037,8 +1041,11 @@ Quasar 1.7.1 adds a native dialog and toast host with a public contract in
   `Show<TComponent>` returns the dialog reference immediately and
   `ShowAsync<TComponent>` is the awaitable convenience overload. Both render the
   plugin component in a native modal `<dialog>`; the component can inject
-  `IQuasarDialogInstance` to close with a `QuasarDialogResult`. Toasts support
-  severity, duration, actions, icons, and interaction-required mode.
+  `IQuasarDialogInstance` to close with a `QuasarDialogResult`. A supplied
+  cancellation token is observed for the dialog's lifetime: canceling before it
+  opens returns a canceled result, and canceling while it is open closes it with
+  a canceled result. Toasts support severity, duration, actions, icons, and
+  interaction-required mode.
 - The host supplies focus trapping, focus return, Escape/backdrop policy, top-layer
   stacking, scroll locking, accessible roles, and the active palette.
 - Set `QuasarDialogOptions.Modal = false` for a modeless dialog. It uses the
@@ -1053,6 +1060,16 @@ Quasar 1.7.1 adds a native dialog and toast host with a public contract in
   `CloseOnNavigation = false` to keep it open across page changes. The dialog
   component survives because the host lives in the shell, but the page that
   opened it is disposed; pass IDs or data, not page-local objects.
+- `IQuasarDialogService` is implemented by the Quasar host. New members are a
+  breaking change only for third-party implementations; plugins should consume
+  the interface, not implement it.
+
+A native modal uses `showModal()`, which makes everything outside the dialog
+inert. MudBlazor selects, menus, autocomplete lists, tooltips, and date pickers
+render their popovers at shell level, so those popovers cannot appear above a
+native modal. Keep Mud popover controls out of native modal dialogs until the
+host provides a dialog-local popover provider; use a modeless dialog or a legacy
+Mud dialog for those controls.
 
 See the [Quasar plugin template](https://github.com/CometWorks/quasar-plugin-template)
 for a complete two-half plugin: a worker adapter, a browser Razor page, a

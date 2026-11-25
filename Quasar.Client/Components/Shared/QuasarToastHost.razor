@@ -12,10 +12,10 @@
 
     Place this component once in the application shell. It is independent of
     the routed page, so a toast raised by a worker operation or a background
-    task stays visible when the user navigates. The host element itself ignores
-    pointer events; each toast re-enables them, so the empty area around the
-    stack never blocks the page. The host itself takes pointer events so its
-    scroll track remains usable when the stack overflows.
+    task stays visible when the user navigates. The host element takes pointer
+    events so its scroll track remains usable when the stack overflows; each
+    toast stays interactive. The empty area around the stack therefore belongs
+    to the host and can block the page beneath it.
 
     A toast raised while a modal dialog is open is outside the top layer: it is
     hidden behind the modal, excluded from the accessibility tree, and its timer

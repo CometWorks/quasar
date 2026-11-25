@@ -153,7 +153,10 @@ dismissal, scroll locking, and the same palette tokens. Their public contracts
 live in `Quasar.Ui.Abstractions`, so browser plugins can opt in to the shared
 hosts without a reference to `Quasar.Client`. Per-call classes, inline style
 variables, and documented `--quasar-dialog-*`/`--quasar-toast-*` tokens cover
-plugin-specific customization. The JavaScript restart overlay mounts in the
+plugin-specific customization. A native modal makes the rest of the page inert;
+Mud popovers render at shell level, so Mud selects, menus, tooltips, and date
+pickers stay in modeless or legacy Mud dialogs until a dialog-local
+`MudPopoverProvider` is available. The JavaScript restart overlay mounts in the
 same shell and uses the native palette while the worker is offline. The server
 console interior uses native log-source buttons, file selectors, downloads,
 and error/refresh controls; existing log loading, history, auto-refresh, and

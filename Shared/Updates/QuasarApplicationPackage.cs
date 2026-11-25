@@ -25,6 +25,16 @@ internal static class QuasarApplicationPackage
             foreach (var name in required)
                 if (!File.Exists(Path.Combine(directory, name))) throw new InvalidDataException($"Incomplete browser transport package: {name}");
         }
+        // Native UI releases declare their additional web payload. Older complete
+        // packages without the marker remain valid rollback targets.
+        if (metadata.RootElement.TryGetProperty("webUi", out var webUi))
+        {
+            if (!webUi.TryGetInt32(out var webUiVersion) || webUiVersion != 1)
+                throw new InvalidDataException("Unsupported web UI package.");
+            foreach (var name in QuasarWebReleaseLayout.NativeUiWebAssetFiles)
+                if (!File.Exists(Path.Combine(directory, name)))
+                    throw new InvalidDataException($"Incomplete native UI package: {name}");
+        }
         var owned = LauncherReplacement.ReadManifest(directory).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var name in owned)
             if (!File.Exists(Path.Combine(directory, name))) throw new InvalidDataException($"Incomplete application package: {name}");

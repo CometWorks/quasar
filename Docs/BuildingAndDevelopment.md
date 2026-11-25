@@ -14,6 +14,9 @@ archive under `/opt/quasar` and declares `AGPL-3.0-only` in its OCI license labe
 
 The platform packagers write `release.json` from the published application's
 `--version` output. CI compares both identities before uploading archives.
+Current packages also declare `webUi: 1`. A package with that marker must contain
+the native dialog/toast and plugin-host assets; a package without it predates
+those assets and remains a valid rollback target.
 NuGet's build version is separate: a CI release such as `1.4.1.42` may build with
 NuGet version `1.4.1-42`, but its package and runtime identities stay `1.4.1.42`.
 Source installation follows the same rule so health checks
@@ -89,22 +92,14 @@ checksum. No neighboring Gateway checkout or private contract package is needed.
   still present.
 - Release CI locates `PluginSdk.dll` recursively in the extracted Magnetar
   archive and sets `MagnetarBin` to its directory. This supports both the older
-  Linux `Bin/` layout and the current `Libraries/MagnetarInterim/` layout.
-- A local-only override belongs in a file outside the repository. Pass its path
-  as `-p:QuasarLocalBuildProps=<file>` or set the `QuasarLocalBuildProps`
-  environment variable. `Directory.Build.props` imports it before its platform
-  defaults; it never auto-imports a file from the working tree. Start from
-  `Directory.Build.props.user.example` and set `DS64` and `MagnetarBin` for the
-  machine. The same values can be supplied as environment variables or
-  `-p:DS64=... -p:MagnetarBin=...` on the command line.
+  Linux `Bin/` layout and the current `Libraries/MagnetarInterim/` layout. Local
+  reference paths can be supplied as `DS64` and `MagnetarBin` environment
+  variables or as `-p:DS64=... -p:MagnetarBin=...` on the command line.
 - The Linux release workflow probes the Space Engineers Dedicated Server public
   build id, restores/caches only `DedicatedServer64/` by that id, and feeds the
   cached path to the build through `DS64`. On a cache miss it downloads the
   Windows depot with SteamCMD and retries the install to work around transient
   missing-configuration failures.
-- `global.json` selects a .NET 10 SDK (10.0.1xx/10.0.4xx) so the Blazor
-  WebAssembly runtime and ASP.NET packs match the `net10.0` target. Installing a
-  newer major SDK without the matching browser packs produces `NETSDK1082`.
 - Building `Quasar/Quasar.csproj` no longer requires the Entity Viewer source tree
   or its npm packages. The viewer plugin is installed from QuasarHub, where the
   catalog pins a commit in `https://github.com/CometWorks/viewer`. The plugin

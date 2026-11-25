@@ -70,7 +70,19 @@ async function check(browser, prefix) {
         const surface = page.locator("dialog.quasar-dialog").first();
         await surface.waitFor({ state: "visible", timeout: 10000 });
         assert.equal(await surface.evaluate(element => element.open), true);
-        assert.match(await surface.evaluate(element => getComputedStyle(element).backgroundColor), /^rgb/);
+        const surfaceColors = await surface.evaluate(element => {
+            const probe = document.createElement("span");
+            probe.style.display = "none";
+            probe.style.background = "var(--quasar-dialog-surface)";
+            element.append(probe);
+            const expected = getComputedStyle(probe).backgroundColor;
+            const actual = getComputedStyle(element).backgroundColor;
+            probe.remove();
+            return { expected, actual };
+        });
+        assert.equal(surfaceColors.actual, surfaceColors.expected,
+            `Dialog must use the resolved surface token; got ${surfaceColors.actual}`);
+        assert.notEqual(surfaceColors.actual, "rgba(0, 0, 0, 0)");
         await page.keyboard.press("Escape");
         await surface.waitFor({ state: "hidden", timeout: 10000 });
 
@@ -79,6 +91,28 @@ async function check(browser, prefix) {
         assert.equal(await surface.evaluate(element => element.open), true);
         await page.keyboard.press("Escape");
         await surface.waitFor({ state: "hidden", timeout: 10000 });
+
+        // A locked modal must swallow Escape on every press and remain open
+        // until a control closes it.
+        await page.getByRole("button", { name: "Open locked dialog" }).click();
+        const locked = page.locator("dialog.quasar-dialog").first();
+        await locked.waitFor({ state: "visible", timeout: 10000 });
+        await page.keyboard.press("Escape");
+        await page.keyboard.press("Escape");
+        assert.equal(await locked.evaluate(element => element.open), true,
+            "Escape must not close a locked dialog");
+        await locked.getByRole("button", { name: "Cancel", exact: true }).click();
+        await locked.waitFor({ state: "hidden", timeout: 10000 });
+
+        // The per-invocation surface override must resolve exactly.
+        await page.getByRole("button", { name: "Open custom dialog" }).click();
+        const custom = page.locator("dialog.ui-fixture-dialog-accent").first();
+        await custom.waitFor({ state: "visible", timeout: 10000 });
+        assert.equal(
+            await custom.evaluate(element => getComputedStyle(element).backgroundColor),
+            "rgb(58, 47, 92)");
+        await page.keyboard.press("Escape");
+        await custom.waitFor({ state: "hidden", timeout: 10000 });
 
         await page.getByRole("button", { name: "Open modeless dialog" }).click();
         const modeless = page.locator(".quasar-dialog-modeless").first();

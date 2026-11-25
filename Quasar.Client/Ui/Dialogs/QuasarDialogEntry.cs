@@ -38,6 +38,12 @@ public sealed class QuasarDialogEntry
     /// <summary>The caller-facing handle that owns the result task.</summary>
     internal QuasarDialogReference Reference { get; init; } = null!;
 
+    /// <summary>
+    /// Owns the caller's cancellation registration so it can be released when
+    /// the dialog finishes closing.
+    /// </summary>
+    internal QuasarDialogCancellation Cancellation { get; } = new();
+
     /// <summary>The instance cascaded to the dialog component.</summary>
     public IQuasarDialogInstance Instance { get; set; } = null!;
 

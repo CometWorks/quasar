@@ -1,11 +1,4 @@
 <Project>
-  <!-- Local developer overrides are opt-in and never auto-imported from the
-       working tree. Point QuasarLocalBuildProps at a file outside the repo;
-       see Directory.Build.props.user.example. Values from that file win over
-       the platform defaults below because those defaults are conditional. -->
-  <Import Project="$(QuasarLocalBuildProps)"
-          Condition="'$(QuasarLocalBuildProps)' != '' and Exists('$(QuasarLocalBuildProps)')" />
-
   <PropertyGroup>
     <!-- Default assembly version for Quasar worker/bootstrap/shared projects.
          Release packaging overrides these via -p:Version=/-p:AssemblyVersion=/etc.

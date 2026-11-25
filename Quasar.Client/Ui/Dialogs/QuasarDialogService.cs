@@ -26,6 +26,14 @@ namespace Quasar.Client.Ui.Dialogs;
 /// All entry mutations happen under a lock. <see cref="Changed"/> is raised
 /// outside the lock so a re-render cannot deadlock against a close request.
 /// </para>
+/// <para>
+/// A cancellation token supplied by the caller is observed for the dialog's
+/// whole lifetime. Cancellation before the entry is queued returns a canceled
+/// reference without rendering. Cancellation afterwards requests a close through
+/// the same two-phase path as <see cref="IQuasarDialogReference.Cancel"/>. The
+/// registration is disposed when the dialog finishes closing or the service is
+/// disposed.
+/// </para>
 /// </remarks>
 internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
 {
@@ -104,6 +112,26 @@ internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
             // check and here.
             ObjectDisposedException.ThrowIf(_disposed, this);
             _entries.Add(entry);
+        }
+
+        // Observe the token for the dialog's whole lifetime. Registration happens
+        // after the entry is visible so a token canceled during this call still
+        // finds the entry and requests a close. An already-canceled token runs
+        // the callback synchronously.
+        if (cancellationToken.CanBeCanceled)
+        {
+            try
+            {
+                var registration = cancellationToken.Register(
+                    () => RequestClose(entry, QuasarDialogResult.Cancel()));
+                if (!entry.Cancellation.TrySet(registration))
+                    registration.Unregister();
+            }
+            catch (ObjectDisposedException)
+            {
+                // The caller disposed the source. The dialog still opens; the
+                // caller can close it through the returned reference.
+            }
         }
 
         RaiseChanged();
@@ -196,6 +224,7 @@ internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
         }
 
         entry.Reference.Complete(entry.RequestedResult ?? QuasarDialogResult.Cancel());
+        entry.Cancellation.Dispose();
         RaiseChanged();
     }
 
@@ -216,7 +245,10 @@ internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
         }
 
         foreach (var entry in entries)
+        {
+            entry.Cancellation.Dispose();
             entry.Reference.Complete(QuasarDialogResult.Cancel());
+        }
         Changed = null;
     }
 

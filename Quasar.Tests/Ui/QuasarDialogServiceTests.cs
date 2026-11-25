@@ -82,6 +82,84 @@ public sealed class QuasarDialogServiceTests
     }
 
     [Fact]
+    public async Task ShowAsyncParityCancelsAnOpenDialog()
+    {
+        using var service = new QuasarDialogService();
+        using var cancellation = new CancellationTokenSource();
+        var reference = await service.ShowAsync<TestDialog>(cancellationToken: cancellation.Token);
+        var entry = Assert.Single(service.Entries);
+
+        await cancellation.CancelAsync();
+
+        Assert.True(entry.CloseRequested);
+        Assert.True(entry.RequestedResult?.Canceled);
+
+        service.FinishClose(reference.Id);
+        var result = await reference.Result;
+        Assert.True(result.Canceled);
+        Assert.Empty(service.Entries);
+    }
+
+    [Fact]
+    public async Task ShowCancelsAnOpenDialogToo()
+    {
+        using var service = new QuasarDialogService();
+        using var cancellation = new CancellationTokenSource();
+        var reference = service.Show<TestDialog>(cancellationToken: cancellation.Token);
+        var entry = Assert.Single(service.Entries);
+
+        await cancellation.CancelAsync();
+
+        Assert.True(entry.CloseRequested);
+        service.FinishClose(reference.Id);
+        Assert.True((await reference.Result).Canceled);
+    }
+
+    [Fact]
+    public async Task CancelingAfterCloseIsIgnored()
+    {
+        using var service = new QuasarDialogService();
+        using var cancellation = new CancellationTokenSource();
+        var reference = await service.ShowAsync<TestDialog>(cancellationToken: cancellation.Token);
+
+        service.FinishClose(reference.Id);
+        await cancellation.CancelAsync();
+
+        Assert.Empty(service.Entries);
+        Assert.True((await reference.Result).Canceled);
+    }
+
+    [Fact]
+    public async Task DisposedTokenSourceStillOpensTheDialog()
+    {
+        using var service = new QuasarDialogService();
+        var cancellation = new CancellationTokenSource();
+        var token = cancellation.Token;
+        cancellation.Dispose();
+
+        var reference = await service.ShowAsync<TestDialog>(cancellationToken: token);
+        Assert.Single(service.Entries);
+
+        service.FinishClose(reference.Id);
+        Assert.True((await reference.Result).Canceled);
+    }
+
+    [Fact]
+    public async Task DisposingTheTokenSourceWhileOpenStillCloses()
+    {
+        using var service = new QuasarDialogService();
+        var cancellation = new CancellationTokenSource();
+        var reference = await service.ShowAsync<TestDialog>(cancellationToken: cancellation.Token);
+        Assert.Single(service.Entries);
+
+        cancellation.Dispose();
+        service.FinishClose(reference.Id);
+
+        Assert.True((await reference.Result).Canceled);
+        Assert.Empty(service.Entries);
+    }
+
+    [Fact]
     public async Task DisposeCompletesOpenDialogsAsCanceled()
     {
         var service = new QuasarDialogService();
