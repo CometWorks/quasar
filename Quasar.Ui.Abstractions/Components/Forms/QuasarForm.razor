@@ -1,0 +1,153 @@
+@namespace Quasar.Ui.Components
+
+<CascadingValue Value="this" IsFixed="true">
+    <div class="quasar-form @Class" @attributes="AdditionalAttributes">
+        @ChildContent
+        @if (Errors.Count > 0)
+        {
+            <div class="quasar-form-errors" role="alert">
+                @if (Errors.Count == 1)
+                {
+                    <p>@Errors[0]</p>
+                }
+                else
+                {
+                    <ul>
+                        @foreach (var error in Errors)
+                        {
+                            <li>@error</li>
+                        }
+                    </ul>
+                }
+            </div>
+        }
+    </div>
+</CascadingValue>
+
+@code {
+    private readonly List<IQuasarField> _fields = new();
+    private readonly List<string> _errors = new();
+    private bool _lastValid = true;
+    private bool _lastDirty;
+
+    /// <summary>The form content, including the fields.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Additional class applied to the form wrapper.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Additional attributes forwarded to the form wrapper.</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>Raised when the aggregate validity changes.</summary>
+    [Parameter] public EventCallback<bool> IsValidChanged { get; set; }
+
+    /// <summary>Raised when the aggregate dirty state changes.</summary>
+    [Parameter] public EventCallback<bool> IsDirtyChanged { get; set; }
+
+    /// <summary>True when every registered field is valid and none is validating.</summary>
+    public bool IsValid => _fields.All(formField => formField.IsValid);
+
+    /// <summary>True while any registered field is validating.</summary>
+    public bool IsValidating => _fields.Any(formField => formField.IsValidating);
+
+    /// <summary>True when any registered field differs from its baseline.</summary>
+    public bool IsDirty => _fields.Any(formField => formField.IsDirty);
+
+    /// <summary>Form-level errors added by the caller, for example a failed save.</summary>
+    public IReadOnlyList<string> Errors => _errors;
+
+    /// <summary>Validates every registered field, including fields the user did not touch.</summary>
+    public async Task ValidateAsync()
+    {
+        foreach (var field in _fields.ToArray())
+            await field.ValidateAsync();
+    }
+
+    /// <summary>
+    /// Records the current value of every field as the clean baseline. Call it
+    /// again after asynchronous data loads into the form.
+    /// </summary>
+    public void CaptureBaseline()
+    {
+        CaptureFieldBaselines();
+        NotifyFieldChanged();
+    }
+
+    /// <summary>Adds a form-level error and re-renders the form.</summary>
+    public void AddError(string error)
+    {
+        if (string.IsNullOrWhiteSpace(error))
+            return;
+
+        _errors.Add(error);
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Clears form-level errors and re-renders the form.</summary>
+    public void ClearErrors()
+    {
+        if (_errors.Count == 0)
+            return;
+
+        _errors.Clear();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void CaptureFieldBaselines()
+    {
+        foreach (var field in _fields.ToArray())
+            field.CaptureBaseline();
+    }
+
+    internal void RegisterField(IQuasarField field)
+    {
+        if (!_fields.Contains(field))
+            _fields.Add(field);
+    }
+
+    internal void UnregisterField(IQuasarField field) => _fields.Remove(field);
+
+    internal void NotifyFieldChanged() => _ = NotifyFieldChangedAsync();
+
+    /// <inheritdoc />
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+            CaptureFieldBaselines();
+    }
+
+    private async Task NotifyFieldChangedAsync()
+    {
+        try
+        {
+            await InvokeAsync(HandleFieldChangedAsync);
+        }
+        catch (Exception ex)
+        {
+            // A throwing IsValidChanged or IsDirtyChanged handler reaches the
+            // renderer's error handling like any other event handler failure.
+            await DispatchExceptionAsync(ex);
+        }
+    }
+
+    private async Task HandleFieldChangedAsync()
+    {
+        StateHasChanged();
+
+        var valid = IsValid;
+        if (valid != _lastValid)
+        {
+            _lastValid = valid;
+            await IsValidChanged.InvokeAsync(valid);
+        }
+
+        var dirty = IsDirty;
+        if (dirty != _lastDirty)
+        {
+            _lastDirty = dirty;
+            await IsDirtyChanged.InvokeAsync(dirty);
+        }
+    }
+}

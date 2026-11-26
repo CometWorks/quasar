@@ -1,0 +1,34 @@
+@namespace Quasar.Ui.Components
+
+@if (!string.IsNullOrWhiteSpace(Hint))
+{
+    <span id="@HintId" class="quasar-input-hint">@Hint</span>
+}
+
+@if (Errors.Count == 1)
+{
+    <span id="@MessagesId" class="quasar-input-error">@Errors[0]</span>
+}
+else if (Errors.Count > 1)
+{
+    <ul id="@MessagesId" class="quasar-input-errors">
+        @foreach (var error in Errors)
+        {
+            <li>@error</li>
+        }
+    </ul>
+}
+
+@code {
+    /// <summary>Helper text shown while there are no messages.</summary>
+    [Parameter] public string? Hint { get; set; }
+
+    /// <summary>Element id of the hint.</summary>
+    [Parameter, EditorRequired] public string HintId { get; set; } = string.Empty;
+
+    /// <summary>Element id of the message container.</summary>
+    [Parameter, EditorRequired] public string MessagesId { get; set; } = string.Empty;
+
+    /// <summary>Validation messages to render.</summary>
+    [Parameter] public IReadOnlyList<string> Errors { get; set; } = Array.Empty<string>();
+}

@@ -1095,6 +1095,78 @@ Quasar 1.7.1 adds a native dialog and toast host with a public contract in
   `@using Quasar.Ui.Components` for the component and `@using Quasar.Ui` for
   `QuasarSeverity`.
 
+### Native controls
+
+The same assembly ships the native control kit used by the dashboard. Controls
+live in `Quasar.Ui.Abstractions.dll` under `Quasar.Ui.Components`; shared
+vocabulary (`QuasarTone`, `QuasarVariant`, `QuasarSize`) is in `Quasar.Ui`.
+`QuasarClasses` maps that vocabulary to the dashboard's CSS classes, so a plugin
+can give its own controls the same tone, variant and size treatment.
+
+- Form controls: `QuasarForm`, `QuasarTextField`, `QuasarNumberField<T>`,
+  `QuasarSelect<T>`, `QuasarCheckbox`, `QuasarSwitch`, `QuasarRadioGroup<T>`,
+  `QuasarButton`.
+- Display and navigation: `QuasarChip`, `QuasarTooltip`, `QuasarMenu` and
+  `QuasarMenuItem`, `QuasarTabs` and `QuasarTabItem`, `QuasarDisclosure`,
+  `QuasarList` and `QuasarListItem`, `QuasarTable<T>`,
+  `QuasarTableColumn<T>`, `QuasarTableCell`, `QuasarTablePager`,
+  `QuasarCopyablePath`, `QuasarIcon`, `QuasarIconButton`, and `QuasarIcons`.
+  `QuasarCopyablePath` shows a path with a copy button and reports the result
+  through `IQuasarToastService`.
+- Each control has its own CSS classes and its own section in the host's
+  `quasar-ui.css`, so a control can be restyled or replaced without touching
+  another. Shared vocabulary is the exception: the tone, variant and size
+  classes from `QuasarClasses`.
+- Fields do not use Blazor `EditForm`, `InputBase<T>`, or `EditContext`. Bind
+  with `@bind-Value`. A field commits its value when the user finishes an edit:
+  on change (blur or Enter) for text and number fields, and on selection for
+  the other controls. Set `Immediate` on a text or number field to commit while
+  the user types, after a 300 ms pause in typing, and on blur. Use it for
+  search and filter boxes.
+- Validation is asynchronous: `QuasarValidator<T>` returns
+  `QuasarValidationResult`, which carries zero or more messages. `Required` runs
+  first, and a required checkbox or switch must be checked. Validation runs
+  after each commit, on the first blur of an untouched field, and on
+  `QuasarForm.ValidateAsync()`. A newer run cancels the previous one, and stale
+  completions are discarded. A field with neither `Required` nor `Validation`
+  never validates. `ReadOnly` renders native selects, checkboxes, switches and
+  radio buttons as disabled, because they have no read-only state.
+- `QuasarNumberField<T>` supports the built-in integer and floating-point types
+  and their nullable forms. A change commit clamps to `Min` and `Max`. An empty
+  field is `null` for a nullable type and restores the last value otherwise.
+  With `Immediate`, a half-typed value is never written back and typed values
+  are not clamped until the field loses focus. A whole-number field steps by one
+  unless `Step` is set and shows a numeric keyboard. `quasar-ui.js` ignores the
+  keys `.`, `,`, `e`, `E` and `+` in it, and `-` when the type is unsigned or
+  `Min` is zero or more, so a decimal cannot be typed. A pasted decimal is
+  rejected and the last value is restored.
+- `QuasarForm` exposes `IsValid`, `IsValidating`, `IsDirty`,
+  `ValidateAsync()`, `CaptureBaseline()`, and form-level `AddError`/`ClearErrors`.
+  `CaptureBaseline()` also reports the form as clean through `IsDirtyChanged`;
+  call it after a save and after asynchronous data loads into the form.
+- Tables take either `Items` or `LoadData`, never both. `LoadData` receives a
+  `QuasarTableState` (one-based page, page size, sort key, direction) and
+  returns `QuasarTableData<T>`; it is called again on a page, sort or
+  `RowsPerPage` change and on `ReloadAsync()`. Rows are matched by position
+  unless `RowKey` is set; set it, with a unique value per row, when rows contain
+  popovers, inputs or other stateful content. `Hover`, `Dense`, `FixedHeader`
+  and `Height` style the table. `OnRowClick` raises for a click on a row; it has
+  no keyboard equivalent, so give keyboard users a button or link in the row for
+  the same action. `DetailTemplate` with `IsExpanded` renders an expanded row.
+  `QuasarTableColumn<T>` provides `aria-sort` and the sort button;
+  `QuasarTablePager` is the built-in pager.
+- A table scrolls sideways on a narrow screen by default. Set
+  `NarrowLayout="QuasarTableNarrowLayout.Stack"` to turn each row into a card
+  below `Breakpoint` (`Small` 600 px, `Medium` 960 px, `Large` 1280 px) and use
+  `QuasarTableCell` with a `Label` for each cell so every value is labelled.
+- Styles are in the dashboard's `quasar-ui.css`; the controls add no scoped CSS
+  or static assets. A plugin built against the DLL alone still receives the host
+  stylesheet at runtime. `quasar-ui.js` adds keyboard refinements: tab keys that
+  do not scroll the page, arrow-key navigation and focus handling in menus, and
+  Escape to dismiss a tooltip. Without the script the controls still work.
+- `QuasarMenu` positions itself against its trigger with CSS anchor positioning.
+  A browser without it opens the menu centred in the viewport.
+
 A native modal uses `showModal()`, which makes everything outside the dialog
 inert. MudBlazor selects, menus, autocomplete lists, tooltips, and date pickers
 render their popovers at shell level, so those popovers cannot appear above a

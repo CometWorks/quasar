@@ -1,0 +1,229 @@
+@page "/fixture/ui-kit"
+@using System.Threading
+@using Microsoft.AspNetCore.Authorization
+@using Quasar.Ui
+@using Quasar.Ui.Components
+@attribute [Authorize(Policy = "CanView")]
+@inject IQuasarDialogService Dialogs
+
+<section class="quasar-panel">
+    <header class="quasar-panel-heading">
+        <div>
+            <h1>Native UI kit (test plugin)</h1>
+            <p class="quasar-page-description">Exercises <code>Quasar.Ui.Components</code> from a plugin that references only <code>Quasar.Ui.Abstractions</code>.</p>
+        </div>
+    </header>
+
+    <div class="quasar-layout quasar-gap-3">
+        <div class="quasar-row">
+            <QuasarButton Tone="QuasarTone.Primary" Variant="QuasarVariant.Filled" OnClick='() => _status = "Primary clicked."'>Primary</QuasarButton>
+            <QuasarButton Tone="QuasarTone.Secondary">Secondary</QuasarButton>
+            <QuasarButton Tone="QuasarTone.Error" Variant="QuasarVariant.Text">Delete</QuasarButton>
+            <QuasarButton Disabled="true">Disabled</QuasarButton>
+            <QuasarButton Loading="true">Busy</QuasarButton>
+            <QuasarButton Href="/fixture/ui" Variant="QuasarVariant.Text">Safe link</QuasarButton>
+            <QuasarButton Href="javascript:alert(1)">Unsafe link</QuasarButton>
+        </div>
+
+        <div class="quasar-row">
+            <QuasarChip Tone="QuasarTone.Success" Variant="QuasarVariant.Filled">Healthy</QuasarChip>
+            <QuasarChip Tone="QuasarTone.Warning" OnClose='() => _status = "Chip removed."'>Removable</QuasarChip>
+            <QuasarChip Selected="true" OnClick='() => _status = "Chip toggled."'>Filter</QuasarChip>
+            <QuasarTooltip Text="Copies the value to the clipboard">
+                <QuasarButton Size="QuasarSize.Small">Hover me</QuasarButton>
+            </QuasarTooltip>
+        </div>
+
+        <QuasarForm @ref="_form" IsValidChanged="OnValidChanged" IsDirtyChanged="OnDirtyChanged">
+            <div class="quasar-fields">
+                <QuasarTextField @bind-Value="_name"
+                                 Label="Server name"
+                                 Required="true"
+                                 Hint="No spaces. Unique across the fleet."
+                                 Validation="ValidateNameAsync" />
+                <QuasarNumberField T="int"
+                                   @bind-Value="_port"
+                                   Label="Port"
+                                   Min="1"
+                                   Max="65535"
+                                   Hint="UDP 27016 by default." />
+                <QuasarTextField @bind-Value="_notes"
+                                 Label="Notes"
+                                 Multiline="true"
+                                 Lines="3" />
+                <QuasarSelect T="string"
+                              @bind-Value="_region"
+                              Label="Region"
+                              Items="_regions" />
+                <QuasarRadioGroup T="string"
+                                  @bind-Value="_profile"
+                                  Label="Profile"
+                                  Items="_profiles" />
+                <QuasarCheckbox @bind-Value="_enabled" Label="Enabled" Hint="Starts the server after save." />
+                <QuasarSwitch @bind-Value="_autoRestart" Label="Auto restart" />
+            </div>
+        </QuasarForm>
+
+        <div class="quasar-form-actions">
+            <QuasarButton Tone="QuasarTone.Primary" Variant="QuasarVariant.Filled" OnClick="SaveAsync">Validate and save</QuasarButton>
+            <QuasarButton OnClick="OpenDialogAsync">Open kit dialog</QuasarButton>
+            <span class="quasar-caption quasar-muted" role="status">@_status</span>
+            <span class="quasar-caption quasar-muted" data-testid="form-state">@(_isValid ? "valid" : "invalid") / @(_isDirty ? "dirty" : "clean")</span>
+        </div>
+
+        <div class="quasar-row">
+            <QuasarMenu Label="Row actions">
+                <TriggerContent><QuasarIcon Icon="@QuasarIcons.MoreVert" /></TriggerContent>
+                <ChildContent>
+                    <QuasarMenuItem OnClick='() => _status = "Edit chosen."'>Edit</QuasarMenuItem>
+                    <QuasarMenuItem OnClick='() => _status = "Copy chosen."'>Copy</QuasarMenuItem>
+                    <QuasarMenuItem Disabled="true">Delete</QuasarMenuItem>
+                </ChildContent>
+            </QuasarMenu>
+
+            <QuasarList>
+                <QuasarListItem Href="/fixture/ui-kit" Selected="true">UI kit</QuasarListItem>
+                <QuasarListItem OnClick='() => _status = "List item clicked."'>Action item</QuasarListItem>
+            </QuasarList>
+        </div>
+
+        <QuasarTabs Tabs="_tabs" ActiveTab="@_activeTab" ActiveTabChanged="OnTabChanged" />
+
+        <QuasarDisclosure Summary="Advanced settings">
+            <p class="quasar-caption">Disclosure content is hidden until the summary is activated.</p>
+        </QuasarDisclosure>
+
+        <QuasarTextField @bind-Value="_search"
+                         Immediate="true"
+                         Label="Search servers"
+                         InputType="QuasarTextInputType.Search" />
+
+        <QuasarTable T="SampleRow"
+                     Items="FilteredRows"
+                     RowKey="row => row.Name"
+                     RowsPerPage="5"
+                     Dense="true"
+                     Hover="true"
+                     Caption="Sample servers">
+            <HeaderContent>
+                <QuasarTableColumn T="SampleRow" Title="Name" SortBy="row => row.Name" />
+                <QuasarTableColumn T="SampleRow" Title="Port" SortBy="row => row.Port" Align="QuasarAlign.End" />
+                <QuasarTableColumn T="SampleRow" Title="State" />
+            </HeaderContent>
+            <RowTemplate Context="row">
+                <QuasarTableCell Label="Name">@row.Name</QuasarTableCell>
+                <QuasarTableCell Label="Port" Class="quasar-table-align-end">@row.Port</QuasarTableCell>
+                <QuasarTableCell Label="State">@row.State</QuasarTableCell>
+            </RowTemplate>
+            <EmptyContent>No servers.</EmptyContent>
+        </QuasarTable>
+
+        <QuasarTable T="SampleRow"
+                     Items="_rows"
+                     RowKey="row => row.Name"
+                     RowsPerPage="3"
+                     NarrowLayout="QuasarTableNarrowLayout.Stack"
+                     Breakpoint="QuasarBreakpoint.Large"
+                     Caption="Stacked servers">
+            <HeaderContent>
+                <QuasarTableColumn T="SampleRow" Title="Name" SortBy="row => row.Name" />
+                <QuasarTableColumn T="SampleRow" Title="State" />
+            </HeaderContent>
+            <RowTemplate Context="row">
+                <QuasarTableCell Label="Name">@row.Name</QuasarTableCell>
+                <QuasarTableCell Label="State">@row.State</QuasarTableCell>
+            </RowTemplate>
+        </QuasarTable>
+    </div>
+</section>
+
+@code {
+    private sealed record SampleRow(string Name, int Port, string State);
+
+    private QuasarForm? _form;
+    private string _name = string.Empty;
+    private int _port = 27016;
+    private string _notes = string.Empty;
+    private string _region = "eu";
+    private string _profile = "balanced";
+    private bool _enabled = true;
+    private bool _autoRestart;
+    private bool _isValid = true;
+    private bool _isDirty;
+    private string _search = string.Empty;
+    private string _status = "Untouched.";
+    private string? _activeTab = "overview";
+
+    private readonly IReadOnlyList<QuasarOption<string>> _regions =
+    [
+        new("eu", "Europe"),
+        new("us", "North America"),
+        new("apac", "Asia Pacific"),
+    ];
+
+    private readonly IReadOnlyList<QuasarOption<string>> _profiles =
+    [
+        new("performance", "Performance"),
+        new("balanced", "Balanced"),
+        new("quiet", "Quiet"),
+    ];
+
+    private readonly IReadOnlyList<SampleRow> _rows =
+    [
+        new("Alpha", 27016, "Running"),
+        new("Bravo", 27017, "Stopped"),
+        new("Charlie", 27018, "Starting"),
+        new("Delta", 27019, "Running"),
+        new("Echo", 27020, "Stopped"),
+        new("Foxtrot", 27021, "Running"),
+        new("Golf", 27022, "Starting"),
+        new("Hotel", 27023, "Running"),
+    ];
+
+    private readonly IReadOnlyList<QuasarTabItem> _tabs =
+    [
+        new("overview", "Overview", builder => builder.AddContent(0, "Overview panel.")),
+        new("activity", "Activity", builder => builder.AddContent(0, "Activity panel.")),
+        new("settings", "Settings", builder => builder.AddContent(0, "Settings panel.")),
+    ];
+
+    private IEnumerable<SampleRow> FilteredRows => string.IsNullOrWhiteSpace(_search)
+        ? _rows
+        : _rows.Where(row => row.Name.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private static Task<QuasarValidationResult> ValidateNameAsync(string value, CancellationToken cancellationToken)
+    {
+        if (value.Contains(' ', StringComparison.Ordinal))
+            return Task.FromResult<QuasarValidationResult>("Use a name without spaces.");
+
+        return Task.FromResult(QuasarValidationResult.Valid);
+    }
+
+    private void OnValidChanged(bool value) => _isValid = value;
+
+    private void OnDirtyChanged(bool value) => _isDirty = value;
+
+    private void OnTabChanged(string? tab) => _activeTab = tab;
+
+    private async Task SaveAsync()
+    {
+        if (_form is null)
+            return;
+
+        await _form.ValidateAsync();
+        _form.ClearErrors();
+
+        if (_form.IsValid)
+        {
+            _form.CaptureBaseline();
+            _status = "Saved.";
+        }
+        else
+        {
+            _status = "Fix the fields above.";
+        }
+    }
+
+    private async Task OpenDialogAsync() =>
+        await Dialogs.ShowAsync<UiKitFixtureDialog>("Kit dialog");
+}

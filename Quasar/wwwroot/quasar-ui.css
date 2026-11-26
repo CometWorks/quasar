@@ -1186,3 +1186,712 @@ html.quasar-dialog-open {
         animation: none;
     }
 }
+
+/* Native form fields (QuasarTextField, QuasarNumberField, QuasarSelect and the
+   choice controls). These rules are the fields' own; they do not depend on the
+   older .quasar-field styling used by hand-written markup. */
+.quasar-input {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    font-size: 11px;
+    color: var(--quasar-palette-text-secondary);
+}
+
+.quasar-input input:not([type="checkbox"], [type="radio"]),
+.quasar-input select {
+    width: 100%;
+    min-width: 0;
+    min-height: 32px;
+    padding: 6px 9px;
+    font: inherit;
+    font-size: 12px;
+    border: 1px solid var(--quasar-palette-lines-inputs);
+    border-radius: 4px;
+    background: var(--quasar-palette-surface);
+    color: var(--quasar-palette-text-primary);
+}
+
+.quasar-input textarea {
+    width: 100%;
+    min-width: 0;
+    padding: 8px 10px;
+    font: inherit;
+    font-size: 12px;
+    border: 1px solid var(--quasar-palette-lines-inputs);
+    border-radius: 4px;
+    background: var(--quasar-palette-background);
+    color: var(--quasar-palette-text-primary);
+    resize: vertical;
+}
+
+.quasar-input :is(input, select, textarea):focus-visible {
+    outline: 2px solid var(--quasar-palette-primary);
+    outline-offset: 1px;
+}
+
+.quasar-input :is(input, select, textarea):disabled { opacity: .6; cursor: default; }
+
+/* label.quasar-input-label outranks the older ".quasar-fields label" rule, so a
+   field keeps its own layout when a page places it in that container. */
+.quasar-input-label,
+label.quasar-input-label {
+    display: inline-flex;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--quasar-palette-text-primary);
+}
+
+.quasar-input-required { color: var(--quasar-palette-error); }
+
+.quasar-input-hint {
+    display: block;
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--quasar-palette-text-secondary);
+}
+
+.quasar-input-error {
+    display: block;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--quasar-palette-error);
+}
+
+.quasar-input-errors {
+    margin: 0;
+    padding-left: 16px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--quasar-palette-error);
+}
+
+.quasar-input.is-invalid :is(input, select, textarea) { border-color: var(--quasar-palette-error); }
+.quasar-input.is-validating :is(input, select, textarea) { border-color: var(--quasar-palette-info); }
+.quasar-input[aria-busy="true"] { cursor: progress; }
+
+.quasar-form { display: grid; gap: 12px; min-width: 0; }
+
+.quasar-form-errors {
+    padding: 10px 12px;
+    border: 1px solid var(--quasar-palette-error);
+    border-left: 3px solid var(--quasar-palette-error);
+    border-radius: 4px;
+    background: var(--quasar-palette-surface);
+    color: var(--quasar-palette-error);
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.quasar-form-errors p, .quasar-form-errors ul { margin: 0; }
+.quasar-form-errors ul { padding-left: 16px; }
+
+/* Shared control vocabulary. Tone rules already exist above. */
+.quasar-variant-text { background: transparent; border-color: transparent; }
+
+.quasar-variant-filled {
+    background: var(--quasar-control-color, var(--quasar-palette-primary));
+    color: var(--quasar-control-text, var(--quasar-palette-primary-contrast-text));
+    border-color: transparent;
+}
+
+.quasar-size-small { min-height: 28px; padding: 4px 8px; font-size: 11px; }
+.quasar-size-large { min-height: 38px; padding: 8px 14px; font-size: 13px; }
+
+.quasar-button-full { width: 100%; }
+
+/* A filled button keeps its fill on hover; the base hover rule would replace it. */
+.quasar-button.quasar-variant-filled:hover:not(:disabled):not([aria-disabled="true"]) {
+    background: var(--quasar-control-color, var(--quasar-palette-primary));
+    color: var(--quasar-control-text, var(--quasar-palette-primary-contrast-text));
+    filter: brightness(1.1);
+}
+
+/* A link that cannot be followed has no href, so it needs its own disabled look. */
+.quasar-button[aria-disabled="true"] { opacity: .5; cursor: default; pointer-events: none; }
+
+.quasar-button-spinner {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: quasar-button-spin .7s linear infinite;
+}
+
+@keyframes quasar-button-spin { to { transform: rotate(360deg); } }
+
+.quasar-tab:focus-visible,
+.quasar-page-button:focus-visible,
+.quasar-menu-item:focus-visible,
+.quasar-menu-trigger:focus-visible,
+.quasar-chip-action:focus-visible,
+.quasar-chip-close:focus-visible,
+.quasar-table-sort:focus-visible {
+    outline: 2px solid var(--quasar-palette-primary);
+    outline-offset: 2px;
+}
+
+/* Chips */
+.quasar-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    min-height: 26px;
+    padding: 3px 8px;
+    border: 1px solid var(--quasar-palette-lines-inputs);
+    border-radius: 999px;
+    background: var(--quasar-palette-surface);
+    color: var(--quasar-palette-text-primary);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.quasar-chip .quasar-icon { width: 14px; height: 14px; }
+
+.quasar-chip-action,
+.quasar-chip-close {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.quasar-chip-action[aria-pressed="true"] { color: var(--quasar-palette-primary); }
+
+.quasar-chip-close {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.quasar-chip-close:hover { background: var(--quasar-palette-hover-background); color: var(--quasar-palette-hover-contrast-text); }
+.quasar-chip-text { min-width: 0; overflow-wrap: anywhere; }
+
+.quasar-variant-filled.quasar-chip {
+    background: var(--quasar-control-color, var(--quasar-palette-primary));
+    color: var(--quasar-control-text, var(--quasar-palette-primary-contrast-text));
+    border-color: transparent;
+}
+
+.quasar-variant-text.quasar-chip { border-color: transparent; background: transparent; }
+
+/* Tooltips */
+/* The text is a real element, so assistive technology can read it. It stays in
+   the layout at zero opacity until the wrapper is hovered or contains focus. */
+.quasar-tip { position: relative; display: inline-flex; align-items: center; }
+
+.quasar-tip-text {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 6px);
+    transform: translateX(-50%);
+    z-index: 40;
+    width: max-content;
+    max-width: 240px;
+    padding: 5px 8px;
+    border: 1px solid var(--quasar-palette-lines-default);
+    border-radius: 4px;
+    background: var(--quasar-palette-surface);
+    color: var(--quasar-palette-text-primary);
+    box-shadow: 0 6px 20px #0003;
+    font-size: 11px;
+    line-height: 1.4;
+    white-space: normal;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .12s;
+}
+
+/* Keeps the tooltip open while the pointer moves from the control onto it. */
+.quasar-tip-text::before { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 8px; }
+
+.quasar-tip:hover .quasar-tip-text,
+.quasar-tip:focus-within .quasar-tip-text { opacity: 1; pointer-events: auto; }
+
+/* Escape dismisses the tooltip until the pointer or focus leaves the control. */
+.quasar-tip.is-dismissed .quasar-tip-text { opacity: 0; pointer-events: none; }
+
+/* Fixed and anchored, so a scrolling or overflow-hidden ancestor such as a table
+   cannot clip it. */
+@supports (position-area: top) {
+    .quasar-tip-text {
+        position: fixed;
+        inset: auto;
+        transform: none;
+        margin: 0 0 6px;
+        position-area: top;
+        position-try-fallbacks: flip-block, flip-inline;
+    }
+}
+
+/* Checkbox and switch */
+.quasar-choice-label { min-width: 0; overflow-wrap: anywhere; }
+.quasar-checkbox { align-items: flex-start; }
+.quasar-checkbox input, .quasar-radio input { margin-top: 2px; }
+
+.quasar-switch { position: relative; padding-left: 44px; min-height: 22px; align-items: center; }
+.quasar-choice.quasar-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+
+.quasar-switch-track {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 36px;
+    height: 20px;
+    margin-top: -10px;
+    border-radius: 10px;
+    background: var(--quasar-palette-lines-default);
+    transition: background .15s;
+}
+
+.quasar-switch-track::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--quasar-palette-surface);
+    box-shadow: 0 1px 3px #0003;
+    transition: transform .15s;
+}
+
+.quasar-switch input:checked + .quasar-switch-track { background: var(--quasar-palette-primary); }
+.quasar-switch input:checked + .quasar-switch-track::after { transform: translateX(16px); }
+.quasar-switch input:focus-visible + .quasar-switch-track { outline: 2px solid var(--quasar-palette-primary); outline-offset: 2px; }
+.quasar-switch input:disabled + .quasar-switch-track { opacity: .5; }
+.quasar-radio { min-height: 24px; }
+
+/* The element-qualified selectors outrank the older ".quasar-fields label" and
+   ".quasar-fields input" rules, so a choice control keeps its own layout and its
+   native look when a page places it in that container. */
+.quasar-choice,
+label.quasar-choice {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--quasar-palette-text-primary);
+}
+
+.quasar-choice input,
+label.quasar-choice input {
+    all: revert;
+    accent-color: var(--quasar-palette-primary);
+}
+
+.quasar-radio-group { border: 0; padding: 0; margin: 0; min-width: 0; }
+.quasar-radio-group:disabled { opacity: .7; }
+
+/* Lists */
+.quasar-list { list-style: none; margin: 0; padding: 0; min-width: 0; }
+.quasar-list-row { min-width: 0; }
+
+.quasar-list-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 30px;
+    padding: 6px 10px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--quasar-palette-text-primary);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.quasar-list-item:hover { background: var(--quasar-palette-hover-background); color: var(--quasar-palette-hover-contrast-text); }
+.quasar-list-item[aria-current="page"] { color: var(--quasar-palette-primary); background: color-mix(in srgb, var(--quasar-palette-primary) 10%, transparent); }
+.quasar-list-item .quasar-icon { width: 16px; height: 16px; }
+
+/* Menus */
+.quasar-menu-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    min-height: 32px;
+    padding: 4px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.quasar-menu-trigger:hover { background: var(--quasar-palette-hover-background); color: var(--quasar-palette-hover-contrast-text); }
+
+.quasar-menu {
+    min-width: 180px;
+    padding: 6px;
+    border: 1px solid var(--quasar-palette-lines-default);
+    border-radius: 6px;
+    background: var(--quasar-palette-surface);
+    color: var(--quasar-palette-text-primary);
+    box-shadow: 0 8px 32px #0004;
+}
+
+.quasar-menu::backdrop { background: transparent; }
+
+/* A popover opens centred in the viewport by default. Anchor it to its trigger,
+   as the fleet server menu does; where anchor positioning is unavailable the
+   centred default stays. */
+@supports (position-area: bottom) {
+    .quasar-menu {
+        inset: auto;
+        margin: 4px 0;
+        position-area: bottom span-right;
+        position-try-fallbacks: flip-block, flip-inline;
+    }
+}
+
+@media (max-width: 600px) {
+    .quasar-menu { inset: 0; margin: auto; position-area: none; }
+}
+
+.quasar-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 30px;
+    padding: 6px 10px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.quasar-menu-item:hover,
+.quasar-menu-item:focus-visible { background: var(--quasar-palette-hover-background); color: var(--quasar-palette-hover-contrast-text); }
+.quasar-menu-item:disabled { opacity: .4; cursor: default; }
+.quasar-menu-item .quasar-icon { width: 16px; height: 16px; }
+
+/* Disclosure */
+.quasar-disclosure {
+    min-width: 0;
+    padding: 0 16px;
+    border: 1px solid var(--quasar-palette-lines-default);
+    border-radius: 6px;
+    background: var(--quasar-palette-surface);
+}
+
+.quasar-disclosure-summary {
+    min-height: 44px;
+    margin: 0 -16px;
+    padding: 12px 16px;
+    border-radius: inherit;
+    cursor: pointer;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.quasar-disclosure-summary:hover {
+    background: var(--quasar-palette-hover-background);
+    color: var(--quasar-palette-hover-contrast-text);
+}
+
+.quasar-disclosure-summary:focus-visible { outline: 2px solid var(--quasar-palette-primary); outline-offset: -2px; }
+.quasar-disclosure[open] { padding-bottom: 16px; }
+
+.quasar-disclosure[open] > .quasar-disclosure-summary {
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--quasar-palette-divider);
+    border-radius: 5px 5px 0 0;
+    background: var(--quasar-palette-background-gray);
+}
+
+.quasar-disclosure-body { min-width: 0; }
+
+/* Tabs */
+.quasar-tabs { min-width: 0; }
+.quasar-tablist { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--quasar-palette-divider); }
+
+.quasar-tab {
+    padding: 8px 12px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: var(--quasar-palette-text-secondary);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.quasar-tab:hover { color: var(--quasar-palette-text-primary); }
+.quasar-tab[aria-selected="true"] { color: var(--quasar-palette-primary); border-bottom-color: var(--quasar-palette-primary); font-weight: 600; }
+.quasar-tabpanel { padding: 14px 2px; min-width: 0; }
+
+/* Tables */
+.quasar-table-wrap {
+    min-width: 0;
+    border: 1px solid var(--quasar-palette-table-lines);
+    border-radius: 6px;
+    background: var(--quasar-palette-surface);
+    overflow: hidden;
+}
+
+.quasar-table-viewport { overflow: auto; min-width: 0; }
+.quasar-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+
+.quasar-table caption {
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--quasar-palette-text-secondary);
+    border-bottom: 1px solid var(--quasar-palette-divider);
+}
+
+.quasar-table th,
+.quasar-table td { padding: 8px 12px; border-bottom: 1px solid var(--quasar-palette-table-lines); text-align: left; vertical-align: top; }
+
+.quasar-table th {
+    position: relative;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--quasar-palette-text-secondary);
+    background: var(--quasar-palette-background-gray);
+    white-space: nowrap;
+}
+
+.quasar-table tr:last-child td { border-bottom: 0; }
+.quasar-table-dense th, .quasar-table-dense td { padding: 5px 10px; }
+.quasar-table-hover .quasar-table-row:hover td { background: var(--quasar-palette-hover-background); }
+.quasar-table-row-clickable { cursor: pointer; }
+.quasar-table-detail > td { background: var(--quasar-palette-background-gray); }
+.quasar-table-fixed thead th { position: sticky; top: 0; z-index: 1; }
+
+.quasar-table-progress { position: relative; height: 2px; overflow: hidden; }
+
+.quasar-table-progress::after {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 35%;
+    background: var(--quasar-palette-primary);
+    animation: quasar-table-progress 1.1s ease-in-out infinite;
+}
+
+@keyframes quasar-table-progress { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+
+/* Stacked layout: below the breakpoint each row is a card of label and value
+   lines, and the header cells wrap as a row of sort buttons. */
+@media (max-width: 599.98px) {
+    .quasar-table-stack-sm {
+        &, & tbody, & tr, & td, & caption { display: block; }
+        & thead { display: block; }
+        & thead tr { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--quasar-palette-table-lines); }
+        & thead th { padding: 4px 8px; border: 0; }
+        & tbody tr { padding: 6px 0; border-bottom: 1px solid var(--quasar-palette-table-lines); }
+        & tbody tr:last-child { border-bottom: 0; }
+        & td { display: flex; gap: 12px; justify-content: space-between; padding: 4px 12px; border: 0; text-align: right; }
+        & td[data-label]::before { content: attr(data-label); flex: 0 0 auto; font-weight: 600; text-align: left; color: var(--quasar-palette-text-secondary); }
+    }
+}
+
+@media (max-width: 959.98px) {
+    .quasar-table-stack-md {
+        &, & tbody, & tr, & td, & caption { display: block; }
+        & thead { display: block; }
+        & thead tr { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--quasar-palette-table-lines); }
+        & thead th { padding: 4px 8px; border: 0; }
+        & tbody tr { padding: 6px 0; border-bottom: 1px solid var(--quasar-palette-table-lines); }
+        & tbody tr:last-child { border-bottom: 0; }
+        & td { display: flex; gap: 12px; justify-content: space-between; padding: 4px 12px; border: 0; text-align: right; }
+        & td[data-label]::before { content: attr(data-label); flex: 0 0 auto; font-weight: 600; text-align: left; color: var(--quasar-palette-text-secondary); }
+    }
+}
+
+@media (max-width: 1279.98px) {
+    .quasar-table-stack-lg {
+        &, & tbody, & tr, & td, & caption { display: block; }
+        & thead { display: block; }
+        & thead tr { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--quasar-palette-table-lines); }
+        & thead th { padding: 4px 8px; border: 0; }
+        & tbody tr { padding: 6px 0; border-bottom: 1px solid var(--quasar-palette-table-lines); }
+        & tbody tr:last-child { border-bottom: 0; }
+        & td { display: flex; gap: 12px; justify-content: space-between; padding: 4px 12px; border: 0; text-align: right; }
+        & td[data-label]::before { content: attr(data-label); flex: 0 0 auto; font-weight: 600; text-align: left; color: var(--quasar-palette-text-secondary); }
+    }
+}
+.quasar-table th.quasar-table-align-center, .quasar-table td.quasar-table-align-center { text-align: center; }
+.quasar-table th.quasar-table-align-end, .quasar-table td.quasar-table-align-end { text-align: right; }
+.quasar-table th.quasar-table-align-center .quasar-table-sort { justify-content: center; }
+.quasar-table th.quasar-table-align-end .quasar-table-sort { justify-content: flex-end; }
+
+.quasar-table-sort {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-weight: inherit;
+    text-align: inherit;
+    cursor: pointer;
+}
+
+.quasar-table th[aria-sort="ascending"] .quasar-table-sort::after { content: "▲"; font-size: 9px; }
+.quasar-table th[aria-sort="descending"] .quasar-table-sort::after { content: "▼"; font-size: 9px; }
+.quasar-table-empty { padding: 18px; color: var(--quasar-palette-text-secondary); font-size: 12px; text-align: center; }
+.quasar-table-error { color: var(--quasar-palette-error); }
+
+.quasar-table-pager {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--quasar-palette-table-lines);
+    font-size: 11px;
+    color: var(--quasar-palette-text-secondary);
+}
+
+.quasar-table-pages { display: flex; flex-wrap: wrap; gap: 3px; }
+
+.quasar-page-button {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 3px 6px;
+    border: 1px solid var(--quasar-palette-lines-default);
+    border-radius: 4px;
+    background: var(--quasar-palette-surface);
+    color: var(--quasar-palette-text-primary);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.quasar-page-button:hover:not(:disabled) { background: var(--quasar-palette-hover-background); color: var(--quasar-palette-hover-contrast-text); }
+.quasar-page-button[aria-current="page"] { border-color: var(--quasar-palette-primary); color: var(--quasar-palette-primary); font-weight: 600; }
+.quasar-page-button:disabled { opacity: .4; cursor: default; }
+
+.quasar-sr-only {
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* QuasarCopyablePath. */
+.quasar-copyable-path { display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+.quasar-copyable-path-inline {
+    display: inline-flex;
+    max-width: 100%;
+    vertical-align: middle;
+}
+
+.quasar-copyable-path-text {
+    min-width: 0;
+    font-family: var(--quasar-copyable-path-font, "JetBrains Mono", "Cascadia Code", monospace);
+    word-break: break-all;
+}
+
+.quasar-copyable-path-button { flex: 0 0 auto; margin-left: 2px; vertical-align: middle; }
+
+/* 12-column grid utilities. */
+.quasar-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+.quasar-col-1 { grid-column: span 1; }
+.quasar-col-2 { grid-column: span 2; }
+.quasar-col-3 { grid-column: span 3; }
+.quasar-col-4 { grid-column: span 4; }
+.quasar-col-5 { grid-column: span 5; }
+.quasar-col-6 { grid-column: span 6; }
+.quasar-col-7 { grid-column: span 7; }
+.quasar-col-8 { grid-column: span 8; }
+.quasar-col-9 { grid-column: span 9; }
+.quasar-col-10 { grid-column: span 10; }
+.quasar-col-11 { grid-column: span 11; }
+.quasar-col-12 { grid-column: span 12; }
+
+@media (min-width: 600px) {
+    .quasar-col-sm-1 { grid-column: span 1; }
+    .quasar-col-sm-2 { grid-column: span 2; }
+    .quasar-col-sm-3 { grid-column: span 3; }
+    .quasar-col-sm-4 { grid-column: span 4; }
+    .quasar-col-sm-5 { grid-column: span 5; }
+    .quasar-col-sm-6 { grid-column: span 6; }
+    .quasar-col-sm-7 { grid-column: span 7; }
+    .quasar-col-sm-8 { grid-column: span 8; }
+    .quasar-col-sm-9 { grid-column: span 9; }
+    .quasar-col-sm-10 { grid-column: span 10; }
+    .quasar-col-sm-11 { grid-column: span 11; }
+    .quasar-col-sm-12 { grid-column: span 12; }
+}
+
+@media (min-width: 960px) {
+    .quasar-col-md-1 { grid-column: span 1; }
+    .quasar-col-md-2 { grid-column: span 2; }
+    .quasar-col-md-3 { grid-column: span 3; }
+    .quasar-col-md-4 { grid-column: span 4; }
+    .quasar-col-md-5 { grid-column: span 5; }
+    .quasar-col-md-6 { grid-column: span 6; }
+    .quasar-col-md-7 { grid-column: span 7; }
+    .quasar-col-md-8 { grid-column: span 8; }
+    .quasar-col-md-9 { grid-column: span 9; }
+    .quasar-col-md-10 { grid-column: span 10; }
+    .quasar-col-md-11 { grid-column: span 11; }
+    .quasar-col-md-12 { grid-column: span 12; }
+}
+
+@media (min-width: 1280px) {
+    .quasar-col-lg-1 { grid-column: span 1; }
+    .quasar-col-lg-2 { grid-column: span 2; }
+    .quasar-col-lg-3 { grid-column: span 3; }
+    .quasar-col-lg-4 { grid-column: span 4; }
+    .quasar-col-lg-5 { grid-column: span 5; }
+    .quasar-col-lg-6 { grid-column: span 6; }
+    .quasar-col-lg-7 { grid-column: span 7; }
+    .quasar-col-lg-8 { grid-column: span 8; }
+    .quasar-col-lg-9 { grid-column: span 9; }
+    .quasar-col-lg-10 { grid-column: span 10; }
+    .quasar-col-lg-11 { grid-column: span 11; }
+    .quasar-col-lg-12 { grid-column: span 12; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .quasar-switch-track,
+    .quasar-switch-track::after,
+    .quasar-tip-text {
+        transition: none;
+    }
+
+    .quasar-button-spinner { animation-duration: 2.4s; }
+    .quasar-table-progress::after { animation: none; width: 100%; opacity: .5; }
+}

@@ -13,10 +13,10 @@ internal static class QuasarToastIcons
     /// <summary>Returns the default SVG path for <paramref name="severity"/>.</summary>
     public static string For(QuasarSeverity severity) => severity switch
     {
-        QuasarSeverity.Info => Quasar.Components.Shared.QuasarIcons.Info,
-        QuasarSeverity.Success => Quasar.Components.Shared.QuasarIcons.CheckCircle,
-        QuasarSeverity.Warning => Quasar.Components.Shared.QuasarIcons.ReportProblem,
-        QuasarSeverity.Error => Quasar.Components.Shared.QuasarIcons.ErrorOutline,
-        _ => Quasar.Components.Shared.QuasarIcons.EventNote,
+        QuasarSeverity.Info => Quasar.Ui.Components.QuasarIcons.Info,
+        QuasarSeverity.Success => Quasar.Ui.Components.QuasarIcons.CheckCircle,
+        QuasarSeverity.Warning => Quasar.Ui.Components.QuasarIcons.ReportProblem,
+        QuasarSeverity.Error => Quasar.Ui.Components.QuasarIcons.ErrorOutline,
+        _ => Quasar.Ui.Components.QuasarIcons.EventNote,
     };
 }

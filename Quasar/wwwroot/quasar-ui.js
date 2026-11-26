@@ -500,6 +500,146 @@
     }
 
     window.quasarUi = window.quasarUi || {};
+
+    // Copies text to the clipboard. Returns false when the browser refuses. Used by
+    // QuasarCopyablePath. The textarea fallback covers non-secure contexts such as
+    // plain HTTP on a LAN address.
+    window.quasarUi.copyText = async (text) => {
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+                return true;
+            }
+        } catch (error) { /* fall through to the fallback */ }
+
+        let area = null;
+        try {
+            area = document.createElement('textarea');
+            area.value = text;
+            area.setAttribute('readonly', '');
+            area.style.position = 'fixed';
+            area.style.opacity = '0';
+            document.body.appendChild(area);
+            area.focus();
+            area.select();
+            return document.execCommand('copy');
+        } catch (error) {
+            return false;
+        } finally {
+            if (area && area.parentNode)
+                area.parentNode.removeChild(area);
+        }
+    };
+
+    // Keyboard and focus behaviour for the native controls in Quasar.Ui.Abstractions.
+    // Everything is delegated from the document, so the components need no interop
+    // and keep working when they render later or inside a native dialog. Without
+    // this script the controls still work; they only lose these refinements.
+    (function installControlBehaviour() {
+        const tabKeys = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End']);
+        const menuKeys = new Set(['ArrowDown', 'ArrowUp', 'Home', 'End']);
+        // A whole-number field cannot hold these. A native number input accepts them
+        // as typed text and only drops the value later.
+        const integerBlockedKeys = new Set(['.', ',', 'e', 'E', '+']);
+
+        const menuItems = (menu) =>
+            Array.from(menu.querySelectorAll('[role="menuitem"]:not(:disabled)'));
+
+        document.addEventListener('keydown', (event) => {
+            const target = event.target;
+            if (!(target instanceof Element))
+                return;
+
+            // Whole-number fields: ignore the keys that can only make a decimal,
+            // an exponent or (for unsigned fields) a negative number. Shortcuts such
+            // as Ctrl+V are left alone.
+            if (target instanceof HTMLInputElement && target.hasAttribute('data-quasar-integer')
+                && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                if (integerBlockedKeys.has(event.key)
+                    || (event.key === '-' && target.hasAttribute('data-quasar-unsigned'))) {
+                    event.preventDefault();
+                    return;
+                }
+            }
+
+            // Tabs: Blazor moves the selection and focus. This only stops the
+            // browser from also scrolling the page for the same keys.
+            if (tabKeys.has(event.key) && target.closest('.quasar-tablist')) {
+                event.preventDefault();
+                return;
+            }
+
+            const menu = target.closest('[data-quasar-menu]');
+            if (menu && menuKeys.has(event.key)) {
+                const items = menuItems(menu);
+                if (items.length === 0)
+                    return;
+
+                event.preventDefault();
+                const current = items.indexOf(document.activeElement);
+                let next;
+                if (event.key === 'Home')
+                    next = 0;
+                else if (event.key === 'End')
+                    next = items.length - 1;
+                else if (event.key === 'ArrowDown')
+                    next = (current + 1) % items.length;
+                else
+                    next = (current - 1 + items.length) % items.length;
+                items[next].focus();
+                return;
+            }
+
+            // Escape dismisses a shown tooltip until the pointer or focus leaves.
+            if (event.key === 'Escape') {
+                document
+                    .querySelectorAll('.quasar-tip:hover, .quasar-tip:focus-within')
+                    .forEach((tooltip) => tooltip.classList.add('is-dismissed'));
+            }
+        });
+
+        // Capturing, because pointerleave does not bubble.
+        document.addEventListener('pointerleave', (event) => {
+            if (event.target instanceof Element && event.target.classList.contains('quasar-tip'))
+                event.target.classList.remove('is-dismissed');
+        }, true);
+
+        document.addEventListener('focusout', (event) => {
+            const target = event.target;
+            if (!(target instanceof Element))
+                return;
+
+            const tooltip = target.closest('.quasar-tip.is-dismissed');
+            if (tooltip && !(event.relatedTarget instanceof Node && tooltip.contains(event.relatedTarget)))
+                tooltip.classList.remove('is-dismissed');
+
+            // A menu closes when focus moves to something outside it. A null
+            // target means a click on a non-focusable part of the menu itself.
+            const menu = target.closest('[data-quasar-menu]');
+            const next = event.relatedTarget;
+            if (menu && menu.matches(':popover-open') && next instanceof Node && !menu.contains(next))
+                menu.hidePopover();
+        });
+
+        // The toggle event does not bubble, so listen while it is captured.
+        document.addEventListener('toggle', (event) => {
+            const menu = event.target;
+            if (!(menu instanceof HTMLElement) || !menu.hasAttribute('data-quasar-menu'))
+                return;
+
+            const open = event.newState === 'open';
+            const trigger = document.querySelector(`[aria-controls="${CSS.escape(menu.id)}"]`);
+            if (trigger)
+                trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+
+            if (open) {
+                const first = menuItems(menu)[0];
+                if (first)
+                    first.focus();
+            }
+        }, true);
+    })();
+
     window.quasarUi.dialogs = {
         /**
          * Opens an already-rendered <dialog>. No-op when the element is gone or

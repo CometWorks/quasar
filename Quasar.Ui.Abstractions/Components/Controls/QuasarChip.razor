@@ -1,0 +1,86 @@
+@namespace Quasar.Ui.Components
+@using Quasar.Ui
+
+<span class="@CssClass">
+    @if (!string.IsNullOrWhiteSpace(Icon))
+    {
+        <QuasarIcon Icon="@Icon" />
+    }
+
+    @if (OnClick.HasDelegate)
+    {
+        <button type="button"
+                class="quasar-chip-action"
+                aria-pressed="@(Selected is { } selected ? (selected ? "true" : "false") : null)"
+                disabled="@Disabled"
+                @onclick="OnClick">@ChildContent</button>
+    }
+    else
+    {
+        <span class="quasar-chip-text">@ChildContent</span>
+    }
+
+    @if (OnClose.HasDelegate)
+    {
+        <button type="button"
+                class="quasar-chip-close"
+                aria-label="@CloseLabel"
+                disabled="@Disabled"
+                @onclick="OnClose">
+            <QuasarIcon Icon="@QuasarIcons.Close" />
+        </button>
+    }
+</span>
+
+@code {
+    /// <summary>Semantic colour role.</summary>
+    [Parameter] public QuasarTone Tone { get; set; }
+
+    /// <summary>Visual treatment.</summary>
+    [Parameter] public QuasarVariant Variant { get; set; }
+
+    /// <summary>Control size.</summary>
+    [Parameter] public QuasarSize Size { get; set; }
+
+    /// <summary>Optional leading icon.</summary>
+    [Parameter] public string? Icon { get; set; }
+
+    /// <summary>
+    /// Marks a filter or toggle chip as selected or not selected. Leave it unset
+    /// for a chip that performs an action, so it is not announced as a toggle.
+    /// </summary>
+    [Parameter] public bool? Selected { get; set; }
+
+    /// <summary>Disables the chip actions.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Raised when the chip itself is activated.</summary>
+    [Parameter] public EventCallback OnClick { get; set; }
+
+    /// <summary>Raised when the close button is activated.</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>Accessible name of the close button.</summary>
+    [Parameter] public string CloseLabel { get; set; } = "Remove";
+
+    /// <summary>Additional class applied to the chip.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Chip content.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private string CssClass
+    {
+        get
+        {
+            var classes = "quasar-chip";
+            classes = Append(classes, QuasarClasses.Tone(Tone));
+            classes = Append(classes, QuasarClasses.Variant(Variant));
+            classes = Append(classes, QuasarClasses.Size(Size));
+            return Append(classes, Class);
+        }
+    }
+
+    private static string Append(string classes, string? value) =>
+        string.IsNullOrWhiteSpace(value) ? classes : classes + " " + value;
+}

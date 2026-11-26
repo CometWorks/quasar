@@ -1,0 +1,207 @@
+@namespace Quasar.Ui.Components
+@typeparam T
+@inherits QuasarFieldBase<T>
+@using System.Globalization
+
+<div class="@FieldClass" aria-busy="@(IsValidating ? "true" : null)">
+    @if (!string.IsNullOrWhiteSpace(Label))
+    {
+        <label class="quasar-input-label" for="@FieldId">
+            @Label
+            @if (Required)
+            {
+                <span class="quasar-input-required" aria-hidden="true">*</span>
+            }
+        </label>
+    }
+
+    <input @key="_resetKey"
+           id="@FieldId"
+           type="number"
+           placeholder="@Placeholder"
+           disabled="@Disabled"
+           readonly="@ReadOnly"
+           min="@Min"
+           max="@Max"
+           step="@EffectiveStep"
+           inputmode="@(IsInteger ? "numeric" : "decimal")"
+           data-quasar-integer="@(IsInteger ? string.Empty : null)"
+           data-quasar-unsigned="@(IsInteger && IsUnsigned ? string.Empty : null)"
+           aria-invalid="@(Errors.Count > 0 ? "true" : null)"
+           aria-describedby="@DescribedBy"
+           value="@DisplayText"
+           @oninput="InputHandler"
+           @onchange="OnChangeAsync"
+           @onblur="OnBlurAsync"
+           @attributes="AdditionalAttributes" />
+
+    <QuasarFieldMessages Hint="@Hint" HintId="@HintId" MessagesId="@MessagesId" Errors="@Errors" />
+</div>
+
+@code {
+    private static readonly HashSet<Type> SupportedTypes =
+    [
+        typeof(sbyte), typeof(byte), typeof(short), typeof(ushort), typeof(int),
+        typeof(uint), typeof(long), typeof(ulong), typeof(float), typeof(double),
+        typeof(decimal),
+    ];
+
+    private static readonly Type NumberType = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
+
+    private static readonly bool IsNullable = Nullable.GetUnderlyingType(typeof(T)) is not null;
+
+    // Whole-number types cannot hold a decimal point or an exponent, or a minus sign
+    // when the type is unsigned. The host script (quasar-ui.js) ignores those keys
+    // on inputs marked data-quasar-integer, so they cannot be typed at all.
+    private static readonly bool IsInteger =
+        SupportedTypes.Contains(NumberType)
+        && NumberType != typeof(float) && NumberType != typeof(double) && NumberType != typeof(decimal);
+
+    private static readonly bool IsUnsignedType =
+        NumberType == typeof(byte) || NumberType == typeof(ushort)
+        || NumberType == typeof(uint) || NumberType == typeof(ulong);
+
+    // What the user has typed. Shown instead of the formatted value while an
+    // Immediate edit is in progress, so a half-typed number is never rewritten.
+    private string? _editText;
+    private int _resetKey;
+
+    /// <summary>Optional native minimum, for example <c language="text">1</c>. A change commit clamps to it.</summary>
+    [Parameter] public string? Min { get; set; }
+
+    /// <summary>Optional native maximum, for example <c language="text">65535</c>. A change commit clamps to it.</summary>
+    [Parameter] public string? Max { get; set; }
+
+    /// <summary>Native step value, for example <c language="text">1</c> or <c language="text">any</c>.</summary>
+    [Parameter] public string? Step { get; set; }
+
+    /// <summary>
+    /// Commits the value while the user types, after a short pause in typing,
+    /// instead of only when the field loses focus or Enter is pressed. Typed
+    /// values are not clamped until the field loses focus.
+    /// </summary>
+    [Parameter] public bool Immediate { get; set; }
+
+    // An empty callback registers no event, so a field that is not Immediate sends
+    // nothing to the server while the user types.
+    private EventCallback<ChangeEventArgs> InputHandler => Immediate
+        ? EventCallback.Factory.Create<ChangeEventArgs>(this, OnInputAsync)
+        : default;
+
+    private string? DisplayText => _editText ?? Format(CurrentValue);
+
+    // A whole-number field steps by one unless the caller says otherwise.
+    private string? EffectiveStep => Step ?? (IsInteger ? "1" : null);
+
+    // A minimum of zero or more means the field never needs a minus sign.
+    private bool IsUnsigned => IsUnsignedType
+        || (decimal.TryParse(Min, NumberStyles.Float, CultureInfo.InvariantCulture, out var minimum) && minimum >= 0);
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        var type = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
+        if (!SupportedTypes.Contains(type))
+        {
+            throw new InvalidOperationException(
+                $"QuasarNumberField<{typeof(T).Name}> is not supported. Use a built-in integer or floating-point type, or its nullable form.");
+        }
+
+        base.OnInitialized();
+    }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+
+        // The model changed without the user typing, for example a form reset.
+        if (_editText is not null && !HasPendingEdit && TextConflictsWith(_editText, CurrentValue))
+            _editText = null;
+    }
+
+    /// <summary>Only a nullable field can be empty, so <c>Required</c> never fails for a non-nullable type.</summary>
+    protected override bool IsEmpty(T value) => value is null;
+
+    private Task OnInputAsync(ChangeEventArgs args)
+    {
+        var text = args.Value?.ToString();
+        _editText = text;
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            // A cleared field is a value only for a nullable type. A half-typed
+            // number such as "-" reads as empty and must not overwrite the model.
+            if (IsNullable)
+                EditValue(default!);
+            return Task.CompletedTask;
+        }
+
+        if (TryParse(text, out var value))
+            EditValue(value);
+
+        return Task.CompletedTask;
+    }
+
+    private async Task OnChangeAsync(ChangeEventArgs args)
+    {
+        var text = args.Value?.ToString();
+        _editText = null;
+
+        T committed;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            // An empty non-nullable field restores the last value.
+            committed = IsNullable ? default! : CurrentValue;
+        }
+        else if (TryParse(text, out var parsed))
+        {
+            committed = Clamp(parsed);
+        }
+        else
+        {
+            committed = CurrentValue;
+        }
+
+        // The element keeps whatever the user typed, and a render that formats
+        // to the same text as before does not touch it. Recreate the element
+        // when the committed text differs from what is on screen.
+        if (!string.Equals(Format(committed) ?? string.Empty, text ?? string.Empty, StringComparison.Ordinal))
+            _resetKey++;
+
+        await SetValueAsync(committed);
+    }
+
+    private T Clamp(T value)
+    {
+        if (value is null)
+            return value;
+
+        var comparer = Comparer<T>.Default;
+        if (TryParse(Min, out var min) && comparer.Compare(value, min) < 0)
+            return min;
+        if (TryParse(Max, out var max) && comparer.Compare(value, max) > 0)
+            return max;
+        return value;
+    }
+
+    private static bool TryParse(string? text, out T value)
+    {
+        if (!string.IsNullOrWhiteSpace(text)
+            && BindConverter.TryConvertTo<T>(text, CultureInfo.InvariantCulture, out var parsed))
+        {
+            value = parsed;
+            return true;
+        }
+
+        value = default!;
+        return false;
+    }
+
+    private static string? Format(T value) =>
+        value is null ? null : Convert.ToString(value, CultureInfo.InvariantCulture);
+
+    private static bool TextConflictsWith(string text, T value) =>
+        TryParse(text, out var parsed)
+        && !EqualityComparer<T>.Default.Equals(parsed, value);
+}

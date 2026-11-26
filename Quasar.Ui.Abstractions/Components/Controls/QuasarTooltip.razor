@@ -1,0 +1,28 @@
+@namespace Quasar.Ui.Components
+
+<span class="quasar-tip @Class"
+      style="anchor-name:@AnchorName"
+      aria-describedby="@TextId">
+    @ChildContent
+    <span id="@TextId"
+          role="tooltip"
+          class="quasar-tip-text"
+          style="position-anchor:@AnchorName">@Text</span>
+</span>
+
+@code {
+    private readonly string _id = Guid.NewGuid().ToString("n");
+
+    /// <summary>Tooltip text. It shows on hover and on keyboard focus, and Escape dismisses it.</summary>
+    [Parameter, EditorRequired] public string Text { get; set; } = string.Empty;
+
+    /// <summary>The element described by the tooltip.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Additional class applied to the wrapper.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    private string TextId => $"quasar-tip-{_id}";
+
+    private string AnchorName => $"--quasar-tip-{_id}";
+}

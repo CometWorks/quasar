@@ -1,0 +1,152 @@
+@namespace Quasar.Ui.Components
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="quasar-tabs @Class" @attributes="AdditionalAttributes">
+    <div class="quasar-tablist" role="tablist" aria-orientation="horizontal" @onkeydown="OnKeyDownAsync">
+        @for (var index = 0; index < Items.Count; index++)
+        {
+            var position = index;
+            var item = Items[position];
+            var selected = IsActive(item);
+            <button type="button"
+                    role="tab"
+                    id="@TabId(position)"
+                    class="quasar-tab"
+                    aria-selected="@(selected ? "true" : "false")"
+                    aria-controls="@(selected ? PanelId(position) : null)"
+                    tabindex="@(selected ? "0" : "-1")"
+                    @ref="_buttons[position]"
+                    @onclick="() => SelectAsync(item, false)">@item.Title</button>
+        }
+    </div>
+
+    @if (ActiveItem is { } active)
+    {
+        var activeIndex = ActiveIndex;
+        <div class="quasar-tabpanel"
+             role="tabpanel"
+             id="@PanelId(activeIndex)"
+             aria-labelledby="@TabId(activeIndex)"
+             tabindex="0">
+            @active.Content
+        </div>
+    }
+</div>
+
+@code {
+    private readonly string _baseId = $"quasar-tabs-{Guid.NewGuid():n}";
+    private ElementReference[] _buttons = [];
+    private string? _activeId;
+    private string? _lastActiveParameter;
+
+    /// <summary>Tabs rendered in order. Only the active tab's content is rendered.</summary>
+    [Parameter] public IReadOnlyList<QuasarTabItem>? Tabs { get; set; }
+
+    /// <summary>Controlled active tab id. The first tab is used when omitted.</summary>
+    [Parameter] public string? ActiveTab { get; set; }
+
+    /// <summary>Raised when the user selects a tab.</summary>
+    [Parameter] public EventCallback<string?> ActiveTabChanged { get; set; }
+
+    /// <summary>Additional class applied to the tab container.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Additional attributes forwarded to the container.</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private IReadOnlyList<QuasarTabItem> Items => Tabs ?? [];
+
+    private int ActiveIndex
+    {
+        get
+        {
+            var found = IndexOfId(_activeId);
+            return found >= 0 ? found : Items.Count == 0 ? -1 : 0;
+        }
+    }
+
+    private QuasarTabItem? ActiveItem
+    {
+        get
+        {
+            var index = ActiveIndex;
+            return index < 0 ? null : Items[index];
+        }
+    }
+
+    private bool IsActive(QuasarTabItem item) =>
+        string.Equals(item.Id, ActiveItem?.Id, StringComparison.Ordinal);
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (ActiveTab is not null && !string.Equals(ActiveTab, _lastActiveParameter, StringComparison.Ordinal))
+            _activeId = ActiveTab;
+
+        _lastActiveParameter = ActiveTab;
+
+        if (_buttons.Length != Items.Count)
+            _buttons = new ElementReference[Items.Count];
+
+        if (IndexOfId(_activeId) < 0)
+            _activeId = Items.Count == 0 ? null : Items[0].Id;
+    }
+
+    private async Task SelectAsync(QuasarTabItem item, bool moveFocus)
+    {
+        if (!string.Equals(_activeId, item.Id, StringComparison.Ordinal))
+        {
+            _activeId = item.Id;
+            await ActiveTabChanged.InvokeAsync(item.Id);
+        }
+
+        if (moveFocus)
+        {
+            var index = IndexOfId(item.Id);
+            if (index >= 0 && index < _buttons.Length)
+                await _buttons[index].FocusAsync();
+        }
+    }
+
+    private int IndexOfId(string? id)
+    {
+        if (id is null)
+            return -1;
+
+        var items = Items;
+        for (var index = 0; index < items.Count; index++)
+        {
+            if (string.Equals(items[index].Id, id, StringComparison.Ordinal))
+                return index;
+        }
+
+        return -1;
+    }
+
+    // The dashboard script stops the browser from also scrolling the page for
+    // these keys. Without it the tabs still work.
+    private async Task OnKeyDownAsync(KeyboardEventArgs args)
+    {
+        var items = Items;
+        if (items.Count == 0)
+            return;
+
+        var current = ActiveIndex;
+        var target = args.Key switch
+        {
+            "ArrowRight" => (current + 1) % items.Count,
+            "ArrowLeft" => (current - 1 + items.Count) % items.Count,
+            "Home" => 0,
+            "End" => items.Count - 1,
+            _ => -1,
+        };
+
+        if (target >= 0)
+            await SelectAsync(items[target], true);
+    }
+
+    private string TabId(int index) => $"{_baseId}-tab-{index}";
+
+    private string PanelId(int index) => $"{_baseId}-panel-{index}";
+}

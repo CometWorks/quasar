@@ -1,0 +1,125 @@
+@namespace Quasar.Ui.Components
+@using Quasar.Ui
+
+@if (Href is null)
+{
+    <button type="@TypeAttribute"
+            class="@CssClass"
+            disabled="@(Disabled || Loading)"
+            aria-busy="@(Loading ? "true" : null)"
+            @onclick="OnClick"
+            @attributes="AdditionalAttributes">
+        @Inner
+    </button>
+}
+else if (IsNavigable)
+{
+    <a class="@CssClass"
+       href="@Href"
+       @onclick="OnClick"
+       @attributes="AdditionalAttributes">
+        @Inner
+    </a>
+}
+else
+{
+    @* A disabled, busy or unsafe link has no href, so it cannot be followed,
+       and no click handler, so it raises nothing. *@
+    <a class="@CssClass"
+       role="link"
+       aria-disabled="true"
+       aria-busy="@(Loading ? "true" : null)"
+       @attributes="AdditionalAttributes">
+        @Inner
+    </a>
+}
+
+@code {
+    /// <summary>Semantic colour role.</summary>
+    [Parameter] public QuasarTone Tone { get; set; }
+
+    /// <summary>Visual treatment.</summary>
+    [Parameter] public QuasarVariant Variant { get; set; }
+
+    /// <summary>Control size.</summary>
+    [Parameter] public QuasarSize Size { get; set; }
+
+    /// <summary>Optional leading icon constant or legacy icon name.</summary>
+    [Parameter] public string? StartIcon { get; set; }
+
+    /// <summary>Optional trailing icon constant or legacy icon name.</summary>
+    [Parameter] public string? EndIcon { get; set; }
+
+    /// <summary>
+    /// When set, renders a link instead of a button. An unsafe address renders
+    /// the same control as a disabled link.
+    /// </summary>
+    [Parameter] public string? Href { get; set; }
+
+    /// <summary>Disables the control.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Marks the control busy, shows a spinner and disables it while an operation runs.</summary>
+    [Parameter] public bool Loading { get; set; }
+
+    /// <summary>Stretches the control to the available width.</summary>
+    [Parameter] public bool FullWidth { get; set; }
+
+    /// <summary>Native button type.</summary>
+    [Parameter] public QuasarButtonType Type { get; set; }
+
+    /// <summary>Raised when the control is activated.</summary>
+    [Parameter] public EventCallback OnClick { get; set; }
+
+    /// <summary>Additional class applied to the control.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Button or link content.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Additional attributes forwarded to the native element.</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private bool IsNavigable => !Disabled && !Loading && QuasarUrlSafety.IsSafeHref(Href);
+
+    private string TypeAttribute => Type switch
+    {
+        QuasarButtonType.Submit => "submit",
+        QuasarButtonType.Reset => "reset",
+        _ => "button",
+    };
+
+    private string CssClass
+    {
+        get
+        {
+            var classes = "quasar-button";
+            classes = Append(classes, QuasarClasses.Tone(Tone));
+            classes = Append(classes, QuasarClasses.Variant(Variant));
+            classes = Append(classes, QuasarClasses.Size(Size));
+            if (FullWidth)
+                classes += " quasar-button-full";
+            return Append(classes, Class);
+        }
+    }
+
+    private RenderFragment Inner => @<text>
+        @if (Loading)
+        {
+            <span class="quasar-button-spinner" aria-hidden="true"></span>
+        }
+        @if (!string.IsNullOrWhiteSpace(StartIcon))
+        {
+            <QuasarIcon Icon="@StartIcon" />
+        }
+        @ChildContent
+        @if (!string.IsNullOrWhiteSpace(EndIcon))
+        {
+            <QuasarIcon Icon="@EndIcon" />
+        }
+    </text>;
+
+    private static string Append(string classes, string? value) =>
+        string.IsNullOrWhiteSpace(value) ? classes : classes + " " + value;
+}

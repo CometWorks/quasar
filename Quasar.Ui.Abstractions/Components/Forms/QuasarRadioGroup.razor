@@ -1,0 +1,55 @@
+@namespace Quasar.Ui.Components
+@typeparam T
+@inherits QuasarFieldBase<T>
+
+<fieldset class="quasar-radio-group @FieldClass"
+          role="radiogroup"
+          aria-busy="@(IsValidating ? "true" : null)"
+          aria-invalid="@(Errors.Count > 0 ? "true" : null)"
+          aria-describedby="@DescribedBy"
+          @attributes="AdditionalAttributes">
+    <legend class="quasar-input-label">
+        @if (!string.IsNullOrWhiteSpace(Label))
+        {
+            @Label
+        }
+        else
+        {
+            <span class="quasar-sr-only">Options</span>
+        }
+        @if (Required)
+        {
+            <span class="quasar-input-required" aria-hidden="true">*</span>
+        }
+    </legend>
+
+    @foreach (var option in _options)
+    {
+        <label class="quasar-choice quasar-radio">
+            <input type="radio"
+                   name="@FieldId"
+                   checked="@IsSelected(option.Value)"
+                   disabled="@(Disabled || ReadOnly || option.Disabled)"
+                   @onchange="() => SetValueAsync(option.Value)" />
+            <span class="quasar-choice-label">@option.Text</span>
+        </label>
+    }
+
+    <QuasarFieldMessages Hint="@Hint" HintId="@HintId" MessagesId="@MessagesId" Errors="@Errors" />
+</fieldset>
+
+@code {
+    private IReadOnlyList<QuasarOption<T>> _options = [];
+
+    /// <summary>Options rendered as radio buttons.</summary>
+    [Parameter] public IEnumerable<QuasarOption<T>>? Items { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+        _options = Items as IReadOnlyList<QuasarOption<T>> ?? Items?.ToList() ?? [];
+    }
+
+    private bool IsSelected(T value) => EqualityComparer<T>.Default.Equals(value, CurrentValue);
+}

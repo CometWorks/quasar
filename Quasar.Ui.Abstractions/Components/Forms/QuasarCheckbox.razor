@@ -1,0 +1,30 @@
+@namespace Quasar.Ui.Components
+@inherits QuasarFieldBase<bool>
+
+<div class="@FieldClass" aria-busy="@(IsValidating ? "true" : null)">
+    <label class="quasar-choice quasar-checkbox">
+        <input type="checkbox"
+               id="@FieldId"
+               checked="@CurrentValue"
+               disabled="@(Disabled || ReadOnly)"
+               aria-invalid="@(Errors.Count > 0 ? "true" : null)"
+               aria-describedby="@DescribedBy"
+               @onchange="OnChangeAsync"
+               @attributes="AdditionalAttributes" />
+        <span class="quasar-choice-label">@Label</span>
+        @if (Required)
+        {
+            <span class="quasar-input-required" aria-hidden="true">*</span>
+        }
+    </label>
+
+    <QuasarFieldMessages Hint="@Hint" HintId="@HintId" MessagesId="@MessagesId" Errors="@Errors" />
+</div>
+
+@code {
+    /// <summary>A required checkbox must be checked.</summary>
+    protected override bool IsEmpty(bool value) => !value;
+
+    private Task OnChangeAsync(ChangeEventArgs args) =>
+        SetValueAsync(args.Value is bool value && value);
+}
