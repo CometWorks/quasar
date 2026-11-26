@@ -30,15 +30,17 @@ namespace Quasar.Client.Ui.Dialogs;
 /// A cancellation token supplied by the caller is observed for the dialog's
 /// whole lifetime. Cancellation before the entry is queued returns a canceled
 /// reference without rendering. Cancellation afterwards requests a close through
-/// the same two-phase path as <see cref="IQuasarDialogReference.Cancel"/>. The
-/// registration is disposed when the dialog finishes closing or the service is
-/// disposed.
+/// the same two-phase path as <see cref="IQuasarDialogReference.Cancel"/>. If no
+/// dialog host is mounted, cancellation or a caller-requested close completes
+/// the entry immediately instead of leaving the caller waiting. The registration
+/// is disposed when the dialog finishes closing or the service is disposed.
 /// </para>
 /// </remarks>
 internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
 {
     private readonly Lock _sync = new();
     private readonly List<QuasarDialogEntry> _entries = [];
+    private int _hostCount;
     private bool _disposed;
 
     /// <summary>
@@ -122,8 +124,7 @@ internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
         {
             try
             {
-                var registration = cancellationToken.Register(
-                    () => RequestClose(entry, QuasarDialogResult.Cancel()));
+                var registration = cancellationToken.Register(() => CancelEntry(entry));
                 if (!entry.Cancellation.TrySet(registration))
                     registration.Unregister();
             }
@@ -156,6 +157,43 @@ internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
         CancellationToken cancellationToken = default) =>
         Task.FromResult<IQuasarDialogReference>(ShowCore(componentType, title, parameters, options, cancellationToken));
 
+    /// <inheritdoc />
+    public async Task<bool?> ShowMessageBoxAsync(
+        string title,
+        string message,
+        string yesText = "OK",
+        string? noText = null,
+        string? cancelText = null,
+        QuasarDialogOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ArgumentNullException.ThrowIfNull(message);
+
+        // Normalize optional labels once. Empty labels mean "hide that button";
+        // the component applies the same rule when it renders the footer.
+        var parameters = new QuasarDialogParameters<QuasarMessageBoxDialog>
+        {
+            { dialog => dialog.Message, message },
+            { dialog => dialog.YesText, string.IsNullOrWhiteSpace(yesText) ? "OK" : yesText.Trim() },
+            { dialog => dialog.NoText, string.IsNullOrWhiteSpace(noText) ? null : noText.Trim() },
+            { dialog => dialog.CancelText, string.IsNullOrWhiteSpace(cancelText) ? null : cancelText.Trim() },
+        };
+
+        var reference = await ShowAsync<QuasarMessageBoxDialog>(title, parameters, options, cancellationToken);
+
+        // ShowCore observes the cancellation token for the dialog's lifetime, so
+        // a pre-canceled token returns a completed canceled result and canceling
+        // an open box requests the native close. A recorded choice still wins.
+        var result = await reference.Result;
+
+        // The built-in message box closes with a bool payload. Any canceled path
+        // (Escape, backdrop, navigation, token) maps to null, preserving the
+        // familiar bool? result shape. If a choice was already recorded, that
+        // choice wins; a later cancellation only closes a box that is still open.
+        return result.Canceled ? null : result.Data is true;
+    }
+
     /// <summary>An immutable snapshot of the open entries, oldest first.</summary>
     internal IReadOnlyList<QuasarDialogEntry> Entries
     {
@@ -168,10 +206,12 @@ internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
 
     /// <summary>
     /// Records a caller-requested close. The native close event is handled
-    /// later by <see cref="FinishClose"/>.
+    /// later by <see cref="FinishClose"/>. With no mounted host, no native close
+    /// can arrive, so the entry is completed immediately.
     /// </summary>
     internal void RequestClose(QuasarDialogEntry entry, QuasarDialogResult? result)
     {
+        bool completeNow = false;
         lock (_sync)
         {
             // Ignore repeated requests from the close button, Escape, a backdrop
@@ -180,8 +220,18 @@ internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
                 return;
             entry.RequestedResult = result ?? QuasarDialogResult.Cancel();
             entry.CloseRequested = true;
+            if (_hostCount == 0)
+            {
+                _entries.Remove(entry);
+                completeNow = true;
+            }
         }
 
+        if (completeNow)
+        {
+            entry.Reference.Complete(entry.RequestedResult ?? QuasarDialogResult.Cancel());
+            entry.Cancellation.Dispose();
+        }
         RaiseChanged();
     }
 
@@ -205,6 +255,89 @@ internal sealed class QuasarDialogService : IQuasarDialogService, IDisposable
 
         if (closing.Length > 0)
             RaiseChanged();
+    }
+
+    /// <summary>
+    /// Registers a rendered dialog host. While at least one host is mounted,
+    /// cancellations go through the native two-phase close. A host that
+    /// initializes after the service is disposed is ignored.
+    /// </summary>
+    internal void HostMounted()
+    {
+        lock (_sync)
+        {
+            if (_disposed)
+                return;
+            _hostCount++;
+        }
+    }
+
+    /// <summary>
+    /// Unregisters a dialog host. When the last host goes away, open entries are
+    /// completed as canceled so their callers cannot hang on a host that will
+    /// never close them.
+    /// </summary>
+    internal void HostUnmounted()
+    {
+        QuasarDialogEntry[] entries;
+        lock (_sync)
+        {
+            if (_hostCount == 0)
+                return;
+            _hostCount--;
+            if (_hostCount > 0 || _disposed)
+                return;
+            entries = _entries.ToArray();
+            _entries.Clear();
+        }
+
+        foreach (var entry in entries)
+        {
+            entry.Cancellation.Dispose();
+            entry.Reference.Complete(entry.RequestedResult ?? QuasarDialogResult.Cancel());
+        }
+        RaiseChanged();
+    }
+
+    /// <summary>
+    /// Handles a cancellation token. A recorded choice wins; with no mounted
+    /// host the entry is completed immediately with that choice, or with a
+    /// cancel when no choice was recorded.
+    /// </summary>
+    private void CancelEntry(QuasarDialogEntry entry)
+    {
+        bool completeNow = false;
+        lock (_sync)
+        {
+            if (!_entries.Contains(entry))
+                return;
+
+            // With a host, a recorded close stays in flight and the host will
+            // finish it. With no host, no FinishClose can arrive, so complete
+            // the entry here even when a close was already recorded; otherwise
+            // the caller waits forever for a host that is not there.
+            if (entry.CloseRequested && _hostCount > 0)
+                return;
+
+            if (!entry.CloseRequested)
+            {
+                entry.RequestedResult = QuasarDialogResult.Cancel();
+                entry.CloseRequested = true;
+            }
+
+            if (_hostCount == 0)
+            {
+                _entries.Remove(entry);
+                completeNow = true;
+            }
+        }
+
+        if (completeNow)
+        {
+            entry.Reference.Complete(entry.RequestedResult ?? QuasarDialogResult.Cancel());
+            entry.Cancellation.Dispose();
+        }
+        RaiseChanged();
     }
 
     /// <summary>

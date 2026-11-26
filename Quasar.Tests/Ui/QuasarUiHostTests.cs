@@ -296,6 +296,128 @@ public sealed class QuasarUiHostTests
         await cut.WaitForAssertionAsync(() => Assert.Empty(cut.FindAll("dialog")));
     }
 
+    [Theory]
+    [InlineData("Delete", true)]
+    [InlineData("Keep", false)]
+    [InlineData("Cancel", null)]
+    public async Task MessageBoxRendersChoicesAndMapsResult(string buttonText, bool? expected)
+    {
+        await using var context = CreateContext();
+        using var cut = context.Render<QuasarDialogHost>();
+        var dialogs = context.Services.GetRequiredService<IQuasarDialogService>();
+
+        var task = dialogs.ShowMessageBoxAsync("Delete backup?", "Permanently delete it?", "Delete", "Keep", "Cancel");
+        await cut.WaitForAssertionAsync(() =>
+        {
+            Assert.Contains("Permanently delete it?", cut.Markup, StringComparison.Ordinal);
+            Assert.Equal("Delete backup?", cut.Find("dialog").GetAttribute("aria-label"));
+            Assert.Equal("Delete backup?", cut.Find("h2.quasar-dialog-title").TextContent);
+        });
+
+        await cut.FindAll("button").Single(button => button.TextContent.Trim() == buttonText).ClickAsync();
+        await cut.WaitForAssertionAsync(() =>
+            Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "quasarUi.dialogs.close"));
+        Assert.Equal(expected, await task);
+    }
+
+    [Fact]
+    public async Task MessageBoxEncodesTitleMessageAndLabels()
+    {
+        await using var context = CreateContext();
+        using var cut = context.Render<QuasarDialogHost>();
+        var dialogs = context.Services.GetRequiredService<IQuasarDialogService>();
+
+        _ = dialogs.ShowMessageBoxAsync(
+            "<img src=x onerror=alert(1)>",
+            "<script>alert(1)</script>",
+            "<b>Yes</b>",
+            "<i>No</i>",
+            "<u>Cancel</u>");
+
+        await cut.WaitForAssertionAsync(() =>
+        {
+            Assert.Empty(cut.FindAll("img"));
+            Assert.Empty(cut.FindAll("script"));
+            Assert.Empty(cut.FindAll("b"));
+            Assert.Equal("<img src=x onerror=alert(1)>", cut.Find("dialog").GetAttribute("aria-label"));
+            Assert.Equal("<img src=x onerror=alert(1)>", cut.Find("h2.quasar-dialog-title").TextContent);
+            var description = cut.Find("p[data-quasar-dialog-description]");
+            Assert.Equal("<script>alert(1)</script>", description.TextContent);
+            Assert.Contains("quasar-dialog-message", description.ClassList, StringComparer.Ordinal);
+            Assert.Contains(cut.FindAll("button"), button => button.TextContent.Trim() == "<b>Yes</b>");
+        });
+    }
+
+    [Fact]
+    public async Task MessageBoxHidesOptionalNoButton()
+    {
+        await using var context = CreateContext();
+        using var cut = context.Render<QuasarDialogHost>();
+        var dialogs = context.Services.GetRequiredService<IQuasarDialogService>();
+
+        var task = dialogs.ShowMessageBoxAsync("Question", "Choose", "OK", cancelText: "Cancel");
+        await cut.WaitForAssertionAsync(() =>
+        {
+            var labels = cut.FindAll("button")
+                .Select(button => button.TextContent.Trim())
+                .Where(label => label.Length > 0)
+                .ToArray();
+            Assert.Equal(["Cancel", "OK"], labels);
+        });
+
+        await cut.FindAll("button").Single(button => button.TextContent.Trim() == "Cancel").ClickAsync();
+        await cut.WaitForAssertionAsync(() =>
+            Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "quasarUi.dialogs.close"));
+        Assert.Null(await task);
+    }
+
+    [Fact]
+    public async Task MessageBoxHeaderCloseCancels()
+    {
+        using var context = CreateContext();
+        using var cut = context.Render<QuasarDialogHost>();
+        var dialogs = context.Services.GetRequiredService<IQuasarDialogService>();
+
+        var task = dialogs.ShowMessageBoxAsync("Question", "Choose");
+        await cut.WaitForAssertionAsync(() =>
+            Assert.Contains("Choose", cut.Markup, StringComparison.Ordinal));
+
+        await cut.Find("button[aria-label='Close dialog']").ClickAsync();
+        await cut.WaitForAssertionAsync(() =>
+            Assert.Contains(context.JSInterop.Invocations, invocation => invocation.Identifier == "quasarUi.dialogs.close"));
+        Assert.Null(await task);
+    }
+
+    [Fact]
+    public async Task DisposingTheHostCancelsAnOpenMessageBox()
+    {
+        using var context = CreateContext();
+        var wrapper = context.Render<DialogHostWrapper>();
+        var dialogs = context.Services.GetRequiredService<IQuasarDialogService>();
+
+        var task = dialogs.ShowMessageBoxAsync("Question", "Choose");
+        await wrapper.WaitForAssertionAsync(() =>
+            Assert.Contains("Choose", wrapper.Markup, StringComparison.Ordinal));
+
+        wrapper.Render(parameters => parameters.Add(p => p.ShowHost, false));
+
+        Assert.Null(await task.WaitAsync(TimeSpan.FromSeconds(2)));
+    }
+
+    public sealed class DialogHostWrapper : ComponentBase
+    {
+        [Parameter] public bool ShowHost { get; set; } = true;
+
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
+        {
+            if (!ShowHost)
+                return;
+
+            builder.OpenComponent<QuasarDialogHost>(0);
+            builder.CloseComponent();
+        }
+    }
+
     private static QuasarBunitContext CreateContext()
     {
         var context = new QuasarBunitContext();

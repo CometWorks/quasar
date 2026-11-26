@@ -130,4 +130,78 @@ public interface IQuasarDialogService
         QuasarDialogParameters? parameters = null,
         QuasarDialogOptions? options = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Shows a native message box and returns the user's choice.
+    /// </summary>
+    /// <param name="title">Accessible name and visible title. Must not be blank.</param>
+    /// <param name="message">Plain-text message. It is rendered as text, not HTML; line breaks are preserved.</param>
+    /// <param name="yesText">Label for the primary button. The primary button is always shown; blank values fall back to <c language="csharp">OK</c>.</param>
+    /// <param name="noText">Optional label for the secondary button. When omitted or blank, no button is shown.</param>
+    /// <param name="cancelText">Optional label for the cancel button. When omitted or blank, the footer button is not shown; the header close button, Escape and backdrop dismissal still return <c language="csharp">null</c>.</param>
+    /// <param name="options">Dialog behavior and appearance overrides. Keep <see cref="QuasarDialogOptions.Modal"/> and <see cref="QuasarDialogOptions.CloseOnNavigation"/> enabled for a blocking confirmation.</param>
+    /// <param name="cancellationToken">
+    /// Cancels opening the dialog or closes it if already open; the result is
+    /// <c language="csharp">null</c>. If a choice was already recorded, that choice wins;
+    /// cancellation only closes a box that is still open.
+    /// </param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="title"/> or <paramref name="message"/> is <c>null</c>.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="title"/> is empty or whitespace.
+    /// </exception>
+    /// <returns>
+    /// <c language="csharp">true</c> for Yes, <c language="csharp">false</c> for No, and <c language="csharp">null</c> for Cancel,
+    /// the header close button, Escape, a backdrop click, navigation, or a canceled token.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// This is the native equivalent of the familiar message-box call shape.
+    /// It opens the same managed dialog host as
+    /// <see cref="ShowAsync{TComponent}"/> and does not delegate to MudBlazor
+    /// or any other dialog implementation.
+    /// </para>
+    /// <para>
+    /// Use <see cref="ShowAsync{TComponent}"/> with a custom component when the
+    /// message needs rich content, validation, or more than three choices.
+    /// </para>
+    /// <para>
+    /// With no <paramref name="noText"/> or <paramref name="cancelText"/>, the
+    /// box has a single primary footer button and the always-visible header
+    /// close button. It is a confirmation, not a notification; use
+    /// <see cref="IQuasarToastService"/> for non-blocking messages.
+    /// </para>
+    /// <para>
+    /// A call made before a <c language="csharp">QuasarDialogHost</c> is mounted
+    /// is queued and completes when a host renders and closes the box. If no host
+    /// ever mounts, the returned task stays pending until the token is canceled;
+    /// cancellation completes it with <c language="csharp">null</c>.
+    /// </para>
+    /// <para>
+    /// This member is additive for callers. Custom implementations of this
+    /// interface must implement it.
+    /// </para>
+    /// </remarks>
+    /// <example>
+    /// <code language="csharp">
+    /// var choice = await Dialogs.ShowMessageBoxAsync(
+    ///     "Delete backup?",
+    ///     "Permanently delete this backup?",
+    ///     yesText: "Delete",
+    ///     noText: "Keep",
+    ///     cancelText: "Cancel");
+    ///
+    /// if (choice == true)
+    ///     DeleteBackup();
+    /// </code>
+    /// </example>
+    Task<bool?> ShowMessageBoxAsync(
+        string title,
+        string message,
+        string yesText = "OK",
+        string? noText = null,
+        string? cancelText = null,
+        QuasarDialogOptions? options = null,
+        CancellationToken cancellationToken = default);
 }

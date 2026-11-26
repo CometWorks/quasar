@@ -11,6 +11,7 @@ public sealed class QuasarDialogServiceTests
     public async Task ShowAddsEntryAndCloseCompletesResultOnce()
     {
         using var service = new QuasarDialogService();
+        service.HostMounted();
         var reference = await service.ShowAsync<TestDialog>("Test dialog");
 
         Assert.Single(service.Entries);
@@ -85,6 +86,7 @@ public sealed class QuasarDialogServiceTests
     public async Task ShowAsyncParityCancelsAnOpenDialog()
     {
         using var service = new QuasarDialogService();
+        service.HostMounted();
         using var cancellation = new CancellationTokenSource();
         var reference = await service.ShowAsync<TestDialog>(cancellationToken: cancellation.Token);
         var entry = Assert.Single(service.Entries);
@@ -104,6 +106,7 @@ public sealed class QuasarDialogServiceTests
     public async Task ShowCancelsAnOpenDialogToo()
     {
         using var service = new QuasarDialogService();
+        service.HostMounted();
         using var cancellation = new CancellationTokenSource();
         var reference = service.Show<TestDialog>(cancellationToken: cancellation.Token);
         var entry = Assert.Single(service.Entries);
@@ -211,6 +214,228 @@ public sealed class QuasarDialogServiceTests
 
         service.FinishClose(reference.Id);
         Assert.True((await reference.Result).Canceled);
+    }
+
+    [Fact]
+    public async Task MessageBoxYesReturnsTrueAndPassesParameters()
+    {
+        using var service = new QuasarDialogService();
+        var task = service.ShowMessageBoxAsync("Delete backup", "Permanently delete it?", "Delete", "Keep", "Cancel");
+
+        var entry = Assert.Single(service.Entries);
+        Assert.Equal("Delete backup", entry.Title);
+        Assert.Equal("Permanently delete it?", entry.Parameters["Message"]);
+        Assert.Equal("Delete", entry.Parameters["YesText"]);
+        Assert.Equal("Keep", entry.Parameters["NoText"]);
+        Assert.Equal("Cancel", entry.Parameters["CancelText"]);
+
+        service.RequestClose(entry, QuasarDialogResult.Ok(true));
+        service.FinishClose(entry.Id);
+
+        Assert.True((await task) == true);
+    }
+
+    [Fact]
+    public async Task MessageBoxNoReturnsFalse()
+    {
+        using var service = new QuasarDialogService();
+        var task = service.ShowMessageBoxAsync("Question", "Choose", "Yes", "No", "Cancel");
+
+        var entry = Assert.Single(service.Entries);
+        service.RequestClose(entry, QuasarDialogResult.Ok(false));
+        service.FinishClose(entry.Id);
+
+        Assert.Equal(false, await task);
+    }
+
+    [Fact]
+    public async Task MessageBoxCancelReturnsNull()
+    {
+        using var service = new QuasarDialogService();
+        var task = service.ShowMessageBoxAsync("Question", "Choose", "Yes", "No", "Cancel");
+
+        var entry = Assert.Single(service.Entries);
+        service.RequestClose(entry, QuasarDialogResult.Cancel());
+        service.FinishClose(entry.Id);
+
+        Assert.Null(await task);
+    }
+
+    [Fact]
+    public async Task MessageBoxCanceledTokenReturnsNull()
+    {
+        using var service = new QuasarDialogService();
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        var result = await service.ShowMessageBoxAsync("Question", "Choose", cancellationToken: cancellation.Token);
+
+        Assert.Null(result);
+        Assert.Empty(service.Entries);
+    }
+
+    [Fact]
+    public async Task MessageBoxCanceledTokenClosesOpenBox()
+    {
+        using var service = new QuasarDialogService();
+        service.HostMounted();
+        using var cancellation = new CancellationTokenSource();
+        var task = service.ShowMessageBoxAsync("Question", "Choose", cancellationToken: cancellation.Token);
+
+        var entry = Assert.Single(service.Entries);
+        await cancellation.CancelAsync();
+
+        Assert.True(entry.CloseRequested);
+        service.FinishClose(entry.Id);
+        Assert.Null(await task);
+        Assert.Empty(service.Entries);
+    }
+
+    [Fact]
+    public async Task MessageBoxCanceledTokenWithoutHostCompletesImmediately()
+    {
+        using var service = new QuasarDialogService();
+        using var cancellation = new CancellationTokenSource();
+        var task = service.ShowMessageBoxAsync("Question", "Choose", cancellationToken: cancellation.Token);
+
+        Assert.Single(service.Entries);
+        await cancellation.CancelAsync();
+
+        Assert.Empty(service.Entries);
+        Assert.Null(await task.WaitAsync(TimeSpan.FromSeconds(2)));
+    }
+
+    [Fact]
+    public async Task UnmountingTheHostCancelsOpenDialogs()
+    {
+        using var service = new QuasarDialogService();
+        service.HostMounted();
+        var task = service.ShowMessageBoxAsync("Question", "Choose");
+
+        Assert.Single(service.Entries);
+        service.HostUnmounted();
+
+        Assert.Empty(service.Entries);
+        Assert.Null(await task.WaitAsync(TimeSpan.FromSeconds(2)));
+    }
+
+    [Fact]
+    public async Task UnmountingTheHostPreservesARecordedChoice()
+    {
+        using var service = new QuasarDialogService();
+        service.HostMounted();
+        var task = service.ShowMessageBoxAsync("Question", "Choose");
+
+        var entry = Assert.Single(service.Entries);
+        service.RequestClose(entry, QuasarDialogResult.Ok(true));
+        service.HostUnmounted();
+
+        Assert.True(await task.WaitAsync(TimeSpan.FromSeconds(2)));
+    }
+
+    [Fact]
+    public async Task MessageBoxCancellationAfterConfirmationReturnsTrue()
+    {
+        using var service = new QuasarDialogService();
+        using var cancellation = new CancellationTokenSource();
+        var task = service.ShowMessageBoxAsync("Question", "Choose", cancellationToken: cancellation.Token);
+
+        var entry = Assert.Single(service.Entries);
+        service.RequestClose(entry, QuasarDialogResult.Ok(true));
+        await cancellation.CancelAsync();
+
+        service.FinishClose(entry.Id);
+        Assert.True(await task);
+        Assert.Empty(service.Entries);
+    }
+
+    [Fact]
+    public async Task MessageBoxRequiresNonBlankTitle()
+    {
+        using var service = new QuasarDialogService();
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.ShowMessageBoxAsync(" ", "Choose"));
+    }
+
+    [Fact]
+    public async Task MessageBoxNormalizesOptionalLabelsAndPassesOptions()
+    {
+        using var service = new QuasarDialogService();
+        var task = service.ShowMessageBoxAsync("Question", "Choose",
+            yesText: "  ", noText: " ", cancelText: "  ",
+            options: new QuasarDialogOptions { MaxWidth = QuasarDialogWidth.Medium });
+
+        var entry = Assert.Single(service.Entries);
+        Assert.Equal("OK", entry.Parameters["YesText"]);
+        Assert.Null(entry.Parameters["NoText"]);
+        Assert.Null(entry.Parameters["CancelText"]);
+        Assert.Equal(QuasarDialogWidth.Medium, entry.Options.MaxWidth);
+
+        service.RequestClose(entry, QuasarDialogResult.Cancel());
+        service.FinishClose(entry.Id);
+        Assert.Null(await task);
+    }
+
+    [Fact]
+    public async Task CloseRecordedWithoutHostIsCompletedWhenTokenIsCancelled()
+    {
+        using var service = new QuasarDialogService();
+        using var cancellation = new CancellationTokenSource();
+        var reference = service.Show<TestDialog>(cancellationToken: cancellation.Token);
+        var entry = Assert.Single(service.Entries);
+
+        service.RequestClose(entry, QuasarDialogResult.Ok("recorded"));
+        await cancellation.CancelAsync();
+
+        Assert.Empty(service.Entries);
+        var result = await reference.Result.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(result.Canceled);
+        Assert.Equal("recorded", result.Data);
+    }
+
+    [Fact]
+    public async Task CloseWithoutHostCompletesImmediately()
+    {
+        using var service = new QuasarDialogService();
+        var reference = service.Show<TestDialog>();
+
+        reference.Close(QuasarDialogResult.Ok("closed"));
+
+        Assert.Empty(service.Entries);
+        var result = await reference.Result.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(result.Canceled);
+        Assert.Equal("closed", result.Data);
+    }
+
+    [Fact]
+    public async Task CancelWithoutHostCompletesImmediately()
+    {
+        using var service = new QuasarDialogService();
+        var reference = service.Show<TestDialog>();
+
+        reference.Cancel();
+
+        Assert.Empty(service.Entries);
+        Assert.True((await reference.Result.WaitAsync(TimeSpan.FromSeconds(2))).Canceled);
+    }
+
+    [Fact]
+    public void HostMountedAfterDisposeIsIgnored()
+    {
+        var service = new QuasarDialogService();
+        service.Dispose();
+
+        service.HostMounted();
+    }
+
+    [Fact]
+    public async Task MessageBoxRejectsNullMessage()
+    {
+        using var service = new QuasarDialogService();
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            service.ShowMessageBoxAsync("Question", null!));
     }
 
     private sealed class TestDialog : IComponent

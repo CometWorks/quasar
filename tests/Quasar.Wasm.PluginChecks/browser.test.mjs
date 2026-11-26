@@ -66,11 +66,26 @@ async function check(browser, prefix) {
         // Native dialog and toast host through the public UI contract.
         await page.goto("https://panel.invalid" + prefix + "?ui=1");
         await page.getByText("UI fixture (test plugin)").waitFor({ timeout: 15000 });
+        await page.getByText("Native inline notice rendered by the fixture plugin.").waitFor({ timeout: 10000 });
+        const filledNotice = page.locator(".quasar-notice-filled", {
+            hasText: "Filled warning notice rendered by the fixture plugin.",
+        });
+        await filledNotice.waitFor({ state: "visible", timeout: 10000 });
+        const filledColors = await filledNotice.evaluate(element => ({
+            left: getComputedStyle(element).borderLeftColor,
+            top: getComputedStyle(element).borderTopColor,
+        }));
+        assert.notEqual(filledColors.left, filledColors.top,
+            "Filled notices must keep the severity accent on the left border");
+        const accentNotice = page.locator(".quasar-notice", { hasText: "Accent override notice." });
+        await accentNotice.waitFor({ state: "visible", timeout: 10000 });
+        assert.equal(await accentNotice.evaluate(element => getComputedStyle(element).borderLeftColor),
+            "rgb(1, 2, 3)", "An ancestor --quasar-notice-accent must override the severity accent");
         await page.getByRole("button", { name: "Open basic dialog" }).click();
-        const surface = page.locator("dialog.quasar-dialog").first();
-        await surface.waitFor({ state: "visible", timeout: 10000 });
-        assert.equal(await surface.evaluate(element => element.open), true);
-        const surfaceColors = await surface.evaluate(element => {
+        const basic = page.locator('dialog.quasar-dialog[aria-label="UI fixture dialog"]');
+        await basic.waitFor({ state: "visible", timeout: 10000 });
+        assert.equal(await basic.evaluate(element => element.open), true);
+        const surfaceColors = await basic.evaluate(element => {
             const probe = document.createElement("span");
             probe.style.display = "none";
             probe.style.background = "var(--quasar-dialog-surface)";
@@ -84,18 +99,63 @@ async function check(browser, prefix) {
             `Dialog must use the resolved surface token; got ${surfaceColors.actual}`);
         assert.notEqual(surfaceColors.actual, "rgba(0, 0, 0, 0)");
         await page.keyboard.press("Escape");
-        await surface.waitFor({ state: "hidden", timeout: 10000 });
+        await basic.waitFor({ state: "hidden", timeout: 10000 });
+
+        await page.getByRole("button", { name: "Open message box" }).click();
+        const messageBox = page.locator('dialog.quasar-dialog[aria-label="Delete backup?"]');
+        await messageBox.waitFor({ state: "visible", timeout: 10000 });
+        await messageBox.getByRole("button", { name: "Close dialog" }).waitFor({ timeout: 10000 });
+        const messageText = messageBox.locator("[data-quasar-dialog-description]");
+        assert.equal(await messageText.evaluate(element => getComputedStyle(element).whiteSpace),
+            "pre-line", "Message box text must preserve line breaks");
+        const description = await messageBox.evaluate(element => {
+            const id = element.getAttribute("aria-describedby");
+            const target = id ? document.getElementById(id) : null;
+            return {
+                id,
+                owned: target?.hasAttribute("data-quasar-dialog-description") ?? false,
+                text: target?.textContent ?? null,
+            };
+        });
+        assert.ok(description.id);
+        assert.equal(description.owned, true);
+        assert.equal(description.text, "Permanently delete it?");
+        await messageBox.getByRole("button", { name: "Delete", exact: true }).click();
+        await page.getByText("Message box: True").waitFor({ timeout: 5000 });
 
         await page.getByRole("button", { name: "Open sync dialog" }).click();
-        await surface.waitFor({ state: "visible", timeout: 10000 });
-        assert.equal(await surface.evaluate(element => element.open), true);
+        const sync = page.locator('dialog.quasar-dialog[aria-label="Sync dialog"]');
+        await sync.waitFor({ state: "visible", timeout: 10000 });
+        assert.equal(await sync.evaluate(element => element.open), true);
         await page.keyboard.press("Escape");
-        await surface.waitFor({ state: "hidden", timeout: 10000 });
+        await sync.waitFor({ state: "hidden", timeout: 10000 });
+
+        // A description rendered after the dialog opens must still become the
+        // accessible description.
+        await page.getByRole("button", { name: "Open late description" }).click();
+        const late = page.locator('dialog.quasar-dialog[aria-label="Late description dialog"]');
+        await late.waitFor({ state: "visible", timeout: 10000 });
+        assert.equal(await late.getAttribute("aria-describedby"), null);
+        await late.getByRole("button", { name: "Add description" }).click();
+        await page.waitForFunction(() => {
+            const dialog = [...document.querySelectorAll("dialog.quasar-dialog")]
+                .find(element => element.getAttribute("aria-label") === "Late description dialog");
+            const id = dialog?.getAttribute("aria-describedby");
+            return (id ? document.getElementById(id)?.textContent : null)
+                ?.includes("Late description added after open.") ?? false;
+        }, null, { timeout: 10000 });
+        const lateDescription = await late.evaluate(element => {
+            const id = element.getAttribute("aria-describedby");
+            return id ? document.getElementById(id)?.textContent ?? null : null;
+        });
+        assert.equal(lateDescription, "Late description added after open.");
+        await page.keyboard.press("Escape");
+        await late.waitFor({ state: "hidden", timeout: 10000 });
 
         // A locked modal must swallow Escape on every press and remain open
         // until a control closes it.
         await page.getByRole("button", { name: "Open locked dialog" }).click();
-        const locked = page.locator("dialog.quasar-dialog").first();
+        const locked = page.locator('dialog.quasar-dialog[aria-label="Locked dialog"]');
         await locked.waitFor({ state: "visible", timeout: 10000 });
         await page.keyboard.press("Escape");
         await page.keyboard.press("Escape");
@@ -118,7 +178,8 @@ async function check(browser, prefix) {
         const modeless = page.locator(".quasar-dialog-modeless").first();
         await modeless.waitFor({ state: "visible", timeout: 10000 });
         await page.getByRole("button", { name: "Toast: Normal" }).click();
-        await page.locator(".quasar-toast").first().waitFor({ state: "visible", timeout: 10000 });
+        await page.locator(".quasar-toast", { hasText: "Native Normal toast from the fixture plugin." })
+            .waitFor({ state: "visible", timeout: 10000 });
         const beforeDrag = await modeless.boundingBox();
         const dragHandle = page.locator(".quasar-dialog-drag-handle").first();
         const handleBox = await dragHandle.boundingBox();
@@ -133,7 +194,7 @@ async function check(browser, prefix) {
         await modeless.waitFor({ state: "hidden", timeout: 10000 });
 
         await page.getByRole("button", { name: "Toast: Success" }).click();
-        const toast = page.locator(".quasar-toast").first();
+        const toast = page.locator(".quasar-toast", { hasText: "Native Success toast from the fixture plugin." });
         await toast.waitFor({ state: "visible", timeout: 10000 });
         assert.equal(await toast.getAttribute("role"), "status");
 

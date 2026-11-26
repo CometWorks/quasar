@@ -1,7 +1,7 @@
 namespace Quasar.Ui;
 
 /// <summary>
-/// Toast severity. It maps to the dashboard palette and to an accessible
+/// Toast and notice severity. It maps to the dashboard palette and to an accessible
 /// <c language="text">status</c> or <c language="text">alert</c> role.
 /// </summary>
 /// <remarks>

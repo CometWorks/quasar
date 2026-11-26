@@ -1,0 +1,131 @@
+@namespace Quasar.Ui.Components
+@using Quasar.Ui
+
+<div @attributes="MergedAttributes"
+     class="quasar-notice @VariantClass @SeverityClass @(Dense ? "quasar-notice-dense" : null) @Class"
+     style="@Style" role="@AriaRole" aria-atomic="true">@(_contentReady ? ChildContent : null)</div>
+
+@code {
+    /// <summary>
+    /// Severity controls the accent colour and, by default, whether the notice
+    /// is announced politely (<c language="html">role="status"</c>) or
+    /// immediately (<c language="html">role="alert"</c>).
+    /// </summary>
+    [Parameter] public QuasarSeverity Severity { get; set; }
+
+    /// <summary>
+    /// Overrides the severity-derived live-region role. Use
+    /// <c language="html">status</c> for a polite, non-urgent warning or
+    /// <c language="html">alert</c> for an immediate one. When null,
+    /// Warning/Error use <c language="html">alert</c> and all other severities
+    /// use <c language="html">status</c>.
+    /// </summary>
+    [Parameter] public string? Role { get; set; }
+
+    /// <summary>Visual treatment. Defaults to <see cref="QuasarInlineNoticeVariant.Outlined"/>.</summary>
+    [Parameter] public QuasarInlineNoticeVariant Variant { get; set; }
+
+    /// <summary>Uses tighter padding and spacing.</summary>
+    [Parameter] public bool Dense { get; set; }
+
+    /// <summary>The notice body. Razor content is encoded as usual.</summary>
+    /// <remarks>
+    /// <para>
+    /// Plain text and Razor markup are encoded. A caller that passes
+    /// <see cref="Microsoft.AspNetCore.Components.MarkupString"/> or builds raw
+    /// markup takes responsibility for that content. Encoding does not validate
+    /// URL schemes; do not place untrusted values in <c>href</c> or <c>src</c>.
+    /// </para>
+    /// <para>
+    /// The live region is rendered before the content is added, so a notice
+    /// inserted dynamically can be announced by assistive technology.
+    /// </para>
+    /// </remarks>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Additional class applied to the notice element.</summary>
+    /// <remarks>
+    /// The value is trusted CSS from the caller. Do not pass untrusted input;
+    /// global classes can change layout or presentation.
+    /// </remarks>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Optional inline style applied to the notice element.</summary>
+    /// <remarks>
+    /// The value is trusted CSS from the caller. Do not pass untrusted input;
+    /// CSS can load external URLs and reposition content.
+    /// </remarks>
+    [Parameter] public string? Style { get; set; }
+
+    /// <summary>
+    /// Additional attributes forwarded to the root element, such as
+    /// <c language="html">id</c>, <c language="html">data-*</c>, or
+    /// <c language="html">aria-label</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c language="html">class</c>, <c language="html">style</c>,
+    /// <c language="html">role</c>, and <c language="html">aria-atomic</c> are
+    /// component-owned; use <see cref="Class"/>, <see cref="Style"/>, and
+    /// <see cref="Severity"/> instead. Values that remain are trusted markup
+    /// attributes from the caller.
+    /// </remarks>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private bool _contentReady;
+
+    /// <summary>
+    /// Static rendering has no second render. In an interactive renderer the
+    /// live region is rendered empty first and the content is added on the next
+    /// render, so a dynamically inserted notice is announced.
+    /// </summary>
+    protected override void OnInitialized() =>
+        _contentReady = !RendererInfo.IsInteractive;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender && !_contentReady)
+        {
+            _contentReady = true;
+            StateHasChanged();
+        }
+    }
+
+    private IReadOnlyDictionary<string, object>? MergedAttributes
+    {
+        get
+        {
+            if (AdditionalAttributes is null || AdditionalAttributes.Count == 0)
+                return null;
+
+            var merged = new Dictionary<string, object>(StringComparer.Ordinal);
+            foreach (var pair in AdditionalAttributes)
+            {
+                if (pair.Key is "class" or "style" or "role" or "aria-atomic")
+                    continue;
+                merged[pair.Key] = pair.Value;
+            }
+            return merged.Count == 0 ? null : merged;
+        }
+    }
+
+    private string? VariantClass => Variant switch
+    {
+        QuasarInlineNoticeVariant.Filled => "quasar-notice-filled",
+        QuasarInlineNoticeVariant.Text => "quasar-notice-text",
+        _ => null,
+    };
+
+    private string? SeverityClass => Severity switch
+    {
+        QuasarSeverity.Info => "quasar-notice-info",
+        QuasarSeverity.Success => "quasar-notice-success",
+        QuasarSeverity.Warning => "quasar-notice-warning",
+        QuasarSeverity.Error => "quasar-notice-error",
+        _ => null,
+    };
+
+    private string AriaRole => string.IsNullOrWhiteSpace(Role)
+        ? Severity is QuasarSeverity.Warning or QuasarSeverity.Error ? "alert" : "status"
+        : Role;
+}

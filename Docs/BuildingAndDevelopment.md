@@ -49,6 +49,10 @@ file-manager launch. These fixtures never open a real installer or install servi
   Public contract assembly for Quasar UI plugins: plugin entry point, manifest
   model, nav contributions, page/component patch contributions, and the generic
   companion-channel interface.
+- `Quasar.Ui.Abstractions`
+  Shared native UI contract and primitives for the dashboard and plugin browser
+  assemblies: dialog/toast services, dialog options and results, and the
+  `QuasarInlineNotice` component.
 - `Magnetar.Protocol`
   Shared transport, discovery, and Magnetar bridge contracts currently used by
   Quasar, Quasar.Agent, and companion plugins.
