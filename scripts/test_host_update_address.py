@@ -13,9 +13,10 @@ except ModuleNotFoundError as error:
     # with fcntl, which does not exist on Windows, so import fails there.
     if error.name != "fcntl":
         raise
-    raise unittest.SkipTest("host-update.py needs fcntl, which this platform does not have")
+    updater = None
 
 
+@unittest.skipIf(updater is None, "host-update.py needs fcntl, which this platform does not have")
 class HostUpdateAddressTests(unittest.TestCase):
     def test_download_paths_retain_hosted_prefix_and_local_root(self):
         for address in ("https://dash.se-servers.net/my-panel/", "https://quasar.example/", "http://127.0.0.1:8080/"):

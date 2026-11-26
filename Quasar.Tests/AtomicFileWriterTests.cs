@@ -29,12 +29,9 @@ public sealed class AtomicFileWriterTests : IDisposable
         Assert.Equal((UnixFileMode)0x180, File.GetUnixFileMode(path));
     }
 
-    [Fact]
+    [WindowsFact]
     public async Task RewriteWaitsForABriefHoldOnTheTarget()
     {
-        if (!OperatingSystem.IsWindows())
-            return;
-
         var path = Path.Combine(_root, "held.json");
         await File.WriteAllTextAsync(path, "old");
 
@@ -53,12 +50,9 @@ public sealed class AtomicFileWriterTests : IDisposable
         Assert.Empty(Directory.GetFiles(_root, ".*.tmp"));
     }
 
-    [Fact]
+    [WindowsFact]
     public async Task RewriteStillFailsAndLeavesNoTempFileWhenTheTargetStaysLocked()
     {
-        if (!OperatingSystem.IsWindows())
-            return;
-
         var path = Path.Combine(_root, "locked.json");
         await File.WriteAllTextAsync(path, "old");
 
