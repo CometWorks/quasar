@@ -200,6 +200,40 @@ public sealed class ClusterSetupTests
     }
 
     [Fact]
+    public void BundledAgentWithoutAnExplicitVersionUsesThisBuildsOwnVersion()
+    {
+        // The production path passes no version, so it reads this assembly's. That version carries a
+        // source commit only when the build was stamped, so the expected outcome follows the build.
+        string version = System.Reflection.CustomAttributeExtensions
+            .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(ClusterSetupService).Assembly)
+            ?.InformationalVersion ?? "";
+        var stamped = System.Text.RegularExpressions.Regex.Match(version, "(?:\\+|\\.)([a-fA-F0-9]{40})(?:$|[^a-fA-F0-9])");
+
+        string config = Path.Combine(Path.GetTempPath(), "cluster-agent-own-version-" + Guid.NewGuid());
+        Directory.CreateDirectory(Path.Combine(config, "Local"));
+        Directory.CreateDirectory(Path.Combine(config, "Profiles"));
+        try
+        {
+            foreach (string name in new[] { "Quasar.Agent.dll", "Magnetar.Protocol.dll", "0Harmony.dll" })
+                File.WriteAllText(Path.Combine(config, "Local", name), name);
+            File.WriteAllText(Path.Combine(config, "Profiles/Current.xml"), "<Profile><Local><string>Quasar.Agent.dll</string></Local></Profile>");
+
+            if (stamped.Success)
+            {
+                ClusterSetupService.PrepareAgentMetadata(config);
+                var metadata = System.Xml.Linq.XDocument.Load(Path.Combine(config, "Local/Quasar.Agent/Quasar.Agent.xml")).Root!;
+                Assert.Equal(stamped.Groups[1].Value, metadata.Element("Commit")!.Value);
+            }
+            else
+            {
+                var error = Assert.Throws<InvalidDataException>(() => ClusterSetupService.PrepareAgentMetadata(config));
+                Assert.Contains("no source commit provenance", error.Message, StringComparison.Ordinal);
+            }
+        }
+        finally { Directory.Delete(config, true); }
+    }
+
+    [Fact]
     public void BundledAgentNeedsASourceCommitInTheBuildVersion()
     {
         string config = Path.Combine(Path.GetTempPath(), "cluster-agent-no-commit-" + Guid.NewGuid());
