@@ -162,6 +162,7 @@ public sealed class WorldBackupTests : IDisposable
             : new ProcessStartInfo("sleep", "60"))!;
         SetProcessState(DedicatedServerProcessState.Running, process);
         using var cancellation = new CancellationTokenSource();
+        var exited = true;
         try
         {
             var backup = backups.WriteWorldBackupFileAsync("test", DateTimeOffset.Now,
@@ -209,19 +210,26 @@ public sealed class WorldBackupTests : IDisposable
                     // Already exited and disposed.
                 }
 
-                await WaitUntilInactiveAsync(process);
+                exited = await WaitUntilInactiveAsync(process);
             }
         }
+
+        // Asserted here, not in the finally, so a failure in the body is never replaced by this one.
+        Assert.True(exited, "The test process did not exit after Kill.");
     }
 
-    private static async Task WaitUntilInactiveAsync(Process process)
+    private static async Task<bool> WaitUntilInactiveAsync(Process process)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);
         while (DedicatedServerSupervisor.IsProcessActive(process))
         {
-            Assert.True(DateTime.UtcNow < deadline, "The test process did not exit after Kill.");
+            if (DateTime.UtcNow >= deadline)
+                return false;
+
             await Task.Delay(20);
         }
+
+        return true;
     }
 
     [Fact]
