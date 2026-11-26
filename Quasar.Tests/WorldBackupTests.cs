@@ -195,12 +195,32 @@ public sealed class WorldBackupTests : IDisposable
         }
         finally
         {
-            // The successful stop disposes the supervisor's process handle.
+            // The supervisor disposes its process handle when the process exits, and
+            // its exit handler can do that right after Kill. Kill and wait through the
+            // supervisor's own liveness check, which treats a disposed handle as exited.
             if (DedicatedServerSupervisor.IsProcessActive(process))
             {
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync();
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Already exited and disposed.
+                }
+
+                await WaitUntilInactiveAsync(process);
             }
+        }
+    }
+
+    private static async Task WaitUntilInactiveAsync(Process process)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DedicatedServerSupervisor.IsProcessActive(process))
+        {
+            Assert.True(DateTime.UtcNow < deadline, "The test process did not exit after Kill.");
+            await Task.Delay(20);
         }
     }
 
