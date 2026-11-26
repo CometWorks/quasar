@@ -184,15 +184,31 @@ public sealed class ClusterSetupTests
             string oldBundle = Path.Combine(config, "Local/Quasar.Agent");
             Directory.CreateDirectory(oldBundle);
             File.WriteAllText(Path.Combine(oldBundle, "Quasar.Agent.xml"), "<PluginData><Commit>" + new string('0', 40) + "</Commit></PluginData>");
-            ClusterSetupService.PrepareAgentMetadata(config);
+            // The build version is supplied, so the test does not depend on whether this build was
+            // made from a git checkout and stamped with its commit.
+            string commit = new('a', 40);
+            ClusterSetupService.PrepareAgentMetadata(config, "1.7.1+" + commit);
             string bundle = Path.Combine(config, "Local/Quasar.Agent");
             Assert.Equal("Quasar.Agent.dll", File.ReadAllText(Path.Combine(bundle, "Quasar.Agent.dll")));
             Assert.False(File.Exists(Path.Combine(config, "Local/Quasar.Agent.dll")));
             var metadata = System.Xml.Linq.XDocument.Load(Path.Combine(bundle, "Quasar.Agent.xml")).Root!;
             Assert.Equal("quasar-agent", metadata.Element("Id")!.Value);
-            Assert.Matches("^[a-fA-F0-9]{40}$", metadata.Element("Commit")!.Value);
-            Assert.NotEqual(new string('0', 40), metadata.Element("Commit")!.Value);
+            Assert.Equal(commit, metadata.Element("Commit")!.Value);
             Assert.Contains("quasar-agent", File.ReadAllText(Path.Combine(config, "Profiles/Current.xml")));
+        }
+        finally { Directory.Delete(config, true); }
+    }
+
+    [Fact]
+    public void BundledAgentNeedsASourceCommitInTheBuildVersion()
+    {
+        string config = Path.Combine(Path.GetTempPath(), "cluster-agent-no-commit-" + Guid.NewGuid());
+        Directory.CreateDirectory(Path.Combine(config, "Local"));
+        try
+        {
+            File.WriteAllText(Path.Combine(config, "Local", "Quasar.Agent.dll"), "agent");
+            var error = Assert.Throws<InvalidDataException>(() => ClusterSetupService.PrepareAgentMetadata(config, "1.7.1"));
+            Assert.Contains("no source commit provenance", error.Message, StringComparison.Ordinal);
         }
         finally { Directory.Delete(config, true); }
     }

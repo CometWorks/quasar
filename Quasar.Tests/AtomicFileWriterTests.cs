@@ -30,6 +30,49 @@ public sealed class AtomicFileWriterTests : IDisposable
     }
 
     [Fact]
+    public async Task RewriteWaitsForABriefHoldOnTheTarget()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        var path = Path.Combine(_root, "held.json");
+        await File.WriteAllTextAsync(path, "old");
+
+        // A reader without delete sharing makes replacing the file fail until it lets go.
+        var hold = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var release = Task.Run(async () =>
+        {
+            await Task.Delay(300);
+            hold.Dispose();
+        });
+
+        await AtomicFileWriter.WriteTextAsync(path, "new");
+        await release;
+
+        Assert.Equal("new", await File.ReadAllTextAsync(path));
+        Assert.Empty(Directory.GetFiles(_root, ".*.tmp"));
+    }
+
+    [Fact]
+    public async Task RewriteStillFailsAndLeavesNoTempFileWhenTheTargetStaysLocked()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        var path = Path.Combine(_root, "locked.json");
+        await File.WriteAllTextAsync(path, "old");
+
+        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            var error = await Assert.ThrowsAnyAsync<Exception>(() => AtomicFileWriter.WriteTextAsync(path, "new"));
+            Assert.True(error is IOException or UnauthorizedAccessException, error.GetType().Name);
+        }
+
+        Assert.Equal("old", await File.ReadAllTextAsync(path));
+        Assert.Empty(Directory.GetFiles(_root, ".*.tmp"));
+    }
+
+    [Fact]
     public async Task PrivateWriteCreatesOwnerOnlyFile()
     {
         if (OperatingSystem.IsWindows())
