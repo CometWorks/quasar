@@ -271,7 +271,7 @@ public sealed class ClusterCatalogTests : IDisposable
             JsonSerializer.Serialize(current, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
         using var catalog = CreateCatalog();
 
-        var restored = await catalog.RecordRestoredProvenanceAsync("demo", restoredRevision, saved, "old-profile", default);
+        var restored = await catalog.RecordRestoredProvenanceAsync("demo", restoredRevision, saved, "old-profile", null, default);
 
         Assert.Equal(selected, restored.PackageSelection);
         Assert.Equal(new string('d', 64), restored.DependencyManifestSha256);

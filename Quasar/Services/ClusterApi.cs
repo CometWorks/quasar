@@ -245,6 +245,7 @@ internal static class ClusterApi
         RouteHandlerBuilder captureBackup = routes.MapPost("/{uniqueName}/backups", CaptureBackup);
         RouteHandlerBuilder prepareRestore = routes.MapPost("/{uniqueName}/restore/prepare", PrepareRestore);
         RouteHandlerBuilder restoreBackup = routes.MapPost("/{uniqueName}/restore", RestoreBackup);
+        RouteHandlerBuilder runRestore = routes.MapPost("/{uniqueName}/restore/run", RunRestore);
         var convertToCluster = routes.MapPost("/{uniqueName}/convert/from-server", (string uniqueName, ServerToClusterRequest request,
             HttpContext context, [FromServices] ClusterConversionService conversions, CancellationToken token) => RunBackup(uniqueName, context,
                 () => conversions.ToClusterAsync(uniqueName, request, context.Request.Headers["Idempotency-Key"].ToString(),
@@ -349,6 +350,7 @@ internal static class ClusterApi
             beginUpdate.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             abandonUpdate.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             restoreBackup.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            runRestore.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             deploymentInputs.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setConfig.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setLobby.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.ClusterMaintenance);
@@ -520,7 +522,14 @@ internal static class ClusterApi
     private static Task<IResult> PrepareRestore(string uniqueName, ClusterRestorePreparationRequest request, HttpContext context,
         [FromServices] ClusterBackupService backups, CancellationToken token) => RunBackup(uniqueName, context,
             () => backups.PrepareRestoreAsync(uniqueName, request.SnapshotId, request.RestoreId,
-                context.Request.Headers["Idempotency-Key"].ToString(), context.User.Identity?.Name ?? "anonymous", token));
+                context.Request.Headers["Idempotency-Key"].ToString(), context.User.Identity?.Name ?? "anonymous", token,
+                request.Dependencies));
+
+    // Answers at once with the Running operation; the restore goes on when the client stops waiting.
+    private static Task<IResult> RunRestore(string uniqueName, ClusterRestoreRunRequest request, HttpContext context,
+        [FromServices] ClusterBackupService backups) => RunBackup(uniqueName, context,
+            () => backups.StartRestoreAsync(uniqueName, request, context.Request.Headers["Idempotency-Key"].ToString(),
+                context.User.Identity?.Name ?? "anonymous"));
 
     private static async Task<IResult> RunBackup(string uniqueName, HttpContext context, Func<Task<ClusterOperation>> execute)
     {

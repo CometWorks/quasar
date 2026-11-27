@@ -147,6 +147,10 @@ public sealed class ClusterOperationStore
     internal ClusterOperation? Find(string cluster, string kind, string idempotencyKey) => _operations.Values.FirstOrDefault(o =>
         o.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase) && o.Kind == kind && o.IdempotencyKey == idempotencyKey);
 
+    internal IEnumerable<ClusterOperation> List(string cluster, string kind) => _operations.Values
+        .Where(o => o.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase) && o.Kind == kind)
+        .OrderByDescending(o => o.UpdatedAt).ToArray();
+
     internal bool HasPendingOperations(string cluster) => _operations.Values.Any(operation =>
         operation.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase)
         && operation.State == ClusterOperationState.Running);
@@ -347,6 +351,31 @@ public sealed class ClusterOperationStore
         {
             executionGate.Release();
         }
+    }
+
+    /// <summary>
+    /// Runs a long local operation apart from the request that started it (SE-1988): it ends on its own, or when
+    /// <paramref name="background"/> cancels at Quasar's stop, never because the client gave up waiting. Returns the
+    /// record once it exists, Running while it runs; a replayed key returns its record as ExecuteAsync does.
+    /// </summary>
+    public async Task<ClusterOperation> StartAsync<TRequest, TResult>(string cluster, string kind,
+        string idempotencyKey, string actor, TRequest request,
+        Func<CancellationToken, Task<Admin.AdminEnvelope<TResult>>> execute, CancellationToken background)
+    {
+        // Off the request's thread: a restore verifies whole archives before its first await.
+        var run = Task.Run(() => ExecuteAsync(cluster, kind, idempotencyKey, actor, request, execute, background));
+        string hash = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(request, JsonOptions))).ToLowerInvariant();
+        while (!run.IsCompleted)
+        {
+            if (Find(cluster, kind, idempotencyKey?.Trim() ?? "") is { State: ClusterOperationState.Running } running && running.RequestHash == hash)
+            {
+                // ExecuteAsync has recorded the outcome; the exception only says it failed.
+                _ = run.ContinueWith(task => task.Exception, TaskContinuationOptions.OnlyOnFaulted);
+                return running;
+            }
+            await Task.WhenAny(run, Task.Delay(20));
+        }
+        return await run;
     }
 
     public async Task<ClusterOperation> ExecuteGatewayAsync(Quasar.Models.ClusterDefinition cluster,

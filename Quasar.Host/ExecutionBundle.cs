@@ -206,6 +206,22 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
         File.Move(path + ".tmp", path, true);
     }
 
+    // A restore authorizes the restored Registry for the revision it activates (managed-restore.json). An activation
+    // before the Gateway first runs, like an update right after a restore, moves that authorization to its own
+    // revision (SE-1988). Once the Gateway has taken it, it skips the file by its restore ID, so this changes nothing.
+    internal void CarryRestoreAuthorization()
+    {
+        if (Manifest.RuntimeRoot is not { } runtime || Manifest.Gateway is null) return;
+        string path = Path.Combine(runtime, "gateway", "registry", "managed-restore.json");
+        if (!File.Exists(path)) return;
+        var marker = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllBytes(path))!.AsObject();
+        if (marker["revision"]?.GetValue<string>() == Manifest.Revision) return;
+        marker["revision"] = Manifest.Revision;
+        using (var file = new FileStream(path + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None))
+        { file.Write(JsonSerializer.SerializeToUtf8Bytes(marker, Json)); file.Flush(true); }
+        File.Move(path + ".tmp", path, true);
+    }
+
     internal void InitializeData(string clusterId)
     {
         if (Manifest.RuntimeRoot is { } run && File.Exists(Path.Combine(run, ".quasar-restore.json")))

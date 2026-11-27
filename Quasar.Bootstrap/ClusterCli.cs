@@ -203,6 +203,8 @@ internal static class ClusterCli
             "regular-nodes-prepare" when values.Length is 3 or 4 => ClusterRoute("regular-nodes-preparation"),
             "backups" when values.Length == 2 => ClusterRoute("backups"),
             "backup" when values.Length == 3 => ClusterRoute("backups"),
+            // A backup's snapshot ID prepares and restores it in one background operation; a JSON file is a prepared restore.
+            "restore" when values.Length == 3 && IsSnapshotId(values[2]) => ClusterRoute("restore/run"),
             "restore" when values.Length == 3 => ClusterRoute("restore"),
             "recover" when values.Length == 3 => ClusterRoute("recover"),
             "conversion-review" when values.Length == 3 => ClusterRoute("convert/review/" + Uri.EscapeDataString(values[2])),
@@ -309,6 +311,11 @@ internal static class ClusterCli
             }
             mutation = true;
         }
+        else if (command == "restore" && IsSnapshotId(values[2]))
+        {
+            body = new { snapshotId = Guid.Parse(values[2]), dependencies = options.Dependencies ?? "current" };
+            mutation = true;
+        }
         else if (command is "gateway-restart" or "gateway-recover" or "artifact-backup" or "update-abandon" or "release-update-prepare")
         {
             body = new { };
@@ -334,6 +341,11 @@ internal static class ClusterCli
             stderr.WriteLine("Mutations require --idempotency-key <key>.");
             return false;
         }
+        if (options.Dependencies is not null && !(command == "restore" && IsSnapshotId(values[2])))
+        {
+            stderr.WriteLine("--dependencies is valid only for restore with a backup's snapshot ID.");
+            return false;
+        }
         if (!mutation && command != "operation" && options.Wait)
         {
             stderr.WriteLine("--wait is valid only for mutations or operation polling.");
@@ -348,6 +360,8 @@ internal static class ClusterCli
         return true;
     }
 
+    private static bool IsSnapshotId(string value) => Guid.TryParse(value, out _) && !File.Exists(value);
+
     /// <summary>The files under <paramref name="folder"/> as world Storage files: folder/MOD/FILE is Storage/MOD/FILE.</summary>
     internal static object[] WorldFiles(string folder)
     {
@@ -360,9 +374,10 @@ internal static class ClusterCli
 
     private static bool TryParse(string[] args, TextWriter stderr, out Options options)
     {
-        string? baseUrl = null, tokenVariable = DefaultTokenVariable, idempotencyKey = null;
+        string? baseUrl = null, tokenVariable = DefaultTokenVariable, idempotencyKey = null, dependencies = null;
         Guid? requestId = null;
-        int timeout = 30, waitTimeout = 900, limit = 100;
+        int timeout = 30, limit = 100;
+        int? waitTimeout = null;
         long cursor = 0;
         bool wait = false;
         var positionals = new List<string>();
@@ -389,6 +404,7 @@ internal static class ClusterCli
                 case "--url": baseUrl = value; break;
                 case "--token-env": tokenVariable = value; break;
                 case "--idempotency-key": idempotencyKey = value; break;
+                case "--dependencies" when value is "current" or "backup": dependencies = value; break;
                 case "--request-id" when Guid.TryParse(value, out Guid parsed): requestId = parsed; break;
                 case "--timeout" when int.TryParse(value, out int seconds) && seconds is >= 1 and <= 3600:
                     timeout = seconds; break;
@@ -400,8 +416,10 @@ internal static class ClusterCli
                     return false;
             }
         }
+        // A restore copies whole worlds: following one takes hours, not the default 15 minutes (SE-1988).
+        bool restore = positionals.Count == 3 && positionals[0].Equals("restore", StringComparison.OrdinalIgnoreCase);
         options = new Options(baseUrl, tokenVariable, idempotencyKey, requestId,
-            timeout, wait, waitTimeout, positionals.ToArray(), cursor, limit);
+            timeout, wait, waitTimeout ?? (restore ? 4 * 3600 : 900), positionals.ToArray(), cursor, limit, dependencies);
         return true;
     }
 
@@ -427,11 +445,11 @@ internal static class ClusterCli
     }
 
     private static void WriteUsage(TextWriter writer) => writer.WriteLine(
-        "Usage: Quasar cluster <list|create|conversion-review|conversion-plugins|convert-to-cluster|convert-to-server|conversion-status|deployment-prepare|release-update-prepare|world-files|world-files-prepare|regular-nodes-prepare|backups|backup|restore|update|update-status|update-abandon|diagnostics|handover-config|artifacts|artifact|artifact-backup|health|status|lifecycle|plan|recovery-readiness|config|rotation|rotation-set|client-diagnostics|package-release|package-stage|package-selection|package-select|dependency-candidate|dependencies|dependencies-stage|deployment-inputs|deployment|deployment-activate|capabilities|fleet|nodes|world-authority|snapshots|partitions|lobby|lobby-set|clients|events|chat-history|bans|gateway-operations|operation|goal|purge|gateway-restart|gateway-recover|recover|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command, lobby-set, rotation-set, dependencies-stage, deployment-activate, convert-to-cluster and convert-to-server take a JSON file or - for stdin; world-files-prepare takes a folder holding the world's Storage/ files; regular-nodes-prepare takes COUNT [HOST]; package-stage takes VERSION SHA256; package-select takes VERSION SHA256 EXPECTED_REVISION; purge deletes what a deleted cluster left behind so its ID can be set up again)");
+        "Usage: Quasar cluster <list|create|conversion-review|conversion-plugins|convert-to-cluster|convert-to-server|conversion-status|deployment-prepare|release-update-prepare|world-files|world-files-prepare|regular-nodes-prepare|backups|backup|restore|update|update-status|update-abandon|diagnostics|handover-config|artifacts|artifact|artifact-backup|health|status|lifecycle|plan|recovery-readiness|config|rotation|rotation-set|client-diagnostics|package-release|package-stage|package-selection|package-select|dependency-candidate|dependencies|dependencies-stage|deployment-inputs|deployment|deployment-activate|capabilities|fleet|nodes|world-authority|snapshots|partitions|lobby|lobby-set|clients|events|chat-history|bans|gateway-operations|operation|goal|purge|gateway-restart|gateway-recover|recover|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] [--wait-timeout SECONDS] (restore takes a backup's snapshot ID and runs prepare and restore as one background operation that --wait follows, onto the cluster's current dependency freeze unless --dependencies backup asks for the backup's own, or a prepared restore's JSON file; command, lobby-set, rotation-set, dependencies-stage, deployment-activate, convert-to-cluster and convert-to-server take a JSON file or - for stdin; world-files-prepare takes a folder holding the world's Storage/ files; regular-nodes-prepare takes COUNT [HOST]; package-stage takes VERSION SHA256; package-select takes VERSION SHA256 EXPECTED_REVISION; purge deletes what a deleted cluster left behind so its ID can be set up again)");
 
     private sealed record Options(string? BaseUrl, string TokenEnvironmentVariable,
         string? IdempotencyKey, Guid? RequestId, int TimeoutSeconds, bool Wait,
-        int WaitTimeoutSeconds, string[] Positionals, long Cursor, int Limit);
+        int WaitTimeoutSeconds, string[] Positionals, long Cursor, int Limit, string? Dependencies);
     private sealed record Response(HttpStatusCode StatusCode, string Json, string? OperationState,
         string? OperationRoute, int ExitCode);
 }

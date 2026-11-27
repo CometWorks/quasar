@@ -106,7 +106,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                     var target = cluster.Clone();
                     target.HostCommandUrl = active.CommandUrl;
                     target.HostCommandTokenEnvironmentVariable = active.TokenEnvironmentVariable;
-                    var installation = await TransferInstallationAsync(target, old.HostId, request.InputsSha256,
+                    var installation = await TransferInstallationAsync(hosts, target, old.HostId, request.InputsSha256,
                         transfer, inputBytes, inputsHash, archive, token, progress);
                     string previousModsHash = Path.GetFileName(old.ModDirectory) ?? "";
                     var previousMods = await hosts.GetModInputsAsync(target, previousModsHash, token);
@@ -704,7 +704,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 var target = cluster.Clone();
                 target.HostCommandUrl = active.CommandUrl;
                 target.HostCommandTokenEnvironmentVariable = active.TokenEnvironmentVariable;
-                var remote = await TransferInstallationAsync(target, old.HostId, previous.InputsSha256,
+                var remote = await TransferInstallationAsync(hosts, target, old.HostId, previous.InputsSha256,
                     transfer, bytes, hash, archive, token, progress);
                 if (remote.HostId != old.HostId) throw new InvalidDataException("Transfer returned another Host identity.");
                 preparationHosts.Add(old with { CommandUrl = active.CommandUrl,
@@ -735,8 +735,9 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
         }
     }
 
-    private async Task<global::Quasar.Host.Contract.V1.HostConversionPaths> TransferInstallationAsync(
-        ClusterDefinition target, string hostId, string previousHash, Guid transfer, byte[] inputs, string hash,
+    // Also used by a restore onto the cluster's current dependency freeze (SE-1988).
+    internal static async Task<global::Quasar.Host.Contract.V1.HostConversionPaths> TransferInstallationAsync(
+        ClusterHostClient hosts, ClusterDefinition target, string hostId, string previousHash, Guid transfer, byte[] inputs, string hash,
         string archive, CancellationToken token, IProgress<string>? progress)
     {
         progress?.Report($"Checking reusable deployment files on {hostId}...");
