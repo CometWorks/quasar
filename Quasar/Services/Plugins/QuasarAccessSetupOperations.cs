@@ -22,9 +22,10 @@ internal static class QuasarAccessSetupOperations
             {
                 var auth = caller.Services.GetRequiredService<IAuthorizationService>();
                 if (!(await auth.AuthorizeAsync(caller.User, QuasarPolicyNames.CanManageSecurity)).Succeeded) return false;
-                // Existing hosted panels are asked once for the direct connection port.
-                return !HasAdmin(caller) || !caller.Services.GetRequiredService<HostedPanelService>().State.IsSetupComplete
-                    || QuasarDirectPortService.Pending;
+                // Existing hosted panels are asked once for the direct connection port, when
+                // ready: the dialog shows that step only for a working hosted connection.
+                var hosted = caller.Services.GetRequiredService<HostedPanelService>();
+                return !HasAdmin(caller) || !hosted.State.IsSetupComplete || QuasarDirectPortService.Pending && hosted.IsReady;
             }, read with { Description = "Returns the initial access setup prompt for the current user." });
         services.AddQuasarOperation<QuasarCoreOperations.EmptyRequest, SetupStatus>(plugin, "setup.status", manage,
             (caller, _, _) => Task.FromResult(Snapshot(caller)), read with { Description = "Returns the current access setup and enrollment state." });

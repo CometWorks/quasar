@@ -625,6 +625,20 @@ public sealed class AccessSetupDialogTests : IDisposable
     }
 
     [Fact]
+    public async Task HostedPanelThatIsNotReadyIsNotPromptedForTheDirectPort()
+    {
+        // A completed hosted state without a working connection must not open setup over the dashboard.
+        await HostedPanelState.SaveAsync(new() { Choice = "hosted", PanelId = "test-panel", Credential = "test-panel." + new string('a', 64), SetupCompleted = true });
+        await using var context = Context();
+        await context.Services.GetRequiredService<RbacConfigCatalog>().SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig(SteamId)!);
+        Assert.True(Quasar.Services.Plugins.QuasarDirectPortService.Pending);
+        var provider = context.Render<MudDialogProvider>();
+        context.Render<Quasar.Client.Administration.DashboardSetupPrompt>();
+        await provider.InvokeAsync(() => Task.CompletedTask);
+        Assert.DoesNotContain("access-setup-header", provider.Markup);
+    }
+
+    [Fact]
     public async Task ExistingHostedPanelIsAskedForTheDirectPortOnce()
     {
         await HostedPanelState.SaveAsync(new() { Choice = "hosted", PanelId = "test-panel", EnrollmentId = "enrollment",
