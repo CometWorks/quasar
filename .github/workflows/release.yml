@@ -475,8 +475,10 @@ jobs:
         if: matrix.part == 'test'
         run: |
           set -euo pipefail
-          python3 -m unittest discover -s scripts -p 'test_*.py'
+          # The suite starts many hosts with file watchers; the runner's default of 128 inotify instances runs out
+          sudo sysctl -q -w fs.inotify.max_user_instances=8192
           dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --logger trx --results-directory artifacts/test-results
+          python3 -m unittest discover -s scripts -p 'test_*.py'
 
       - name: Retain test results
         if: always() && matrix.part == 'test'
