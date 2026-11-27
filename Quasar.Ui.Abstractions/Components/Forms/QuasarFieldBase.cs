@@ -38,6 +38,9 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
     private T _baseline = default!;
     private int _generation;
     private bool _baselineCaptured;
+    private bool _parametersSeen;
+    private bool _validateOnLoad;
+    private bool _touched;
     private bool _pending;
     private bool _validatedCurrent;
     private bool _disposed;
@@ -99,14 +102,27 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
     /// <summary>True while an edit is waiting for the debounce to commit.</summary>
     protected bool HasPendingEdit => _pending;
 
-    /// <summary>Current validation messages.</summary>
-    public IReadOnlyList<string> Errors => _errors;
+    /// <summary>
+    /// The validation messages to show. A value that fails validation shows its
+    /// messages from the first render, including one loaded from a stored
+    /// configuration. A field that is empty and has not been touched shows none,
+    /// so a new form does not open full of errors, although it is not valid.
+    /// </summary>
+    public IReadOnlyList<string> Errors => ShowsErrors ? _errors : Array.Empty<string>();
 
-    /// <summary>The first validation message, if any.</summary>
-    public string? Error => _errors.Count == 0 ? null : _errors[0];
+    /// <summary>The first message to show, if any.</summary>
+    public string? Error => Errors.Count == 0 ? null : Errors[0];
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Reflects the validation result from the first render, whether or not its
+    /// messages are shown yet.
+    /// </remarks>
     public bool IsValid => !IsValidating && _errors.Count == 0;
+
+    // An empty field the user has not touched is not shown as an error yet. A value
+    // the field holds, such as one loaded from a stored configuration, is.
+    private bool ShowsErrors => _errors.Count > 0 && (_touched || !IsEmpty(CurrentValue));
 
     /// <inheritdoc />
     public bool IsValidating { get; private set; }
@@ -130,7 +146,7 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
         get
         {
             var hint = string.IsNullOrWhiteSpace(Hint) ? null : HintId;
-            var messages = _errors.Count == 0 ? null : MessagesId;
+            var messages = Errors.Count == 0 ? null : MessagesId;
             return (hint, messages) switch
             {
                 (null, null) => null,
@@ -147,7 +163,7 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
         get
         {
             var classes = "quasar-input";
-            if (_errors.Count > 0)
+            if (Errors.Count > 0)
                 classes += " is-invalid";
             if (IsValidating)
                 classes += " is-validating";
@@ -165,8 +181,30 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
     {
         // An uncommitted edit is the newer truth; a parent re-render must not
         // overwrite what the user is still typing.
-        if (!_pending)
-            CurrentValue = Value;
+        if (_pending)
+            return;
+
+        // The first value, and any value the parent changes afterwards, such as data
+        // loaded into the form later, is validated without waiting for the user.
+        var arrived = !_parametersSeen || !EqualityComparer<T>.Default.Equals(CurrentValue, Value);
+        _parametersSeen = true;
+        CurrentValue = Value;
+
+        if (arrived)
+        {
+            _validatedCurrent = false;
+            _validateOnLoad = true;
+        }
+    }
+
+    /// <inheritdoc />
+    protected override Task OnParametersSetAsync()
+    {
+        if (!_validateOnLoad)
+            return Task.CompletedTask;
+
+        _validateOnLoad = false;
+        return RunValidationAsync();
     }
 
     /// <summary>
@@ -176,6 +214,7 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
     {
         CancelCommitTimer();
         CurrentValue = value;
+        _touched = true;
         _validatedCurrent = false;
         await CommitAsync();
     }
@@ -188,6 +227,7 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
     {
         CurrentValue = value;
         _pending = true;
+        _touched = true;
         _validatedCurrent = false;
         Form?.NotifyFieldChanged();
         StartCommitTimer();
@@ -195,10 +235,13 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
 
     /// <summary>
     /// Commits any pending edit, or validates once when the value was never
-    /// validated, when the native input loses focus.
+    /// validated, when the native input loses focus. Leaving the field also marks
+    /// it as touched, so an empty required field shows its message.
     /// </summary>
     protected async Task OnBlurAsync()
     {
+        _touched = true;
+
         if (_pending)
         {
             CancelCommitTimer();
@@ -208,11 +251,17 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
         {
             await RunValidationAsync();
         }
+        else
+        {
+            StateHasChanged();
+        }
     }
 
     /// <inheritdoc />
     public async Task ValidateAsync()
     {
+        _touched = true;
+
         if (_pending)
         {
             CancelCommitTimer();
@@ -329,7 +378,7 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
         {
             result = await ComputeValidationAsync(cts.Token);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
             if (generation == _generation)
             {

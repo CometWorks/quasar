@@ -1,4 +1,5 @@
 @namespace Quasar.Ui.Components
+@implements IDisposable
 
 <CascadingValue Value="this" IsFixed="true">
     <div class="quasar-form @Class" @attributes="AdditionalAttributes">
@@ -29,6 +30,7 @@
     private readonly List<string> _errors = new();
     private bool _lastValid = true;
     private bool _lastDirty;
+    private bool _disposed;
 
     /// <summary>The form content, including the fields.</summary>
     [Parameter] public RenderFragment? ChildContent { get; set; }
@@ -107,9 +109,18 @@
             _fields.Add(field);
     }
 
-    internal void UnregisterField(IQuasarField field) => _fields.Remove(field);
+    // A field that leaves the form can be the one that made it invalid, so the form
+    // checks again. While the form itself is being torn down there is nothing to report.
+    internal void UnregisterField(IQuasarField field)
+    {
+        if (_fields.Remove(field) && !_disposed)
+            NotifyFieldChanged();
+    }
 
     internal void NotifyFieldChanged() => _ = NotifyFieldChangedAsync();
+
+    /// <inheritdoc />
+    public void Dispose() => _disposed = true;
 
     /// <inheritdoc />
     protected override void OnAfterRender(bool firstRender)
@@ -134,6 +145,9 @@
 
     private async Task HandleFieldChangedAsync()
     {
+        if (_disposed)
+            return;
+
         StateHasChanged();
 
         var valid = IsValid;

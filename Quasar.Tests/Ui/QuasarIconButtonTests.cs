@@ -1,5 +1,4 @@
 using Bunit;
-using Quasar.Components.Shared;
 using Xunit;
 
 namespace Quasar.Tests.Ui;

@@ -68,7 +68,13 @@
 @code {
     private const string DetailKey = "detail";
 
-    private readonly Dictionary<string, Func<T, object?>> _sorters = new(StringComparer.Ordinal);
+    // A column can sort in-memory rows with a selector, or only name a key for LoadData
+    // to sort by, in which case the selector is null. The owner is the column that
+    // registered the key, so a column that is going away cannot remove the entry of the
+    // column that replaced it.
+    private readonly record struct SortRegistration(object Owner, Func<T, object?>? Selector);
+
+    private readonly Dictionary<string, SortRegistration> _sorters = new(StringComparer.Ordinal);
     private readonly HashSet<object> _columns = new(ReferenceEqualityComparer.Instance);
     private IReadOnlyList<T> _items = [];
     private CancellationTokenSource? _load;
@@ -80,6 +86,7 @@
     private bool _descending;
     private bool _loading;
     private bool _initialized;
+    private bool _disposed;
     private string? _loadError;
 
     /// <summary>In-memory rows. Use either this or <see cref="LoadData"/>, never both.</summary>
@@ -224,13 +231,65 @@
         await LoadAsync();
     }
 
+    /// <summary>
+    /// Raised when the active sort changes. A column re-renders only when its own
+    /// parameters change, which is never true for one that has just a sort key, so
+    /// columns listen to this to keep their sort state current.
+    /// </summary>
+    internal event Action? SortChanged;
+
+    /// <summary>True when rows come from <see cref="LoadData"/>, whose callback sorts them.</summary>
+    internal bool UsesLoadData => LoadData is not null;
+
     internal void RegisterColumn(object column) => _columns.Add(column);
 
     internal void UnregisterColumn(object column) => _columns.Remove(column);
 
-    internal void RegisterSort(string key, Func<T, object?> selector) => _sorters[key] = selector;
+    /// <summary>
+    /// Records that <paramref name="owner"/> can sort by <paramref name="key"/>. The
+    /// selector sorts in-memory rows; it is null when <see cref="LoadData"/> sorts.
+    /// </summary>
+    internal void RegisterSort(object owner, string key, Func<T, object?>? selector) =>
+        _sorters[key] = new SortRegistration(owner, selector);
 
-    internal void UnregisterSort(string key) => _sorters.Remove(key);
+    /// <summary>
+    /// Withdraws <paramref name="owner"/>'s registration of <paramref name="key"/>. When
+    /// the active sort uses that key and no column provides it any more, the sort is
+    /// cleared and the rows are refreshed.
+    /// </summary>
+    internal void UnregisterSort(object owner, string key)
+    {
+        if (_sorters.TryGetValue(key, out var registration) && ReferenceEquals(registration.Owner, owner))
+            _sorters.Remove(key);
+
+        if (!_disposed && string.Equals(_sortKey, key, StringComparison.Ordinal))
+            _ = DropSortWithoutColumnAsync();
+    }
+
+    private async Task DropSortWithoutColumnAsync()
+    {
+        try
+        {
+            // Let the render that withdrew the key finish first, so a column that
+            // took the key over has registered it by the time this checks.
+            await Task.Yield();
+            await InvokeAsync(async () =>
+            {
+                if (_disposed || _sortKey is null || _sorters.ContainsKey(_sortKey))
+                    return;
+
+                _sortKey = null;
+                _descending = false;
+                _page = 1;
+                SortChanged?.Invoke();
+                await LoadAsync();
+            });
+        }
+        catch (Exception ex)
+        {
+            await DispatchExceptionAsync(ex);
+        }
+    }
 
     internal string SortDirection(string key)
     {
@@ -252,6 +311,7 @@
         }
 
         _page = 1;
+        SortChanged?.Invoke();
         await LoadAsync();
     }
 
@@ -279,7 +339,8 @@
     {
         IEnumerable<T> source = Items ?? [];
 
-        if (_sortKey is not null && _sorters.TryGetValue(_sortKey, out var selector))
+        if (_sortKey is not null && _sorters.TryGetValue(_sortKey, out var registration)
+            && registration.Selector is { } selector)
         {
             source = source.OrderBy(selector, _descending
                 ? QuasarNullsLastComparer.Descending
@@ -380,6 +441,7 @@
     /// <inheritdoc />
     public void Dispose()
     {
+        _disposed = true;
         var load = _load;
         _load = null;
         if (load is not null)

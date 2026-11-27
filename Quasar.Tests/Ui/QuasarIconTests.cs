@@ -1,6 +1,5 @@
 using Bunit;
 using MudBlazor;
-using Quasar.Components.Shared;
 using Xunit;
 
 namespace Quasar.Tests.Ui;

@@ -1144,6 +1144,14 @@ can give its own controls the same tone, variant and size treatment.
   `ValidateAsync()`, `CaptureBaseline()`, and form-level `AddError`/`ClearErrors`.
   `CaptureBaseline()` also reports the form as clean through `IsDirtyChanged`;
   call it after a save and after asynchronous data loads into the form.
+  A field with `Required` or a `Validation` rule checks its value when it first
+  appears and whenever the parent changes `Value`, so `IsValid` and
+  `IsValidChanged` are accurate from the first render, including for a new empty
+  required field and for a value loaded from a stored configuration. A value
+  that fails shows its message and red outline at once. An empty field the user
+  has not touched shows nothing until it is edited, left, or checked with
+  `ValidateAsync()`, so a new form does not open full of errors. The `Validation`
+  delegate therefore also runs once at load.
 - Tables take either `Items` or `LoadData`, never both. `LoadData` receives a
   `QuasarTableState` (one-based page, page size, sort key, direction) and
   returns `QuasarTableData<T>`; it is called again on a page, sort or
@@ -1153,7 +1161,8 @@ can give its own controls the same tone, variant and size treatment.
   and `Height` style the table. `OnRowClick` raises for a click on a row; it has
   no keyboard equivalent, so give keyboard users a button or link in the row for
   the same action. `DetailTemplate` with `IsExpanded` renders an expanded row.
-  `QuasarTableColumn<T>` provides `aria-sort` and the sort button;
+  `QuasarTableColumn<T>` provides `aria-sort` and the sort button, which needs a
+  `SortBy` selector for in-memory rows or a `SortKey` for a `LoadData` table;
   `QuasarTablePager` is the built-in pager.
 - A table scrolls sideways on a narrow screen by default. Set
   `NarrowLayout="QuasarTableNarrowLayout.Stack"` to turn each row into a card

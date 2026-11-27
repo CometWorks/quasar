@@ -53,12 +53,14 @@ public sealed class QuasarFieldBaseTests
         using var cut = context.Render<QuasarTextField>(parameters => parameters
             .Add(p => p.Validation, validator));
 
+        // The first run is the field validating its starting value when it appears.
         cut.Find("input").Change("one");
         cut.Find("input").Change("two");
 
-        Assert.Equal(2, tokens.Count);
+        Assert.Equal(3, tokens.Count);
         Assert.True(tokens[0].IsCancellationRequested);
-        Assert.False(tokens[1].IsCancellationRequested);
+        Assert.True(tokens[1].IsCancellationRequested);
+        Assert.False(tokens[2].IsCancellationRequested);
     }
 
     [Fact]
@@ -102,6 +104,108 @@ public sealed class QuasarFieldBaseTests
             Assert.Contains("Validation failed", message, StringComparison.Ordinal);
             Assert.DoesNotContain("InvalidOperation", message, StringComparison.Ordinal);
             Assert.DoesNotContain("secret detail", message, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void ValidatorThatThrowsItsOwnCancellationIsNotValid()
+    {
+        // A timeout inside the validator, for example from an HttpClient, is not a
+        // newer validation superseding this one.
+        QuasarValidator<string> validator = (_, _) =>
+            throw new TaskCanceledException("The request timed out.");
+
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTextField>(parameters => parameters
+            .Add(p => p.Validation, validator));
+
+        cut.Find("input").Change("x");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.False(cut.Instance.IsValid);
+            Assert.Contains("Validation failed", cut.Find(".quasar-input-error").TextContent, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void EmptyRequiredFieldIsInvalidButShowsNothingUntilTouched()
+    {
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTextField>(parameters => parameters
+            .Add(p => p.Required, true));
+
+        // Invalid from the first render, so a form can keep Save disabled...
+        cut.WaitForAssertion(() => Assert.False(cut.Instance.IsValid));
+
+        // ...but a new, empty field does not open as a red box.
+        Assert.Empty(cut.FindAll(".quasar-input-error"));
+        Assert.Empty(cut.FindAll(".is-invalid"));
+        Assert.Null(cut.Find("input").GetAttribute("aria-invalid"));
+
+        cut.Find("input").TriggerEvent("onblur", new FocusEventArgs());
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("This field is required.", cut.Find(".quasar-input-error").TextContent, StringComparison.Ordinal);
+            Assert.NotEmpty(cut.FindAll(".is-invalid"));
+            Assert.Equal("true", cut.Find("input").GetAttribute("aria-invalid"));
+        });
+    }
+
+    [Fact]
+    public void LoadedValueThatFailsValidationIsShownAtOnce()
+    {
+        QuasarValidator<string> validator = (value, _) => Task.FromResult<QuasarValidationResult>(
+            value == "bad" ? "That value is not allowed." : QuasarValidationResult.Valid);
+
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTextField>(parameters => parameters
+            .Add(p => p.Value, "bad")
+            .Add(p => p.Validation, validator));
+
+        // Nobody has touched the field: a loaded bad value is red, with its reason.
+        cut.WaitForAssertion(() =>
+        {
+            Assert.False(cut.Instance.IsValid);
+            Assert.Contains("That value is not allowed.", cut.Find(".quasar-input-error").TextContent, StringComparison.Ordinal);
+            Assert.NotEmpty(cut.FindAll(".is-invalid"));
+            Assert.Equal("true", cut.Find("input").GetAttribute("aria-invalid"));
+        });
+    }
+
+    [Fact]
+    public void ValueChangedFromOutsideIsValidatedWithoutBeingTouched()
+    {
+        QuasarValidator<string> validator = (value, _) => Task.FromResult<QuasarValidationResult>(
+            value == "bad" ? "That value is not allowed." : QuasarValidationResult.Valid);
+
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTextField>(parameters => parameters
+            .Add(p => p.Value, "fine")
+            .Add(p => p.Validation, validator));
+
+        cut.WaitForAssertion(() => Assert.True(cut.Instance.IsValid));
+
+        // The page loads other data into the field, for example after an asynchronous read.
+        cut.Render(parameters => parameters
+            .Add(p => p.Value, "bad")
+            .Add(p => p.Validation, validator));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.False(cut.Instance.IsValid);
+            Assert.Contains("That value is not allowed.", cut.Find(".quasar-input-error").TextContent, StringComparison.Ordinal);
+        });
+
+        cut.Render(parameters => parameters
+            .Add(p => p.Value, "fine")
+            .Add(p => p.Validation, validator));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.True(cut.Instance.IsValid);
+            Assert.Empty(cut.FindAll(".quasar-input-error"));
         });
     }
 

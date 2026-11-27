@@ -239,6 +239,259 @@ public sealed class QuasarTableTests
     }
 
     [Fact]
+    public void ServerSortedColumnNeedsOnlyASortKey()
+    {
+        var states = new List<QuasarTableState>();
+
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTable<Row>>(parameters => parameters
+            .Add(p => p.RowsPerPage, 5)
+            .Add(p => p.LoadData, (state, _) =>
+            {
+                states.Add(state);
+                return Task.FromResult(new QuasarTableData<Row>(Rows, Rows.Count));
+            })
+            .Add(p => p.HeaderContent, builder =>
+            {
+                builder.OpenComponent<QuasarTableColumn<Row>>(0);
+                builder.AddAttribute(1, "Title", "Name");
+                builder.AddAttribute(2, "SortKey", "name");
+                builder.CloseComponent();
+            })
+            .Add(p => p.RowTemplate, RowTemplate()));
+
+        cut.WaitForAssertion(() => Assert.Single(states));
+
+        cut.Find("th .quasar-table-sort").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal(2, states.Count);
+            Assert.Equal("name", states[1].SortKey);
+            Assert.False(states[1].Descending);
+        });
+    }
+
+    [Fact]
+    public void ColumnWithoutASelectorOrServerSortingHasNoSortButton()
+    {
+        // In-memory rows need a selector to sort, so a SortKey alone adds no button.
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTable<Row>>(parameters => parameters
+            .Add(p => p.Items, Rows)
+            .Add(p => p.HeaderContent, builder =>
+            {
+                builder.OpenComponent<QuasarTableColumn<Row>>(0);
+                builder.AddAttribute(1, "Title", "Name");
+                builder.AddAttribute(2, "SortKey", "name");
+                builder.CloseComponent();
+            })
+            .Add(p => p.RowTemplate, RowTemplate()));
+
+        Assert.Empty(cut.FindAll("th .quasar-table-sort"));
+    }
+
+    [Fact]
+    public void RemovingTheSelectorStopsSortingByIt()
+    {
+        var rows = new[] { new Row("b", 1), new Row("a", 2) };
+
+        RenderFragment Header(bool sortable) => builder =>
+        {
+            builder.OpenComponent<QuasarTableColumn<Row>>(0);
+            builder.AddAttribute(1, "Title", "Name");
+            // Passed as null, not left out: a parameter that is no longer supplied
+            // keeps its previous value.
+            builder.AddAttribute(2, "SortBy", sortable ? (Func<Row, object?>)(row => row.Name) : null);
+            builder.CloseComponent();
+        };
+
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTable<Row>>(parameters => parameters
+            .Add(p => p.Items, rows)
+            .Add(p => p.HeaderContent, Header(sortable: true))
+            .Add(p => p.RowTemplate, RowTemplate()));
+
+        cut.Find("th .quasar-table-sort").Click();
+        Assert.StartsWith("a", cut.FindAll("tbody tr")[0].TextContent, StringComparison.Ordinal);
+
+        // The column loses its selector. The table drops the sort at once, without
+        // waiting for another render.
+        cut.Render(parameters => parameters
+            .Add(p => p.Items, rows)
+            .Add(p => p.HeaderContent, Header(sortable: false))
+            .Add(p => p.RowTemplate, RowTemplate()));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.StartsWith("b", cut.FindAll("tbody tr")[0].TextContent, StringComparison.Ordinal);
+            Assert.Equal("none", cut.Find("th").GetAttribute("aria-sort"));
+        });
+    }
+
+    [Fact]
+    public void RemovingTheSortedColumnClearsTheSort()
+    {
+        var rows = new[] { new Row("b", 1), new Row("a", 2) };
+
+        RenderFragment Header(bool withNameColumn) => builder =>
+        {
+            var sequence = 0;
+            if (withNameColumn)
+            {
+                builder.OpenComponent<QuasarTableColumn<Row>>(sequence++);
+                builder.AddAttribute(sequence++, "Title", "Name");
+                builder.AddAttribute(sequence++, "SortBy", (Func<Row, object?>)(row => row.Name));
+                builder.CloseComponent();
+            }
+
+            builder.OpenComponent<QuasarTableColumn<Row>>(10);
+            builder.AddAttribute(11, "Title", "Port");
+            builder.AddAttribute(12, "SortBy", (Func<Row, object?>)(row => row.Port));
+            builder.CloseComponent();
+        };
+
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTable<Row>>(parameters => parameters
+            .Add(p => p.Items, rows)
+            .Add(p => p.HeaderContent, Header(withNameColumn: true))
+            .Add(p => p.RowTemplate, RowTemplate()));
+
+        cut.FindAll("th .quasar-table-sort")[0].Click();
+        Assert.StartsWith("a", cut.FindAll("tbody tr")[0].TextContent, StringComparison.Ordinal);
+
+        cut.Render(parameters => parameters
+            .Add(p => p.Items, rows)
+            .Add(p => p.HeaderContent, Header(withNameColumn: false))
+            .Add(p => p.RowTemplate, RowTemplate()));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.StartsWith("b", cut.FindAll("tbody tr")[0].TextContent, StringComparison.Ordinal);
+            Assert.Equal("none", cut.Find("th").GetAttribute("aria-sort"));
+        });
+    }
+
+    [Fact]
+    public void LoadDataIsNotAskedToSortByAColumnThatStoppedBeingSortable()
+    {
+        var states = new List<QuasarTableState>();
+
+        RenderFragment Header(string? sortKey) => builder =>
+        {
+            builder.OpenComponent<QuasarTableColumn<Row>>(0);
+            builder.AddAttribute(1, "Title", "Name");
+            // Passed as null, not left out: a parameter that is no longer supplied
+            // keeps its previous value.
+            builder.AddAttribute(2, "SortKey", sortKey);
+            builder.CloseComponent();
+        };
+
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTable<Row>>(parameters => parameters
+            .Add(p => p.RowsPerPage, 5)
+            .Add(p => p.LoadData, (state, _) =>
+            {
+                states.Add(state);
+                return Task.FromResult(new QuasarTableData<Row>(Rows, Rows.Count));
+            })
+            .Add(p => p.HeaderContent, Header("name"))
+            .Add(p => p.RowTemplate, RowTemplate()));
+
+        cut.WaitForAssertion(() => Assert.Single(states));
+        cut.Find("th .quasar-table-sort").Click();
+        cut.WaitForAssertion(() => Assert.Equal("name", states[^1].SortKey));
+
+        var loadsBefore = states.Count;
+        cut.Render(parameters => parameters
+            .Add(p => p.RowsPerPage, 5)
+            .Add(p => p.LoadData, (state, _) =>
+            {
+                states.Add(state);
+                return Task.FromResult(new QuasarTableData<Row>(Rows, Rows.Count));
+            })
+            .Add(p => p.HeaderContent, Header(null))
+            .Add(p => p.RowTemplate, RowTemplate()));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.True(states.Count > loadsBefore);
+            Assert.Null(states[^1].SortKey);
+            Assert.Equal(1, states[^1].Page);
+        });
+    }
+
+    [Fact]
+    public void SortedStateOfServerSortedColumnsFollowsTheActiveSort()
+    {
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTable<Row>>(parameters => parameters
+            .Add(p => p.RowsPerPage, 5)
+            .Add(p => p.LoadData, (_, _) => Task.FromResult(new QuasarTableData<Row>(Rows, Rows.Count)))
+            .Add(p => p.HeaderContent, builder =>
+            {
+                builder.OpenComponent<QuasarTableColumn<Row>>(0);
+                builder.AddAttribute(1, "Title", "Name");
+                builder.AddAttribute(2, "SortKey", "name");
+                builder.CloseComponent();
+                builder.OpenComponent<QuasarTableColumn<Row>>(10);
+                builder.AddAttribute(11, "Title", "Port");
+                builder.AddAttribute(12, "SortKey", "port");
+                builder.CloseComponent();
+            })
+            .Add(p => p.RowTemplate, RowTemplate()));
+
+        cut.WaitForAssertion(() => Assert.Equal(2, cut.FindAll("th .quasar-table-sort").Count));
+
+        cut.FindAll("th .quasar-table-sort")[0].Click();
+        cut.WaitForAssertion(() => Assert.Equal("ascending", cut.FindAll("th")[0].GetAttribute("aria-sort")));
+
+        // Only the second column's button was clicked, yet the first column must no longer claim the sort.
+        cut.FindAll("th .quasar-table-sort")[1].Click();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("none", cut.FindAll("th")[0].GetAttribute("aria-sort"));
+            Assert.Equal("ascending", cut.FindAll("th")[1].GetAttribute("aria-sort"));
+        });
+    }
+
+    [Fact]
+    public void ReplacingASortedColumnWithOneThatHasTheSameKeyKeepsTheSort()
+    {
+        var rows = new[] { new Row("b", 1), new Row("a", 2) };
+
+        // A different sequence number makes the table create a new column and dispose the old one.
+        RenderFragment Header(int sequence) => builder =>
+        {
+            builder.OpenComponent<QuasarTableColumn<Row>>(sequence);
+            builder.AddAttribute(sequence + 1, "Title", "Name");
+            builder.AddAttribute(sequence + 2, "SortBy", (Func<Row, object?>)(row => row.Name));
+            builder.CloseComponent();
+        };
+
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTable<Row>>(parameters => parameters
+            .Add(p => p.Items, rows)
+            .Add(p => p.HeaderContent, Header(0))
+            .Add(p => p.RowTemplate, RowTemplate()));
+
+        cut.Find("th .quasar-table-sort").Click();
+        Assert.StartsWith("a", cut.FindAll("tbody tr")[0].TextContent, StringComparison.Ordinal);
+
+        cut.Render(parameters => parameters
+            .Add(p => p.Items, rows)
+            .Add(p => p.HeaderContent, Header(10))
+            .Add(p => p.RowTemplate, RowTemplate()));
+        cut.Render(parameters => parameters
+            .Add(p => p.Items, rows)
+            .Add(p => p.HeaderContent, Header(10))
+            .Add(p => p.RowTemplate, RowTemplate()));
+
+        Assert.StartsWith("a", cut.FindAll("tbody tr")[0].TextContent, StringComparison.Ordinal);
+        Assert.Equal("ascending", cut.Find("th").GetAttribute("aria-sort"));
+    }
+
+    [Fact]
     public void LoadDataReceivesPageState()
     {
         QuasarTableState? received = null;

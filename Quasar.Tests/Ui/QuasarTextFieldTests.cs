@@ -178,10 +178,14 @@ public sealed class QuasarTextFieldTests
         using var cut = context.Render<QuasarTextField>(parameters => parameters
             .Add(p => p.Validation, validator));
 
+        // The field validates its starting value once, when it appears.
+        cut.WaitForAssertion(() => Assert.Equal(1, runs));
+
         cut.Find("input").Change("x");
         cut.Find("input").TriggerEvent("onblur", new FocusEventArgs());
 
-        cut.WaitForAssertion(() => Assert.Equal(1, runs));
+        // The change validates once more, and the blur that follows adds nothing.
+        cut.WaitForAssertion(() => Assert.Equal(2, runs));
     }
 
     [Fact]
@@ -207,7 +211,10 @@ public sealed class QuasarTextFieldTests
             }));
 
         var form = cut.Instance;
-        Assert.True(form.IsValid);
+
+        // The empty required field is invalid from the start, but shows nothing yet.
+        await cut.WaitForAssertionAsync(() => Assert.False(form.IsValid));
+        Assert.DoesNotContain("This field is required.", cut.Markup, StringComparison.Ordinal);
 
         await cut.InvokeAsync(() => form.ValidateAsync());
 

@@ -52,6 +52,75 @@ public sealed class QuasarFormTests
     }
 
     [Fact]
+    public async Task EmptyRequiredFieldMakesTheFormInvalidWithoutAnyInteraction()
+    {
+        var validChanges = new List<bool>();
+
+        await using var context = new BunitContext();
+        using var cut = context.Render<QuasarForm>(parameters => parameters
+            .Add(p => p.IsValidChanged, EventCallback.Factory.Create<bool>(this, validChanges.Add))
+            .Add(p => p.ChildContent, TextField(required: true)));
+
+        await cut.WaitForAssertionAsync(() =>
+        {
+            Assert.False(cut.Instance.IsValid);
+            Assert.Contains(false, validChanges);
+        });
+
+        // Nothing is shown on the untouched, empty field.
+        Assert.Empty(cut.FindAll(".quasar-input-error"));
+        Assert.Empty(cut.FindAll(".is-invalid"));
+    }
+
+    [Fact]
+    public async Task AddingAndRemovingAnInvalidFieldUpdatesTheFormValidity()
+    {
+        var validChanges = new List<bool>();
+        var showRequired = false;
+
+        RenderFragment Content() => builder =>
+        {
+            builder.OpenComponent<QuasarTextField>(0);
+            builder.AddAttribute(1, "Value", "start");
+            builder.CloseComponent();
+
+            if (!showRequired)
+                return;
+
+            builder.OpenComponent<QuasarTextField>(2);
+            builder.AddAttribute(3, "Required", true);
+            builder.CloseComponent();
+        };
+
+        await using var context = new BunitContext();
+        using var cut = context.Render<QuasarForm>(parameters => parameters
+            .Add(p => p.IsValidChanged, EventCallback.Factory.Create<bool>(this, validChanges.Add))
+            .Add(p => p.ChildContent, Content()));
+
+        Assert.True(cut.Instance.IsValid);
+
+        // A new, empty required item is added to the form.
+        showRequired = true;
+        cut.Render(parameters => parameters.Add(p => p.ChildContent, Content()));
+
+        await cut.WaitForAssertionAsync(() =>
+        {
+            Assert.False(cut.Instance.IsValid);
+            Assert.Equal(false, validChanges.LastOrDefault(true));
+        });
+
+        // The item is removed again, and the form must report valid without any other change.
+        showRequired = false;
+        cut.Render(parameters => parameters.Add(p => p.ChildContent, Content()));
+
+        await cut.WaitForAssertionAsync(() =>
+        {
+            Assert.True(cut.Instance.IsValid);
+            Assert.True(validChanges[^1]);
+        });
+    }
+
+    [Fact]
     public async Task FormErrorsRenderAsAnAlertAndClear()
     {
         await using var context = new BunitContext();
