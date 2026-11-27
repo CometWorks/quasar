@@ -26,6 +26,8 @@ on:
       - "tests/Quasar.Wasm.DashboardChecks/**"
       - "tests/Quasar.Wasm.PluginChecks/**"
       - "Quasar.Plugin.Abstractions/**"
+      - "Quasar.Ui.Abstractions/**"
+      - "Quasar.Tests/**"
       - "Quasar.Peer/**"
       - "scripts/build-peer.py"
       - "Quasar.Agent/**"
@@ -77,6 +79,8 @@ on:
       - "tests/Quasar.Wasm.DashboardChecks/**"
       - "tests/Quasar.Wasm.PluginChecks/**"
       - "Quasar.Plugin.Abstractions/**"
+      - "Quasar.Ui.Abstractions/**"
+      - "Quasar.Tests/**"
       - "Quasar.Peer/**"
       - "scripts/build-peer.py"
       - "Quasar.Agent/**"
@@ -237,14 +241,16 @@ jobs:
   build-linux:
     needs: metadata
     name: build-linux (${{ matrix.part }})
-    timeout-minutes: 30
+    timeout-minutes: ${{ matrix.part == 'test' && 45 || 30 }}
     runs-on: ubuntu-latest
-    # Packaging and the browser/RTC verification share no outputs, so they run
-    # as parallel legs on separate runners. `release` needs both legs of both
-    # platforms, so nothing is published unless every check passed.
+    # Packaging, the browser/RTC verification and the full test suite share no
+    # outputs, so they run as parallel legs on separate runners. `release` needs
+    # every leg of both platforms, so nothing is published unless every check
+    # passed.
     strategy:
+      fail-fast: false
       matrix:
-        part: [package, verify]
+        part: [package, verify, test]
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
       NuGetPackageSourceCredentials_github: Username=${{ github.actor }};Password=${{ github.token }};ValidAuthenticationTypes=Basic
@@ -462,6 +468,24 @@ jobs:
           path: artifacts/sdk-test-results
           if-no-files-found: ignore
 
+      # The verify leg runs only the SDK and security subset. This leg runs every
+      # test, so a change to Quasar.Tests alone is still exercised on both
+      # platforms.
+      - name: Run full test suite
+        if: matrix.part == 'test'
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --logger trx --results-directory artifacts/test-results
+
+      - name: Retain test results
+        if: always() && matrix.part == 'test'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-linux
+          path: artifacts/test-results
+          if-no-files-found: ignore
+
       - name: Package Linux release
         if: matrix.part == 'package'
         run: scripts/package-linux-release.sh
@@ -494,14 +518,16 @@ jobs:
   build-windows:
     needs: metadata
     name: build-windows (${{ matrix.part }})
-    timeout-minutes: 30
+    timeout-minutes: ${{ matrix.part == 'test' && 45 || 30 }}
     runs-on: windows-latest
-    # Packaging and the browser/RTC verification share no outputs, so they run
-    # as parallel legs on separate runners. `release` needs both legs of both
-    # platforms, so nothing is published unless every check passed.
+    # Packaging, the browser/RTC verification and the full test suite share no
+    # outputs, so they run as parallel legs on separate runners. `release` needs
+    # every leg of both platforms, so nothing is published unless every check
+    # passed.
     strategy:
+      fail-fast: false
       matrix:
-        part: [package, verify]
+        part: [package, verify, test]
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
       NuGetPackageSourceCredentials_github: Username=${{ github.actor }};Password=${{ github.token }};ValidAuthenticationTypes=Basic
@@ -718,6 +744,24 @@ jobs:
         with:
           name: sdk-tests-windows
           path: artifacts/sdk-test-results
+          if-no-files-found: ignore
+
+      # The verify leg runs only the SDK and security subset. This leg runs every
+      # test, so a change to Quasar.Tests alone is still exercised on both
+      # platforms. The Python script checks run on the Linux leg.
+      - name: Run full test suite
+        if: matrix.part == 'test'
+        shell: pwsh
+        run: |
+          dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --logger trx --results-directory artifacts/test-results
+          if ($LASTEXITCODE -ne 0) { throw 'Test suite failed.' }
+
+      - name: Retain test results
+        if: always() && matrix.part == 'test'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-windows
+          path: artifacts/test-results
           if-no-files-found: ignore
 
       - name: Package Windows release
