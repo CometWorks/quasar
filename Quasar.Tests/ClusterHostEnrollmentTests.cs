@@ -664,6 +664,26 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
     }
 
     [LinuxFact]
+    public async Task ServedInstallScriptAndUpdaterHaveNoCarriageReturns()
+    {
+        // The script runs on Linux. A build from a checkout with CRLF line endings must not
+        // put carriage returns in it, because they break the shebang and `set -o pipefail`.
+        var host = await hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);
+        string binary = Path.Combine(root, "Quasar.Host"); File.WriteAllText(binary, "test executable");
+        var installer = new ClusterHostInstaller(hosts, credentials, binary, new TestClock());
+        var ticket = installer.Issue(host.Id, "https://quasar.example.com");
+        var id = Guid.Parse(Regex.Match(ticket.Command, "host-enrollment/([a-f0-9]+)").Groups[1].Value);
+        string auth = "Bearer " + Regex.Match(ticket.Command, "Bearer ([A-F0-9]+)").Groups[1].Value;
+        string script = Encoding.UTF8.GetString(installer.Redeem(id, auth)!);
+
+        Assert.DoesNotContain('\r', script);
+        var payloads = Regex.Matches(script, "printf '%s' '([^']+)' ").Select(match =>
+            Encoding.UTF8.GetString(Convert.FromBase64String(match.Groups[1].Value))).ToList();
+        Assert.NotEmpty(payloads);
+        Assert.All(payloads, payload => Assert.DoesNotContain('\r', payload));
+    }
+
+    [LinuxFact]
     public async Task InstallTicketsExpireAndRejectReplayAndReplacedTickets()
     {
         var host = await hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);
@@ -713,7 +733,7 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
                 exit 1
             fi
             exit 0
-            """ + "\n");
+            """.ReplaceLineEndings("\n") + "\n");
         File.SetUnixFileMode(systemctl, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         // Never change the lingering setting of the machine running the tests.
         foreach (string tool in new[] { "loginctl", "sudo" })
@@ -833,7 +853,7 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
             if [ "$2" = restart ] && [ -e "$HOME/fail-restart" ]; then exit 1; fi
             if [ "$2" = show ]; then printf 'ActiveState=active\nMainPID=123\n'; fi
             exit 0
-            """ + "\n");
+            """.ReplaceLineEndings("\n") + "\n");
         File.SetUnixFileMode(systemctl, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         string updater = Path.Combine(root, "host-update.py");
         using (var resource = typeof(ClusterHostInstaller).Assembly.GetManifestResourceStream("Quasar.Assets.host-update.py")!)

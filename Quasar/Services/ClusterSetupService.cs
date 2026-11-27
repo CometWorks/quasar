@@ -654,14 +654,17 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         return System.Reflection.AssemblyName.GetAssemblyName(assembly).Version?.ToString()
             ?? throw new InvalidDataException("Sandbox.Game.dll has no assembly version.");
     }
-    internal static void PrepareAgentMetadata(string config)
+    // informationalVersion is the build version that carries the source commit. It defaults to this
+    // assembly's own; a caller can supply one so the result does not depend on how this build was made.
+    internal static void PrepareAgentMetadata(string config, string? informationalVersion = null)
     {
         string local = Path.Combine(config, "Local"), assembly = Path.Combine(local, "Quasar.Agent.dll");
         if (!File.Exists(assembly)) throw new InvalidDataException("The Quasar release is missing its Agent plugin.");
         // Agent version attributes are deliberately omitted for content-based drift detection.
         // The worker and its bundled Agent are built from the same release source checkout.
-        string version = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(
-            typeof(ClusterSetupService).Assembly)?.InformationalVersion ?? "";
+        string version = informationalVersion
+            ?? System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(
+                typeof(ClusterSetupService).Assembly)?.InformationalVersion ?? "";
         var commit = Regex.Match(version, "(?:\\+|\\.)[a-fA-F0-9]{40}(?:$|[^a-fA-F0-9])");
         if (!commit.Success) throw new InvalidDataException("The Quasar build has no source commit provenance. Install a published Quasar build before guided setup.");
         string sha = Regex.Match(commit.Value, "[a-fA-F0-9]{40}").Value;

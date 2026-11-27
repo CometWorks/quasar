@@ -59,7 +59,7 @@ public static class AtomicFileWriter
                 stream.Flush(flushToDisk: true);
             }
 
-            File.Move(tempPath, path, overwrite: true);
+            await MoveWithRetryAsync(tempPath, path, cancellationToken);
         }
         catch
         {
@@ -68,6 +68,32 @@ public static class AtomicFileWriter
             // so these do not accumulate, then surface the original failure.
             TryDelete(tempPath);
             throw;
+        }
+    }
+
+    private const int MoveRetries = 20;
+    private static readonly TimeSpan MoveRetryDelay = TimeSpan.FromMilliseconds(50);
+
+    // On Windows, replacing a file fails with "access denied" or a sharing violation
+    // while another process holds it open without delete sharing, for example a file
+    // watcher reloading it or a virus scanner reading it. Those holds are brief, so
+    // retry for about a second before giving up and surfacing the original error.
+    private static async Task MoveWithRetryAsync(string source, string target, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                File.Move(source, target, overwrite: true);
+                return;
+            }
+            catch (Exception error) when (
+                OperatingSystem.IsWindows()
+                && (error is IOException or UnauthorizedAccessException)
+                && attempt < MoveRetries)
+            {
+                await Task.Delay(MoveRetryDelay, cancellationToken);
+            }
         }
     }
 

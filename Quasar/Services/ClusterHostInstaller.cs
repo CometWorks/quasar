@@ -149,7 +149,9 @@ public sealed class ClusterHostInstaller
         using var updaterResource = typeof(ClusterHostInstaller).Assembly.GetManifestResourceStream("Quasar.Assets.host-update.py")
             ?? throw new InvalidOperationException("The Host updater is missing from this Quasar build.");
         using var updaterReader = new StreamReader(updaterResource);
-        string updaterPayload = Convert.ToBase64String(Encoding.UTF8.GetBytes(updaterReader.ReadToEnd()));
+        // The scripts below run on Linux. A build from a checkout with CRLF line endings must not
+        // send carriage returns to the host, where they break the shebang line and `set -o pipefail`.
+        string updaterPayload = Convert.ToBase64String(Encoding.UTF8.GetBytes(updaterReader.ReadToEnd().ReplaceLineEndings("\n")));
         string secret = Config(new Dictionary<string, string> { [host.CredentialReference] = enrollmentCredential ?? credentials.Resolve(host.CredentialReference)! });
         return Encoding.UTF8.GetBytes($$"""
             #!/usr/bin/env bash
@@ -310,7 +312,7 @@ public sealed class ClusterHostInstaller
                     || echo "Could not enable user lingering; run: sudo loginctl enable-linger $(id -un)" >&2
             fi
             echo 'Quasar Host installed or updated.'
-            """);
+            """.ReplaceLineEndings("\n"));
     }
 
     internal static Uri ValidateOrigin(string value) => Quasar.Networking.QuasarControlAddress.Parse(value);

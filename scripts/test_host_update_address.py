@@ -6,9 +6,17 @@ import unittest
 spec = importlib.util.spec_from_file_location(
     "host_update", Path(__file__).resolve().parents[1] / "Quasar/Assets/host-update.py")
 updater = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(updater)
+try:
+    spec.loader.exec_module(updater)
+except ModuleNotFoundError as error:
+    # The host updater runs on the hosts, which are POSIX. It takes a file lock
+    # with fcntl, which does not exist on Windows, so import fails there.
+    if error.name != "fcntl":
+        raise
+    updater = None
 
 
+@unittest.skipIf(updater is None, "host-update.py needs fcntl, which this platform does not have")
 class HostUpdateAddressTests(unittest.TestCase):
     def test_download_paths_retain_hosted_prefix_and_local_root(self):
         for address in ("https://dash.se-servers.net/my-panel/", "https://quasar.example/", "http://127.0.0.1:8080/"):

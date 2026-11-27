@@ -595,6 +595,11 @@ public sealed class NativeAppearanceTests : IDisposable
         page.WaitForAssertion(() => Assert.Contains("Historical server output", page.Markup));
         Assert.True(page.FindAll("button").Single(x => x.TextContent == "Refresh").HasAttribute("disabled"));
         page.Find("button[title='Download full server log']").Click();
+        // The click handler is asynchronous. Wait until it has called the SDK, which a
+        // loaded machine can delay, before reading the recorded call.
+        page.WaitForAssertion(
+            () => Assert.NotEmpty(context.JSInterop.Invocations["quasarSdk.download"]),
+            TimeSpan.FromSeconds(5));
         var download = context.JSInterop.Invocations["quasarSdk.download"].Single();
         Assert.Equal("quasar.core", download.Arguments[0]);
         Assert.Equal("logs.server.read", download.Arguments[1]);

@@ -1,3 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 graphify-out/** linguist-vendored=true
+
+# These run on Linux hosts, or are embedded in the build and shipped to them. A
+# carriage return breaks a shebang line and `set -o pipefail`, so keep LF in every
+# checkout, including Windows ones where core.autocrlf would otherwise add CRLF.
+*.sh text eol=lf
+*.py text eol=lf
+*.desktop text eol=lf

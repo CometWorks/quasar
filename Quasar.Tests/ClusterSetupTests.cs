@@ -184,15 +184,65 @@ public sealed class ClusterSetupTests
             string oldBundle = Path.Combine(config, "Local/Quasar.Agent");
             Directory.CreateDirectory(oldBundle);
             File.WriteAllText(Path.Combine(oldBundle, "Quasar.Agent.xml"), "<PluginData><Commit>" + new string('0', 40) + "</Commit></PluginData>");
-            ClusterSetupService.PrepareAgentMetadata(config);
+            // The build version is supplied, so the test does not depend on whether this build was
+            // made from a git checkout and stamped with its commit.
+            string commit = new('a', 40);
+            ClusterSetupService.PrepareAgentMetadata(config, "1.7.1+" + commit);
             string bundle = Path.Combine(config, "Local/Quasar.Agent");
             Assert.Equal("Quasar.Agent.dll", File.ReadAllText(Path.Combine(bundle, "Quasar.Agent.dll")));
             Assert.False(File.Exists(Path.Combine(config, "Local/Quasar.Agent.dll")));
             var metadata = System.Xml.Linq.XDocument.Load(Path.Combine(bundle, "Quasar.Agent.xml")).Root!;
             Assert.Equal("quasar-agent", metadata.Element("Id")!.Value);
-            Assert.Matches("^[a-fA-F0-9]{40}$", metadata.Element("Commit")!.Value);
-            Assert.NotEqual(new string('0', 40), metadata.Element("Commit")!.Value);
+            Assert.Equal(commit, metadata.Element("Commit")!.Value);
             Assert.Contains("quasar-agent", File.ReadAllText(Path.Combine(config, "Profiles/Current.xml")));
+        }
+        finally { Directory.Delete(config, true); }
+    }
+
+    [Fact]
+    public void BundledAgentWithoutAnExplicitVersionUsesThisBuildsOwnVersion()
+    {
+        // The production path passes no version, so it reads this assembly's. That version carries a
+        // source commit only when the build was stamped, so the expected outcome follows the build.
+        string version = System.Reflection.CustomAttributeExtensions
+            .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(ClusterSetupService).Assembly)
+            ?.InformationalVersion ?? "";
+        var stamped = System.Text.RegularExpressions.Regex.Match(version, "(?:\\+|\\.)([a-fA-F0-9]{40})(?:$|[^a-fA-F0-9])");
+
+        string config = Path.Combine(Path.GetTempPath(), "cluster-agent-own-version-" + Guid.NewGuid());
+        Directory.CreateDirectory(Path.Combine(config, "Local"));
+        Directory.CreateDirectory(Path.Combine(config, "Profiles"));
+        try
+        {
+            foreach (string name in new[] { "Quasar.Agent.dll", "Magnetar.Protocol.dll", "0Harmony.dll" })
+                File.WriteAllText(Path.Combine(config, "Local", name), name);
+            File.WriteAllText(Path.Combine(config, "Profiles/Current.xml"), "<Profile><Local><string>Quasar.Agent.dll</string></Local></Profile>");
+
+            if (stamped.Success)
+            {
+                ClusterSetupService.PrepareAgentMetadata(config);
+                var metadata = System.Xml.Linq.XDocument.Load(Path.Combine(config, "Local/Quasar.Agent/Quasar.Agent.xml")).Root!;
+                Assert.Equal(stamped.Groups[1].Value, metadata.Element("Commit")!.Value);
+            }
+            else
+            {
+                var error = Assert.Throws<InvalidDataException>(() => ClusterSetupService.PrepareAgentMetadata(config));
+                Assert.Contains("no source commit provenance", error.Message, StringComparison.Ordinal);
+            }
+        }
+        finally { Directory.Delete(config, true); }
+    }
+
+    [Fact]
+    public void BundledAgentNeedsASourceCommitInTheBuildVersion()
+    {
+        string config = Path.Combine(Path.GetTempPath(), "cluster-agent-no-commit-" + Guid.NewGuid());
+        Directory.CreateDirectory(Path.Combine(config, "Local"));
+        try
+        {
+            File.WriteAllText(Path.Combine(config, "Local", "Quasar.Agent.dll"), "agent");
+            var error = Assert.Throws<InvalidDataException>(() => ClusterSetupService.PrepareAgentMetadata(config, "1.7.1"));
+            Assert.Contains("no source commit provenance", error.Message, StringComparison.Ordinal);
         }
         finally { Directory.Delete(config, true); }
     }
