@@ -104,6 +104,13 @@ checksum. No neighboring Gateway checkout or private contract package is needed.
   cached path to the build through `DS64`. On a cache miss it downloads the
   Windows depot with SteamCMD and retries the install to work around transient
   missing-configuration failures.
+- Each platform build in the release workflow has three parallel legs:
+  `package` builds the archives, `verify` runs the browser SDK, RTC and
+  published-dashboard checks, and `test` runs the whole `Quasar.Tests` suite.
+  The Linux `test` leg also runs the `scripts/test_*.py` checks. A change to
+  `Quasar.Tests/**` alone starts the workflow, and nothing is published unless
+  every leg passed. Each `test` leg uploads its TRX results as `tests-linux` or
+  `tests-windows`.
 - Building `Quasar/Quasar.csproj` no longer requires the Entity Viewer source tree
   or its npm packages. The viewer plugin is installed from QuasarHub, where the
   catalog pins a commit in `https://github.com/CometWorks/viewer`. The plugin
