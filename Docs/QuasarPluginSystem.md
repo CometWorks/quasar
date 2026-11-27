@@ -1151,7 +1151,12 @@ can give its own controls the same tone, variant and size treatment.
   that fails shows its message and red outline at once. An empty field the user
   has not touched shows nothing until it is edited, left, or checked with
   `ValidateAsync()`, so a new form does not open full of errors. The `Validation`
-  delegate therefore also runs once at load.
+  delegate therefore also runs once at load. A disabled field is not validated,
+  because the user cannot fix it, and a change to `Required` or `Disabled` checks
+  the value again. While validators run at load, `IsValidChanged` can report
+  false and then true, so treat `IsValid` as final only when `IsValidating` is
+  false. A field's `Errors` holds only the messages to show, so read `IsValid`,
+  not `Errors`, to decide whether a value is acceptable.
 - Tables take either `Items` or `LoadData`, never both. `LoadData` receives a
   `QuasarTableState` (one-based page, page size, sort key, direction) and
   returns `QuasarTableData<T>`; it is called again on a page, sort or

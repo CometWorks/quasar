@@ -456,7 +456,7 @@ public sealed class QuasarTableTests
     }
 
     [Fact]
-    public void ReplacingASortedColumnWithOneThatHasTheSameKeyKeepsTheSort()
+    public async Task ReplacingASortedColumnWithOneThatHasTheSameKeyKeepsTheSort()
     {
         var rows = new[] { new Row("b", 1), new Row("a", 2) };
 
@@ -486,6 +486,10 @@ public sealed class QuasarTableTests
             .Add(p => p.Items, rows)
             .Add(p => p.HeaderContent, Header(10))
             .Add(p => p.RowTemplate, RowTemplate()));
+
+        // The table decides whether to drop the sort one step after the render that removed
+        // the old column. Wait for that step, so the assertions below cover it too.
+        await cut.InvokeAsync(() => Task.CompletedTask);
 
         Assert.StartsWith("a", cut.FindAll("tbody tr")[0].TextContent, StringComparison.Ordinal);
         Assert.Equal("ascending", cut.Find("th").GetAttribute("aria-sort"));

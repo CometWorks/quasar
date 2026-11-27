@@ -39,6 +39,8 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
     private int _generation;
     private bool _baselineCaptured;
     private bool _parametersSeen;
+    private bool _lastRequired;
+    private bool _lastDisabled;
     private bool _validateOnLoad;
     private bool _touched;
     private bool _pending;
@@ -67,7 +69,7 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
     /// </summary>
     [Parameter] public QuasarValidator<T>? Validation { get; set; }
 
-    /// <summary>Disables the control.</summary>
+    /// <summary>Disables the control. A disabled control is not validated.</summary>
     [Parameter] public bool Disabled { get; set; }
 
     /// <summary>
@@ -129,7 +131,7 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
 
     /// <inheritdoc />
     public bool IsDirty =>
-        _baselineCaptured && !EqualityComparer<T>.Default.Equals(CurrentValue, _baseline);
+        _baselineCaptured && !ValuesEqual(CurrentValue, _baseline);
 
     /// <summary>Element id used by the label and the native input.</summary>
     protected string FieldId => string.IsNullOrWhiteSpace(Id) ? _generatedId : Id;
@@ -179,6 +181,15 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
     /// <inheritdoc />
     protected override void OnParametersSet()
     {
+        // Required and Disabled decide what the current value is checked against, so a
+        // change to either checks it again, for example when a page switches a field off
+        // together with the feature it belongs to.
+        if (_parametersSeen && (Required != _lastRequired || Disabled != _lastDisabled))
+            _validateOnLoad = true;
+
+        _lastRequired = Required;
+        _lastDisabled = Disabled;
+
         // An uncommitted edit is the newer truth; a parent re-render must not
         // overwrite what the user is still typing.
         if (_pending)
@@ -186,7 +197,7 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
 
         // The first value, and any value the parent changes afterwards, such as data
         // loaded into the form later, is validated without waiting for the user.
-        var arrived = !_parametersSeen || !EqualityComparer<T>.Default.Equals(CurrentValue, Value);
+        var arrived = !_parametersSeen || !ValuesEqual(CurrentValue, Value);
         _parametersSeen = true;
         CurrentValue = Value;
 
@@ -229,8 +240,22 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
         _pending = true;
         _touched = true;
         _validatedCurrent = false;
+        DropRunningValidation();
         Form?.NotifyFieldChanged();
         StartCommitTimer();
+    }
+
+    // A validation that is still running belongs to the value the user just replaced.
+    // Cancel it and make its result stale, so a slow check of the old value cannot show
+    // its message while the user types. The commit validates the new value.
+    private void DropRunningValidation()
+    {
+        if (_validation is null)
+            return;
+
+        _generation++;
+        CancelValidation();
+        IsValidating = false;
     }
 
     /// <summary>
@@ -278,6 +303,16 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
         _baseline = CurrentValue;
         _baselineCaptured = true;
     }
+
+    /// <summary>
+    /// Returns true when two values count as the same value. The default is the
+    /// type's own equality, which is by reference for a collection. A control whose
+    /// value is a collection overrides this to compare the content, so a parent that
+    /// passes a new collection with the same items on every render does not make the
+    /// field validate again or look edited.
+    /// </summary>
+    protected virtual bool ValuesEqual(T left, T right) =>
+        EqualityComparer<T>.Default.Equals(left, right);
 
     /// <summary>
     /// Returns true when <paramref name="value"/> counts as empty for
@@ -354,7 +389,9 @@ public abstract class QuasarFieldBase<T> : ComponentBase, IQuasarField, IDisposa
         var generation = ++_generation;
         CancelValidation();
 
-        if (!Required && Validation is null)
+        // A disabled field is not validated: the user cannot change its value, so it
+        // cannot be fixed, and it must not keep the form from being valid.
+        if (Disabled || (!Required && Validation is null))
         {
             if (_errors.Count > 0 || IsValidating)
             {

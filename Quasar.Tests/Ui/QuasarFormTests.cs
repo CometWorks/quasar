@@ -121,6 +121,31 @@ public sealed class QuasarFormTests
     }
 
     [Fact]
+    public async Task DisabledRequiredFieldDoesNotBlockTheForm()
+    {
+        var validChanges = new List<bool>();
+
+        await using var context = new BunitContext();
+        using var cut = context.Render<QuasarForm>(parameters => parameters
+            .Add(p => p.IsValidChanged, EventCallback.Factory.Create<bool>(this, validChanges.Add))
+            .Add(p => p.ChildContent, builder =>
+            {
+                builder.OpenComponent<QuasarTextField>(0);
+                builder.AddAttribute(1, "Required", true);
+                builder.AddAttribute(2, "Disabled", true);
+                builder.CloseComponent();
+            }));
+
+        await cut.InvokeAsync(() => cut.Instance.ValidateAsync());
+
+        // Give any validation that would wrongly run a chance to report.
+        await Task.Delay(100);
+
+        Assert.True(cut.Instance.IsValid);
+        Assert.DoesNotContain(false, validChanges);
+    }
+
+    [Fact]
     public async Task FormErrorsRenderAsAnAlertAndClear()
     {
         await using var context = new BunitContext();

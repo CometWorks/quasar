@@ -8,6 +8,76 @@ namespace Quasar.Tests.Ui;
 
 public sealed class QuasarFieldBaseTests
 {
+    // A field whose value is a list, as a multi-select would have. It keeps the default
+    // equality, which is by reference.
+    private class ListField : QuasarFieldBase<IReadOnlyList<string>>
+    {
+    }
+
+    // The same field, comparing the items, as a collection control should.
+    private sealed class ContentListField : ListField
+    {
+        protected override bool ValuesEqual(IReadOnlyList<string> left, IReadOnlyList<string> right) =>
+            left.SequenceEqual(right);
+    }
+
+    [Fact]
+    public void ANewListWithTheSameItemsIsValidatedAgainByDefault()
+    {
+        var runs = 0;
+        QuasarValidator<IReadOnlyList<string>> validator = (_, _) =>
+        {
+            runs++;
+            return Task.FromResult(QuasarValidationResult.Valid);
+        };
+
+        using var context = new BunitContext();
+        using var cut = context.Render<ListField>(parameters => parameters
+            .Add(p => p.Value, ["a"])
+            .Add(p => p.Validation, validator));
+        cut.WaitForAssertion(() => Assert.Equal(1, runs));
+
+        cut.Render(parameters => parameters
+            .Add(p => p.Value, ["a"])
+            .Add(p => p.Validation, validator));
+
+        // A different instance counts as a different value for a type that compares by reference.
+        cut.WaitForAssertion(() => Assert.Equal(2, runs));
+    }
+
+    [Fact]
+    public async Task ANewListWithTheSameItemsIsNotValidatedAgainWhenTheControlComparesContent()
+    {
+        var runs = 0;
+        QuasarValidator<IReadOnlyList<string>> validator = (_, _) =>
+        {
+            runs++;
+            return Task.FromResult(QuasarValidationResult.Valid);
+        };
+
+        using var context = new BunitContext();
+        using var cut = context.Render<ContentListField>(parameters => parameters
+            .Add(p => p.Value, ["a"])
+            .Add(p => p.Validation, validator));
+        cut.WaitForAssertion(() => Assert.Equal(1, runs));
+        cut.Instance.CaptureBaseline();
+
+        cut.Render(parameters => parameters
+            .Add(p => p.Value, ["a"])
+            .Add(p => p.Validation, validator));
+        await cut.InvokeAsync(() => Task.CompletedTask);
+
+        Assert.Equal(1, runs);
+        Assert.False(cut.Instance.IsDirty);
+
+        cut.Render(parameters => parameters
+            .Add(p => p.Value, ["a", "b"])
+            .Add(p => p.Validation, validator));
+
+        cut.WaitForAssertion(() => Assert.Equal(2, runs));
+        Assert.True(cut.Instance.IsDirty);
+    }
+
     [Fact]
     public void StaleValidationResultIsDiscarded()
     {
@@ -207,6 +277,103 @@ public sealed class QuasarFieldBaseTests
             Assert.True(cut.Instance.IsValid);
             Assert.Empty(cut.FindAll(".quasar-input-error"));
         });
+    }
+
+    [Fact]
+    public void DisabledRequiredEmptyFieldIsValidBecauseTheUserCannotFixIt()
+    {
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTextField>(parameters => parameters
+            .Add(p => p.Required, true)
+            .Add(p => p.Disabled, true));
+
+        cut.WaitForAssertion(() => Assert.True(cut.Instance.IsValid));
+        Assert.Empty(cut.FindAll(".quasar-input-error"));
+        Assert.Empty(cut.FindAll(".is-invalid"));
+    }
+
+    [Fact]
+    public async Task ValidatingADisabledFieldDoesNotMarkItInvalid()
+    {
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTextField>(parameters => parameters
+            .Add(p => p.Required, true)
+            .Add(p => p.Disabled, true));
+
+        await cut.InvokeAsync(() => cut.Instance.ValidateAsync());
+
+        Assert.True(cut.Instance.IsValid);
+        Assert.Empty(cut.FindAll(".quasar-input-error"));
+    }
+
+    [Fact]
+    public void DisablingAndEnablingAFieldUpdatesItsValidity()
+    {
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTextField>(parameters => parameters
+            .Add(p => p.Required, true));
+
+        cut.WaitForAssertion(() => Assert.False(cut.Instance.IsValid));
+
+        // The page switches the field off, for example when the feature it belongs to is turned off.
+        cut.Render(parameters => parameters
+            .Add(p => p.Required, true)
+            .Add(p => p.Disabled, true));
+        cut.WaitForAssertion(() => Assert.True(cut.Instance.IsValid));
+
+        cut.Render(parameters => parameters
+            .Add(p => p.Required, true)
+            .Add(p => p.Disabled, false));
+        cut.WaitForAssertion(() => Assert.False(cut.Instance.IsValid));
+    }
+
+    [Fact]
+    public void ChangingRequiredUpdatesValidityWithoutAnEdit()
+    {
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTextField>(parameters => parameters
+            .Add(p => p.Required, true));
+
+        cut.WaitForAssertion(() => Assert.False(cut.Instance.IsValid));
+
+        cut.Render(parameters => parameters.Add(p => p.Required, false));
+        cut.WaitForAssertion(() => Assert.True(cut.Instance.IsValid));
+
+        cut.Render(parameters => parameters.Add(p => p.Required, true));
+        cut.WaitForAssertion(() => Assert.False(cut.Instance.IsValid));
+    }
+
+    [Fact]
+    public async Task ValidationOfTheOldValueIsDroppedWhenTheUserStartsTyping()
+    {
+        var tokens = new List<CancellationToken>();
+        var slowLoadCheck = new TaskCompletionSource<QuasarValidationResult>();
+        QuasarValidator<string> validator = (_, token) =>
+        {
+            tokens.Add(token);
+            return tokens.Count == 1
+                ? slowLoadCheck.Task
+                : Task.FromResult(QuasarValidationResult.Valid);
+        };
+
+        using var context = new BunitContext();
+        using var cut = context.Render<QuasarTextField>(parameters => parameters
+            .Add(p => p.Value, "loaded")
+            .Add(p => p.Immediate, true)
+            .Add(p => p.Validation, validator));
+
+        // The check of the loaded value is still running when the user starts typing.
+        cut.WaitForAssertion(() => Assert.Single(tokens));
+        cut.Find("input").Input("typing");
+
+        Assert.True(tokens[0].IsCancellationRequested);
+        Assert.False(cut.Instance.IsValidating);
+
+        // The slow check of the old value finishes late. It no longer applies.
+        slowLoadCheck.SetResult("The loaded value is not allowed.");
+        await cut.InvokeAsync(() => Task.CompletedTask);
+
+        Assert.DoesNotContain("The loaded value is not allowed.", cut.Markup, StringComparison.Ordinal);
     }
 
     [Fact]
