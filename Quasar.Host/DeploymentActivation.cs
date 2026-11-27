@@ -99,6 +99,7 @@ internal sealed class DeploymentActivation(string stateDirectory, string hostId,
         ExecutionBundle.LogStep(request.ClusterId, "activation: world files", started);
         attachments.Apply(active.Attachment);
         if (active.Gateway is not null) gateways.Apply(active.Gateway);
+        bundle.CarryRestoreAuthorization();
         bundle.ConfirmRestoreActivation();
         Write(path, transaction with { Applied = true });
         PausedClusters.Resume(request.ClusterId);

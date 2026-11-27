@@ -154,7 +154,8 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
             update.RevertRestoreId!.Value,
             "quasar",
             token,
-            update.Id
+            update.Id,
+            backupDependencies: true // A revert goes back to the previous version, game included.
         );
     internal Func<ClusterDefinition, ClusterUpdate, CancellationToken, Task> ApplyRevertAsync = (
         cluster,

@@ -1284,8 +1284,12 @@ Deployment activation after a clean Down, and the first deployment, write
 `activationProof` instead: the activated Gateway has not run, and every way of starting
 it changes the lifecycle identity, which clears the record. While it matches, the cluster
 counts as cleanly stopped for another activation, an update, a rollback and backups, and
-the status reads "Deployment activated; the Gateway has not run since". A restore writes
-no record. Do not hand-edit this evidence. An absent Gateway without matching evidence reports
+the status reads "Deployment activated; the Gateway has not run since". A restore of a
+`Quiescent` backup writes the same record with the backup's clean-Down time: the restored
+Registry holds that clean Down and nothing has run since, so the cluster is Down and an
+update can follow at once. Before the Gateway first runs, every activation moves the restore
+authorization (`gateway/registry/managed-restore.json`) to its own revision. A restore of a
+crash-consistent backup writes no record and needs recovery. Do not hand-edit this evidence. An absent Gateway without matching evidence reports
 `shutdown_unverified`; a mismatched or uncertain process reports
 `gateway_recovery_required`. An Off goal never starts a Gateway for recovery. It does
 stop a respawn loop: when the Host reports the Gateway Failed after three launches in a
@@ -2097,8 +2101,13 @@ release gate. Verified preparation alone does not establish a working cluster.
 
 Cluster deployment commands now include `cluster create REQUEST.json`,
 `cluster deployment-prepare NAME REQUEST.json`, `cluster deployment-activate NAME REQUEST.json`,
-`cluster gateway-recover NAME`, `cluster recover NAME REQUEST.json`, `cluster backups NAME`, `cluster backup NAME REQUEST.json`
-and `cluster restore NAME REQUEST.json`. Mutations except catalog creation require an
+`cluster gateway-recover NAME`, `cluster recover NAME REQUEST.json`, `cluster backups NAME`, `cluster backup NAME REQUEST.json`,
+`cluster restore NAME REQUEST.json` and `cluster restore NAME SNAPSHOT_ID [--dependencies current|backup] --wait`.
+The last one (`POST /api/v1/clusters/{id}/restore/run`) prepares fresh credentials and restores in one
+operation that runs apart from the request: the call answers at once with the Running operation,
+`--wait` follows it for up to 4 hours by default (`--wait-timeout`), and a client that stops waiting
+does not cancel it. Run again after a Quasar restart, it resumes an interrupted restore of the same
+backup with its original preparation. Mutations except catalog creation require an
 idempotency key. Inspect the operation and lifecycle status separately from command acceptance.
 
 For cross-host preparation, `Quasar.Host deployment export --installation DIR --file PACKAGE.tar`

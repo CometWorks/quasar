@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Nodes;
+using Magnetar.Protocol.Runtime;
 using Quasar.Models;
 using Quasar.Services.Backup;
 using Admin = CometWorks.ClusterGateway.AdminContract.V1;
@@ -533,12 +534,64 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
     }
 
     public Task<ClusterOperation> PrepareRestoreAsync(string clusterId, Guid snapshotId, Guid restoreId,
-        string key, string actor, CancellationToken token) =>
-        operations.ExecuteAsync(clusterId, "cluster.backup.prepare-restore", key, actor,
-            new { snapshotId, restoreId }, async ct => new Admin.AdminEnvelope<ClusterRestoreRequest>(
-                Admin.AdminProtocol.Version, DateTimeOffset.UtcNow,
+        string key, string actor, CancellationToken token, string? dependencies = null)
+    {
+        bool backupDependencies = BackupDependencies(dependencies);
+        return operations.ExecuteAsync(clusterId, "cluster.backup.prepare-restore", key, actor,
+            new { snapshotId, restoreId, dependencies = backupDependencies ? "backup" : "current" },
+            async ct => new Admin.AdminEnvelope<ClusterRestoreRequest>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow,
                 await catalog.WithLifecycleAsync(clusterId,
-                    cluster => PrepareRestoreCoreAsync(cluster, snapshotId, restoreId, actor, ct), ct)), token);
+                    cluster => PrepareRestoreCoreAsync(cluster, snapshotId, restoreId, actor, ct,
+                        backupDependencies: backupDependencies), ct)), token);
+    }
+
+    // SE-1988: a restore brings back the world. It runs on the cluster's current package and dependency freeze
+    // unless the backup's own are asked for, so it never rolls the game back unasked.
+    internal static bool BackupDependencies(string? dependencies) => dependencies switch
+    {
+        null or "" or "current" => false,
+        "backup" => true,
+        _ => throw new InvalidDataException("Dependencies must be current or backup."),
+    };
+
+    /// <summary>
+    /// Prepares and restores a backup in one operation that runs apart from the request that started it, so a client
+    /// timeout or disconnect does not cancel it (SE-1988). Poll the operation for the result. When the cluster has an
+    /// interrupted restore of the same backup, this resumes it with its original preparation.
+    /// </summary>
+    public Task<ClusterOperation> StartRestoreAsync(string clusterId, ClusterRestoreRunRequest request, string key, string actor)
+    {
+        if (request.SnapshotId == Guid.Empty) throw new InvalidDataException("A backup snapshot ID is required.");
+        string? dependencies = BackupDependencies(request.Dependencies) ? "backup" : null;
+        return operations.StartAsync(clusterId, "cluster.backup.restore-run", key, actor, request, async ct =>
+        {
+            var prepared = InterruptedRestore(clusterId, request.SnapshotId);
+            if (prepared is null)
+                prepared = Completed<ClusterRestoreRequest>(await PrepareRestoreAsync(clusterId, request.SnapshotId,
+                    Guid.NewGuid(), "run-" + Guid.NewGuid().ToString("N"), actor, ct, dependencies));
+            var active = Completed<ClusterActiveRevision>(await RestoreAsync(clusterId, prepared,
+                "run-" + Guid.NewGuid().ToString("N"), actor, ct));
+            return new Admin.AdminEnvelope<ClusterActiveRevision>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow, active);
+        }, Stopping);
+    }
+
+    // The preparation of the cluster's interrupted restore of this backup, from its operation record.
+    private ClusterRestoreRequest? InterruptedRestore(string clusterId, Guid snapshotId)
+    {
+        if (catalog.GetCluster(clusterId)?.PendingRestoreHash is not { } pending) return null;
+        return operations.List(clusterId, "cluster.backup.prepare-restore")
+            .Where(o => o.State == ClusterOperationState.Succeeded && o.Result is not null)
+            .Select(o => o.Result!.Value.Deserialize<ClusterRestoreRequest>(Json))
+            .FirstOrDefault(r => r is not null && r.SnapshotId == snapshotId && RequestHash(r) == pending);
+    }
+
+    private static T Completed<T>(ClusterOperation operation) => operation.State == ClusterOperationState.Succeeded
+        ? operation.Result!.Value.Deserialize<T>(Json) ?? throw new InvalidDataException("The operation returned no result.")
+        : throw new ClusterOperationConflictException(409, operation.Error?.Code ?? "operation_failed",
+            operation.Error?.Message ?? "The operation failed.");
+
+    private static string RequestHash(ClusterRestoreRequest request) =>
+        Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(request, Json)));
 
     internal async Task<ClusterRestoreRequest> PrepareRestoreCoreAsync(
         ClusterDefinition cluster,
@@ -546,7 +599,8 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
         Guid restoreId,
         string actor,
         CancellationToken token,
-        Guid? updateId = null
+        Guid? updateId = null,
+        bool backupDependencies = false
     )
     {
         if (snapshotId == Guid.Empty || restoreId == Guid.Empty || cluster.GoalState != DedicatedServerGoalState.Off
@@ -561,12 +615,28 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
         var original = provenance.Preparation;
         if (backup.Deployment.ActiveDeployment!.Revision != ClusterDependencyService.DeploymentRevision(original))
             throw new InvalidDataException("Backup preparation does not identify the saved deployment.");
-        var source = backup.Deployment.Clone();
-        source.PackageSelection = provenance.PackageSelection;
-        source.DependencyManifestSha256 = provenance.DependencyManifestSha256;
-        var inputs = await dependencies.GetDeploymentInputsAsync(source, token);
-        if (Quasar.ClusterDeployment.ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != original.InputsSha256)
-            throw new InvalidDataException("Backup installation inputs are no longer available or verified.");
+        string inputsSha256 = original.InputsSha256;
+        byte[]? currentInputs = null;
+        if (backupDependencies)
+        {
+            var source = backup.Deployment.Clone();
+            source.PackageSelection = provenance.PackageSelection;
+            source.DependencyManifestSha256 = provenance.DependencyManifestSha256;
+            var inputs = await dependencies.GetDeploymentInputsAsync(source, token);
+            if (Quasar.ClusterDeployment.ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != original.InputsSha256)
+                throw new InvalidDataException("Backup installation inputs are no longer available or verified.");
+        }
+        else
+        {
+            // The backup's specification (topology, profile, mods) fits its data; only the installation is the
+            // current one, the way an update would run the same data.
+            if (cluster.PackageSelection is null || cluster.DependencyManifestSha256 is null)
+                throw new InvalidOperationException("The cluster has no package and dependency freeze selected; restore with the backup's dependencies instead.");
+            var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
+            byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(inputs, Json);
+            inputsSha256 = Quasar.ClusterDeployment.ClusterDeploymentFiles.Hash(bytes);
+            if (inputsSha256 != original.InputsSha256) currentInputs = bytes;
+        }
         string generation = restoreId.ToString("N");
         string purpose = "restore:" + generation + ":";
         string owner = "cluster:" + cluster.UniqueName;
@@ -585,19 +655,37 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             if (!executor.ContainsKey(id)) throw new InvalidDataException("Backup Host inventory differs from the active cluster.");
             host["executorTokenEnvironmentVariable"] = Ref("executor:" + id);
         }
+        if (currentInputs is not null) ClusterConversionService.AddLocalSharedStorage(spec);
         string specification = spec.ToJsonString();
         var preparedHosts = new List<ClusterPreparationHost>();
-        foreach (var old in original.Hosts)
+        string workspace = Path.Combine(MagnetarPaths.GetQuasarDirectory(), "ClusterUpdates", "restore-" + generation);
+        try
         {
-            var active = cluster.ActiveDeployment.Hosts.Single(h => h.HostId == old.HostId);
-            var target = Target(cluster, active);
-            await hosts.InstallCredentialsAsync(target, values, token);
-            preparedHosts.Add(old with { CommandUrl = active.CommandUrl,
-                TokenEnvironmentVariable = active.TokenEnvironmentVariable,
-                ExecutorTokenEnvironmentVariable = Ref("executor:" + old.HostId),
-                ConfigurationDirectory = Path.Combine(Path.GetDirectoryName(old.ConfigurationDirectory)!, "restore-" + generation) });
+            foreach (var old in original.Hosts)
+            {
+                var active = cluster.ActiveDeployment.Hosts.Single(h => h.HostId == old.HostId);
+                var target = Target(cluster, active);
+                await hosts.InstallCredentialsAsync(target, values, token);
+                string installation = old.InstallationDirectory;
+                if (currentInputs is not null)
+                {
+                    Directory.CreateDirectory(workspace);
+                    Quasar.ClusterDeployment.ClusterWorldFiles.Private(workspace);
+                    var remote = await ClusterUpdatePreparationService.TransferInstallationAsync(hosts, target, old.HostId,
+                        cluster.Preparation?.InputsSha256 ?? original.InputsSha256, Guid.NewGuid(), currentInputs, inputsSha256,
+                        Path.Combine(workspace, "installation.tar"), token, null);
+                    if (remote.HostId != old.HostId) throw new InvalidDataException("Transfer returned another Host identity.");
+                    installation = remote.Directory;
+                }
+                preparedHosts.Add(old with { CommandUrl = active.CommandUrl,
+                    TokenEnvironmentVariable = active.TokenEnvironmentVariable,
+                    ExecutorTokenEnvironmentVariable = Ref("executor:" + old.HostId),
+                    InstallationDirectory = installation,
+                    ConfigurationDirectory = Path.Combine(Path.GetDirectoryName(old.ConfigurationDirectory)!, "restore-" + generation) });
+            }
         }
-        var preparation = original with { SpecificationJson = specification, Hosts = preparedHosts.ToArray() };
+        finally { if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true); }
+        var preparation = original with { InputsSha256 = inputsSha256, SpecificationJson = specification, Hosts = preparedHosts.ToArray() };
         var staged = await deployments.PrepareAsync(cluster.UniqueName, preparation,
             "restore-prepare-" + generation, actor, token);
         if (staged.State != ClusterOperationState.Succeeded)
@@ -626,7 +714,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
     {
         if (!RevertsOrIsSettled(cluster, updateId) || request.RestoreId == Guid.Empty || cluster.GoalState != DedicatedServerGoalState.Off || cluster.ActiveDeployment is null)
             throw new InvalidOperationException("Restore requires a restore ID and a stopped managed cluster.");
-        string hash = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(request, Json)));
+        string hash = RequestHash(request);
         if (cluster.LastRestoreHash == hash && cluster.ActiveDeployment.Revision == request.Deployment.Revision)
         {
             if (cluster.PreviousDeployment is null
@@ -635,7 +723,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
                 return cluster.ActiveDeployment;
             var saved = Verify(Path.Combine(Root(cluster.UniqueName), request.SnapshotId.ToString("N")), cluster.UniqueName);
             await catalog.RecordRestoredProvenanceAsync(cluster.UniqueName, request.Deployment.Revision,
-                saved.Deployment, RestoredProfileId(saved), token);
+                saved.Deployment, RestoredProfileId(saved), RestoredStop(saved), token);
             return catalog.GetCluster(cluster.UniqueName)!.ActiveDeployment!;
         }
         string directory = Path.Combine(Root(cluster.UniqueName), request.SnapshotId.ToString("N"));
@@ -677,8 +765,19 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
         foreach (var (target, restore) in prepared) await hosts.RestoreSnapshotAsync(target, restore, token);
         var active = await deployments.ActivateCoreAsync(cluster, request.Deployment, token, restore: true, update: update, supersede: update);
         await catalog.RecordRestoredProvenanceAsync(cluster.UniqueName, active.Revision, backup.Deployment,
-            RestoredProfileId(backup), token);
+            RestoredProfileId(backup), RestoredStop(backup), token);
         return catalog.GetCluster(cluster.UniqueName)!.ActiveDeployment!;
+    }
+
+    // SE-1988: a backup of a cleanly stopped cluster holds the Registry of that clean Down, and nothing has run since the
+    // restore, so the restored cluster is as cleanly down as it was then: deployable and startable without recovery.
+    // A crash-consistent copy proves nothing, so that restore still needs explicit recovery.
+    internal static ClusterActivationProof? RestoredStop(ClusterBackup backup)
+    {
+        var saved = backup.Deployment;
+        return backup.Consistency != Admin.ExportConsistency.Quiescent ? null
+            : new(string.Empty, saved.HasCleanShutdownProof() ? saved.ShutdownProof!.CleanShutdownAt
+                : saved.HasActivationProof() ? saved.ActivationProof!.CleanShutdownAt : null);
     }
 
     private string RestoredProfileId(ClusterBackup backup)
@@ -717,7 +816,9 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
 
 // Online copies a running cluster (crash-consistent, so AllowCrashConsistent is required too).
 public sealed record ClusterBackupRequest(Guid SnapshotId, bool AllowCrashConsistent = false, bool Automatic = false, bool Online = false);
-public sealed record ClusterRestorePreparationRequest(Guid SnapshotId, Guid RestoreId);
+public sealed record ClusterRestorePreparationRequest(Guid SnapshotId, Guid RestoreId, string? Dependencies = null);
+/// <summary>Prepare and restore in one background operation. Dependencies: current (default) or backup.</summary>
+public sealed record ClusterRestoreRunRequest(Guid SnapshotId, string? Dependencies = null);
 public sealed record ClusterRestoreRequest(Guid SnapshotId, Guid RestoreId, ClusterDeploymentRequest Deployment);
 public sealed record ClusterBackup(Guid SnapshotId, string ClusterId, DateTimeOffset CreatedAt, Admin.ExportConsistency Consistency,
     ClusterDefinition Deployment, HostContract.HostSnapshot[] Hosts, bool Automatic, bool Online = false, string? Purpose = null);

@@ -358,8 +358,10 @@ public sealed class ClusterCatalog : IDisposable
             if (worldTemplateId is not null) cluster.WorldTemplateId = worldTemplateId;
         }, token);
 
+    // restoredStop: the proof a cleanly stopped backup carries over; null leaves the restore to explicit recovery.
     internal Task<ClusterDefinition> RecordRestoredProvenanceAsync(string clusterId, string revision,
-        ClusterDefinition saved, string restoredProfileId, CancellationToken token) => UpdateCoreAsync(clusterId, cluster =>
+        ClusterDefinition saved, string restoredProfileId, ClusterActivationProof? restoredStop,
+        CancellationToken token) => UpdateCoreAsync(clusterId, cluster =>
         {
             var provenance = saved.ActiveDeployment?.Provenance;
             if (cluster.ActiveDeployment?.Revision != revision || provenance is null
@@ -368,15 +370,27 @@ public sealed class ClusterCatalog : IDisposable
                 throw new InvalidOperationException("Restored deployment or saved package provenance is unavailable.");
             cluster.ConfigProfileId = restoredProfileId;
             cluster.WorldTemplateId = saved.WorldTemplateId;
-            cluster.PackageSelection = provenance.PackageSelection;
-            cluster.DependencyManifestSha256 = provenance.DependencyManifestSha256;
-            cluster.ActiveDeployment = cluster.ActiveDeployment with
+            // SE-1988: only a restore onto the backup's own inputs brings its package and dependencies back. One onto
+            // the current freeze keeps the cluster's selection, which its activation recorded as the provenance.
+            if (preparation.InputsSha256 == provenance.Preparation.InputsSha256)
             {
-                PackageVersion = provenance.PackageSelection.Version,
-                Provenance = provenance with { Preparation = preparation }
-            };
+                cluster.PackageSelection = provenance.PackageSelection;
+                cluster.DependencyManifestSha256 = provenance.DependencyManifestSha256;
+                cluster.ActiveDeployment = cluster.ActiveDeployment with
+                {
+                    PackageVersion = provenance.PackageSelection.Version,
+                    Provenance = provenance with { Preparation = preparation }
+                };
+            }
+            else if (cluster.ActiveDeployment.Provenance is not { } current
+                || ClusterDependencyService.DeploymentRevision(current.Preparation) != revision)
+                throw new InvalidOperationException("The restored deployment's package and dependency selection is unavailable.");
+            else
+                cluster.ActiveDeployment = cluster.ActiveDeployment with { PackageVersion = current.PackageSelection.Version };
             cluster.PreviousDeployment = null;
-        }, token);
+        }, token, activationProof: before => before.HasCleanShutdownProof()
+            ? new(string.Empty, before.ShutdownProof!.CleanShutdownAt)
+            : before.HasActivationProof() ? before.ActivationProof : restoredStop);
 
     internal Task<ClusterDefinition> RecordRecoveryAsync(ClusterDefinition expected, Guid generation, CancellationToken token) =>
         UpdateCoreAsync(expected.UniqueName, cluster =>

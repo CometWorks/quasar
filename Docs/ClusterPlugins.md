@@ -72,9 +72,12 @@ candidate. Host preflight rejects an older bundle without profile migration meta
 after a profile migration, before Quasar stops the cluster. Restore the saved snapshot with a
 newly prepared deployment and rotated runtime credentials. In Maintenance, select the
 backup ID, choose **Prepare restore with fresh credentials**, review the generated
-request, then choose **Restore backup** while stopped. Quasar restores the saved
-active package and dependency selection with the world and plugin data, even when a
-newer candidate was staged before the backup. If the saved profile
+request, then choose **Restore backup** while stopped. The restore brings back the world
+and plugin data with the backup's own specification (topology, profile, mods), but runs them
+on the cluster's current package and dependency freeze, the way an update would. It never
+rolls the game back unasked. A prepare request with `"dependencies": "backup"` restores the
+saved package and dependency selection instead, and an update's automatic revert always
+does. If the saved profile
 was edited after its deployment, Quasar leaves the restored cluster's profile
 selection unbound so an administrator can choose a matching profile explicitly.
 Network and dedicated-server root settings remain outside this preserved-world profile operation.

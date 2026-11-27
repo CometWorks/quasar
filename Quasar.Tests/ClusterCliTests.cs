@@ -131,6 +131,44 @@ public sealed class ClusterCliTests
             "7", "--url", "http://quasar.test", "--idempotency-key", "select-1"], handler, new StringWriter(), new StringWriter()));
     }
 
+    // SE-1988: a backup's snapshot ID prepares and restores it in one background operation; --wait follows it
+    // with a wait long enough for a whole world, and --dependencies picks the freeze.
+    [Theory]
+    [InlineData(null, "current")]
+    [InlineData("backup", "backup")]
+    public async Task RestoreBySnapshotIdRunsInTheBackgroundAndFollowsIt(string? dependencies, string expected)
+    {
+        var snapshot = Guid.NewGuid();
+        var handler = new Handler((request, call) =>
+        {
+            if (call == 1)
+            {
+                Assert.Equal(HttpMethod.Post, request.Method);
+                Assert.Equal("/api/v1/clusters/demo/restore/run", request.RequestUri!.AbsolutePath);
+                Assert.Equal("restore-1", request.Headers.GetValues("Idempotency-Key").Single());
+                using var json = System.Text.Json.JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                Assert.Equal(snapshot, json.RootElement.GetProperty("snapshotId").GetGuid());
+                Assert.Equal(expected, json.RootElement.GetProperty("dependencies").GetString());
+                return Response(HttpStatusCode.Accepted, """{"protocolVersion":1,"data":{"operationId":"op","state":"Running"}}""");
+            }
+            Assert.Equal("/api/v1/clusters/demo/operations/op", request.RequestUri!.AbsolutePath);
+            return Response(HttpStatusCode.OK, call < 3
+                ? """{"protocolVersion":1,"data":{"operationId":"op","state":"Running"}}"""
+                : """{"protocolVersion":1,"data":{"operationId":"op","state":"Succeeded"}}""");
+        });
+        string[] args = ["cluster", "restore", "demo", snapshot.ToString(), "--url", "http://quasar.test",
+            "--idempotency-key", "restore-1", "--wait"];
+        if (dependencies is not null) args = [.. args, "--dependencies", dependencies];
+        Assert.Equal(0, await ClusterCli.RunAsync(args, handler, new StringWriter(), new StringWriter()));
+        Assert.Equal(3, handler.Calls);
+
+        var unsent = new Handler((_, _) => throw new InvalidOperationException("must not send"));
+        Assert.Equal(2, await ClusterCli.RunAsync(["cluster", "backups", "demo", "--url", "http://quasar.test",
+            "--dependencies", "backup"], unsent, new StringWriter(), new StringWriter()));
+        Assert.Equal(2, await ClusterCli.RunAsync(["cluster", "restore", "demo", snapshot.ToString(), "--url", "http://quasar.test",
+            "--idempotency-key", "restore-2", "--dependencies", "latest"], unsent, new StringWriter(), new StringWriter()));
+    }
+
     // SE-968: no idempotency key, it ends the operation history that would replay one.
     [Fact]
     public async Task PurgeDeletesRetainedDataWithTheIdAsConfirmation()
