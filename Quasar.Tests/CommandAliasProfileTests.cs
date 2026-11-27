@@ -25,7 +25,7 @@ public sealed class CommandAliasProfileTests : IDisposable
     private readonly FieldInfo cache = typeof(MagnetarPaths).GetField("_cachedQuasarDirectory", BindingFlags.NonPublic | BindingFlags.Static)!;
     private readonly object? previous;
     public CommandAliasProfileTests() { previous = cache.GetValue(null); cache.SetValue(null, root); Directory.CreateDirectory(root); }
-    public void Dispose() { cache.SetValue(null, previous); Directory.Delete(root, true); }
+    public void Dispose() { cache.SetValue(null, previous); TestDirectories.Delete(root); }
     private static QuasarConfigProfile Profile() => new() { Name = "Aliases", CommandAliases = [new() { Source = "!grids list", Target = "!ess grids list" }] };
 
     [Fact]

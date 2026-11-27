@@ -669,6 +669,6 @@ public sealed class NativeAppearanceTests : IDisposable
     {
         _branding.Dispose();
         _cache.SetValue(null, _previousRoot);
-        if (Directory.Exists(_root)) Directory.Delete(_root, true);
+        TestDirectories.Delete(_root);
     }
 }

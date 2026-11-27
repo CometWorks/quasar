@@ -659,6 +659,7 @@ public sealed partial class AnnouncementTests : IDisposable
     public void Dispose()
     {
         foreach (var item in Enumerable.Reverse(_owned)) item.Dispose();
-        if (Directory.Exists(_root)) Directory.Delete(_root, true);
+        // A cancelled poll can still be releasing consent.json when the test ends.
+        TestDirectories.Delete(_root);
     }
 }

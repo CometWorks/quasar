@@ -162,6 +162,7 @@ public sealed class WorldBackupTests : IDisposable
             : new ProcessStartInfo("sleep", "60"))!;
         SetProcessState(DedicatedServerProcessState.Running, process);
         using var cancellation = new CancellationTokenSource();
+        var exited = true;
         try
         {
             var backup = backups.WriteWorldBackupFileAsync("test", DateTimeOffset.Now,
@@ -195,13 +196,40 @@ public sealed class WorldBackupTests : IDisposable
         }
         finally
         {
-            // The successful stop disposes the supervisor's process handle.
+            // The supervisor disposes its process handle when the process exits, and
+            // its exit handler can do that right after Kill. Kill and wait through the
+            // supervisor's own liveness check, which treats a disposed handle as exited.
             if (DedicatedServerSupervisor.IsProcessActive(process))
             {
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync();
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Already exited and disposed.
+                }
+
+                exited = await WaitUntilInactiveAsync(process);
             }
         }
+
+        // Asserted here, not in the finally, so a failure in the body is never replaced by this one.
+        Assert.True(exited, "The test process did not exit after Kill.");
+    }
+
+    private static async Task<bool> WaitUntilInactiveAsync(Process process)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DedicatedServerSupervisor.IsProcessActive(process))
+        {
+            if (DateTime.UtcNow >= deadline)
+                return false;
+
+            await Task.Delay(20);
+        }
+
+        return true;
     }
 
     [Fact]
