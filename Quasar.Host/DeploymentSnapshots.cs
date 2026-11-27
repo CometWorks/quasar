@@ -282,14 +282,16 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
     private static string NodeDirectory(string slotKey) => "nodes/" + ExecutionBundle.Hash(System.Text.Encoding.UTF8.GetBytes(slotKey))[..24];
 
     // SE-1348: what a process writes again on its own: patched game assemblies (Magnetar's Preloader writes
-    // them on every start), native wrapper and compile caches, and logs.
+    // them on every start), native wrapper and compile caches, and logs. SE-1969: the Gateway's rotated logs too
+    // (200 MB of a live backup).
     private static readonly string[] RegeneratedRules =
         ["nodes/*/config/Preloader", "nodes/*/data/NativeWrapperCache", "nodes/*/data/Performance/Cache",
-         "nodes/*/config/*.log", "nodes/*/data/*.log", "gateway/gateway.log"];
+         "nodes/*/config/*.log", "nodes/*/data/*.log", "gateway/gateway.log", "gateway/gateway.log.<n>"];
 
     internal static bool Regenerated(string relative)
     {
-        if (relative == "gateway/gateway.log") return true;
+        if (relative == "gateway/gateway.log" || relative.StartsWith("gateway/gateway.log.", StringComparison.Ordinal)
+            && relative["gateway/gateway.log.".Length..] is { Length: > 0 } rotation && rotation.All(char.IsAsciiDigit)) return true;
         string[] parts = relative.Split('/');
         if (parts.Length < 3 || parts[0] != "nodes") return false;
         return parts[2] == "config" && parts.Length >= 4 && parts[3] == "Preloader"
