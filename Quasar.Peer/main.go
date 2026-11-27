@@ -29,9 +29,24 @@ const bulkMessage = 16*1024 + 8
 const sendWindow = 256 * 1024
 
 type endpoint struct {
-	mu    sync.Mutex
-	peers map[string]*peer
-	api   *webrtc.API
+	mu       sync.Mutex
+	peers    map[string]*peer
+	api      *webrtc.API
+	settings webrtc.SettingEngine
+	direct   *directPort
+}
+
+// peerAPI uses the fixed direct port when configured. A known public address
+// replaces random-port STUN discovery, so only the opened port carries traffic.
+func (e *endpoint) peerAPI(servers []webrtc.ICEServer) (*webrtc.API, []webrtc.ICEServer) {
+	if e.direct == nil {
+		return e.api, servers
+	}
+	settings, public := e.direct.settings(e.settings)
+	if public {
+		servers = nil
+	}
+	return webrtc.NewAPI(webrtc.WithSettingEngine(settings)), servers
 }
 
 type peer struct {
@@ -205,6 +220,10 @@ func directCandidate(value string) bool {
 
 func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	if strings.HasPrefix(r.URL.Path, "/direct/") {
+		e.serveDirect(w, r)
+		return
+	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) < 2 || parts[0] != "peers" || !identifier(parts[1]) {
 		http.NotFound(w, r)
@@ -259,8 +278,9 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		config.ICEServers = offer.ICEServers
-		pc, err := e.api.NewPeerConnection(config)
+		api, servers := e.peerAPI(offer.ICEServers)
+		config.ICEServers = servers
+		pc, err := api.NewPeerConnection(config)
 		if err != nil {
 			e.mu.Unlock()
 			http.Error(w, "cannot create peer", 503)
@@ -489,7 +509,11 @@ func run() error {
 	settings.SetIncludeLoopbackCandidate(true)
 	settings.SetSCTPMaxMessageSize(maximumMessage)
 	settings.SetSCTPMaxReceiveBufferSize(256 * 1024)
-	e := &endpoint{peers: map[string]*peer{}, api: webrtc.NewAPI(webrtc.WithSettingEngine(settings))}
+	direct, directError := directPortFromEnvironment(logs)
+	e := &endpoint{peers: map[string]*peer{}, api: webrtc.NewAPI(webrtc.WithSettingEngine(settings)), settings: settings, direct: direct}
+	if direct != nil {
+		defer direct.mux.Close()
+	}
 	server := &http.Server{ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, MaxHeaderBytes: 4096,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+secret)) != 1 {
@@ -526,7 +550,14 @@ func run() error {
 			}
 		}
 	}()
-	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"version": 1, "url": "http://" + listener.Addr().String()})
+	ready := map[string]any{"version": 1, "url": "http://" + listener.Addr().String()}
+	if direct != nil {
+		ready["udpPort"] = direct.port
+	}
+	if directError != "" {
+		ready["udpError"] = directError
+	}
+	_ = json.NewEncoder(os.Stdout).Encode(ready)
 	err = <-done
 	close(stop)
 	_ = server.Close()

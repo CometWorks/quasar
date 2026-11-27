@@ -26,6 +26,48 @@
                 <MudTextField T="string" @bind-Value="_adminSteamId" Label="Administrator SteamID64 or profile URL" HelperText="Your 17-digit Steam account ID or Steam Community profile URL. URLs resolve automatically when saved." Variant="Variant.Outlined" Immediate="true" Disabled="@_busy" Error="@(!string.IsNullOrWhiteSpace(_adminSteamId) && !SteamProfileInput.IsSupported(_adminSteamId))" ErrorText="Enter a 17-digit SteamID64 or a Steam Community profile URL." />
                 <p class="access-setup-note">This grants administrator access to this Quasar installation; Nebula hosting entitlement is separate. Use an existing trusted-network administrator session for initial setup. Signing in with Steam alone does not claim an unconfigured panel.</p>
             }
+            else if (ShowDirectStep)
+            {
+                var direct = _state!.DirectPort!;
+                <header class="access-setup-header">
+                    <h2>Speed up your panel with a direct connection</h2>
+                    <p>Your panel works through Nebula's secure tunnel. With one UDP port open on this machine, browsers connect straight to Quasar instead, which makes the dashboard and Entity Viewer much faster. Traffic stays encrypted and still requires Steam sign-in.</p>
+                </header>
+                <MudNumericField T="int" @bind-Value="_directPort" Label="Direct connection UDP port" HelperText="1024–65535. Pick a port your game servers don't use." Min="1024" Max="65535" Variant="Variant.Outlined" Immediate="true" Disabled="@_busy" />
+                <section class="access-setup-card" aria-label="Open the direct connection port">
+                    <h3>Allow inbound UDP @_directPort</h3>
+                    <ul>
+                        <li>Linux firewall: <code>sudo ufw allow @(_directPort)/udp</code>, or the matching firewalld or iptables rule.</li>
+                        <li>Windows: add an inbound Windows Defender Firewall rule for UDP port @_directPort.</li>
+                        <li>Cloud server: also allow inbound UDP @_directPort in your provider's firewall or security group.</li>
+                        <li>Home network: forward UDP @_directPort on your router to this machine.</li>
+                    </ul>
+                    <p class="access-setup-note">This is the same kind of rule you added for your game server ports. Nebula checks the port from the internet when you save.</p>
+                </section>
+                @if (_busy)
+                {
+                    <p role="status" aria-live="polite">Checking UDP @_directPort from the internet…</p>
+                }
+                else if (direct.CheckedAt is not null && direct.Port == _directPort && !direct.Skipped)
+                {
+                    @if (direct.Reachable)
+                    {
+                        <MudAlert Severity="Severity.Success">UDP @direct.Port is reachable from the internet@(direct.Address is null ? "" : $" at {direct.Address}"). Browsers can now connect directly.</MudAlert>
+                    }
+                    else if (direct.Error is { } problem)
+                    {
+                        <MudAlert Severity="Severity.Warning">The port check could not finish: @problem Your panel keeps working through the tunnel.</MudAlert>
+                    }
+                    else if (direct.Address is { } privateAddress && !direct.AddressPublic)
+                    {
+                        <MudAlert Severity="Severity.Info">Nebula sees this machine at a private address (@privateAddress), so the port cannot be checked from the internet. This happens when Quasar shares a network with Nebula's discovery service. Browsers on that network can still connect directly.</MudAlert>
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Warning">Nebula could not reach @(direct.Address ?? "this machine") on UDP @direct.Port. Check the firewall and port forwarding above, then test again. Your panel keeps working through the tunnel in the meantime.</MudAlert>
+                    }
+                }
+            }
             else if (_connecting)
             {
                 <header class="access-setup-header">
@@ -56,6 +98,13 @@
                 else
                 {
                     <p>Open your dashboard and sign in with your configured Steam account. Your existing Quasar permissions apply.</p>
+                    @if (_state.DirectPort is { } direct)
+                    {
+                        <section class="access-setup-section">
+                            <p>Direct connections: @DirectSummary(direct)</p>
+                            <div><MudButton OnClick="OpenDirectStep" Variant="Variant.Outlined">Configure direct connection port</MudButton></div>
+                        </section>
+                    }
                 }
             }
             else if (_hosted)
@@ -116,7 +165,24 @@
     <DialogActions>
         @if (_state is null) { <MudButton OnClick="Close">Close</MudButton> } else {
         <div class="access-setup-actions">
-            @if (_connecting && !NeedsAdministrator)
+            @if (ShowDirectStep && !NeedsAdministrator)
+            {
+                var direct = _state!.DirectPort!;
+                @if (direct.Pending)
+                {
+                    <MudButton OnClick="SkipDirectAsync" Disabled="@_busy">Skip for now</MudButton>
+                }
+                else
+                {
+                    <MudButton OnClick="LeaveDirectStep" Disabled="@_busy" StartIcon="@Icons.Material.Filled.ArrowBack">Back</MudButton>
+                }
+                <MudButton OnClick="SaveDirectAsync" Disabled="@(_busy || !ValidDirectPort)" Variant="@(DirectVerified(direct) ? Variant.Outlined : Variant.Filled)" Color="Color.Primary">@(direct.Port == _directPort && !direct.Skipped ? "Test again" : "Save and test")</MudButton>
+                @if (direct is { Port: not null, Skipped: false } && direct.Port == _directPort)
+                {
+                    <MudButton OnClick="LeaveDirectStep" Disabled="@_busy" Variant="@(DirectVerified(direct) ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward">Continue</MudButton>
+                }
+            }
+            else if (_connecting && !NeedsAdministrator)
             {
                 @if (_state!.Ready)
                 {
@@ -155,7 +221,16 @@
 
 @code {
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
-    private bool _hosted, _busy, _connecting, _starting, _canceling, _administratorStepIncluded;
+    private bool _hosted, _busy, _connecting, _starting, _canceling, _administratorStepIncluded, _directStep, _directDismissed;
+    private int _directPort = 3479;
+    private bool ShowDirectStep => _connecting && _state?.Ready == true && _state.DirectPort is not null && _directStep;
+    private bool ValidDirectPort => _directPort is >= 1024 and <= 65535;
+    private static bool DirectVerified(DirectPortStatus direct) => direct.Reachable || direct.Address is not null && !direct.AddressPublic;
+    private static string DirectSummary(DirectPortStatus direct) => direct.Port is not { } port || direct.Skipped ? "off; browsers use the tunnel"
+        : direct.Reachable ? $"UDP {port}, reachable from the internet"
+        : direct.CheckedAt is null ? $"UDP {port}, not checked yet"
+        : direct.Address is not null && !direct.AddressPublic ? $"UDP {port}, cannot be checked from this network"
+        : $"UDP {port}, not reachable at the last check";
     private string _panelId = "";
     private string _adminSteamId = "";
     private string? _error;
@@ -166,13 +241,35 @@
         : _state!.Ready ? "Hosted dashboard ready"
         : _state!.Status == "Not enrolled" ? "Waiting for hosting activation and the secure tunnel…" : _state!.Status;
     private static string Completed(bool value) => value ? "true" : "false";
-    private int CurrentStep => NeedsAdministrator ? 1 : (_administratorStepIncluded ? 1 : 0) + (_connecting ? 3 : _hosted ? 2 : 1);
-    private int TotalSteps => (_administratorStepIncluded ? 1 : 0) + (_selectedChoice == "self" ? 1 : 3);
+    private int CurrentStep => NeedsAdministrator ? 1 : (_administratorStepIncluded ? 1 : 0) + (ShowDirectStep ? 4 : _connecting ? 3 : _hosted ? 2 : 1);
+    private int TotalSteps => (_administratorStepIncluded ? 1 : 0) + (_selectedChoice == "self" ? 1 : 4);
     private double WizardProgress => 100d * CurrentStep / TotalSteps;
-    private string StepTitle => NeedsAdministrator ? "Administrator" : _connecting ? "Connection" : _hosted ? "Hosted panel" : "Access method";
+    private string StepTitle => NeedsAdministrator ? "Administrator" : ShowDirectStep ? "Direct connections" : _connecting ? "Connection" : _hosted ? "Hosted panel" : "Access method";
     private Variant ChoiceVariant(string choice) => _selectedChoice == choice ? Variant.Filled : Variant.Outlined;
 
     private SetupStatus? _state;
+
+    // Hosted panels answer the direct port step once, after the panel is ready.
+    private void UpdateDirectStep()
+    {
+        if (_state?.DirectPort is not { } direct) return;
+        if (!_directStep && !_busy && direct.Port is { } port) _directPort = port;
+        if (!_directDismissed && _connecting && _state.Ready && direct.Pending) _directStep = true;
+    }
+    private void OpenDirectStep() { _directStep = true; _error = null; if (_state?.DirectPort is { Port: { } port }) _directPort = port; }
+    private void LeaveDirectStep() { _directStep = false; _directDismissed = true; _error = null; }
+    private Task SaveDirectAsync() => RunAsync(async () =>
+    {
+        var direct = _state!.DirectPort!;
+        _state = direct.Port == _directPort && !direct.Skipped
+            ? await Sdk.RequestAsync<SetupStatus>("setup.directport.test")
+            : await Sdk.RequestAsync<SetupStatus>("setup.directport", new { port = _directPort, skip = false });
+    });
+    private Task SkipDirectAsync() => RunAsync(async () =>
+    {
+        _state = await Sdk.RequestAsync<SetupStatus>("setup.directport", new { port = (int?)null, skip = true });
+        LeaveDirectStep();
+    });
     private readonly CancellationTokenSource _stop = new();
     private static bool IsPanelName(string name) => name.Length is >= 3 and <= 63
         && System.Text.RegularExpressions.Regex.IsMatch(name, @"\A[a-z0-9]+(?:-[a-z0-9]+)*\z");
@@ -187,6 +284,7 @@
             _selectedChoice = _state.Choice is "self" or "hosted" ? _state.Choice : null;
             _administratorStepIncluded = NeedsAdministrator;
             _connecting = _hosted && _state.Enrolled;
+            UpdateDirectStep();
             _ = MonitorAsync(_stop.Token);
         }
         catch (JSException error) { _error = error.Message; }
@@ -206,6 +304,7 @@
                     if (_busy) continue;
                     _state = state;
                     if (_connecting && !_state.Enrolled) { _connecting = false; _error = state.Status; }
+                    UpdateDirectStep();
                     await InvokeAsync(StateHasChanged);
                 }
                 catch (JSException error) { _error = error.Message; await InvokeAsync(StateHasChanged); }

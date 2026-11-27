@@ -4,7 +4,8 @@ import { createClient, QuasarSdkError } from "../Quasar/wwwroot/_quasar/sdk/v1/c
 
 const originalFetch = globalThis.fetch;
 const originalLocation = globalThis.location;
-test.beforeEach(() => { globalThis.location = { href: "https://dash.test/my-panel/_quasar/plugins/viewer/", origin: "https://dash.test" }; });
+// Each test stands for a fresh page; panel state, including cached session tokens, is per page.
+test.beforeEach(() => { delete globalThis[Symbol.for("Quasar.SDK.v1.panels")]; globalThis.location = { href: "https://dash.test/my-panel/_quasar/plugins/viewer/", origin: "https://dash.test" }; });
 test.afterEach(() => { globalThis.fetch = originalFetch; globalThis.location = originalLocation; });
 
 test("preserves the explicit panel prefix, antiforgery, credentials and cancellation", async () => {
@@ -185,4 +186,40 @@ test("back-forward suspension cancels work without permanently disposing the res
     assert.deepEqual(await client.request("example.plugin", "write"), { writes: 2 });
     pagehide({ persisted: false });
     await assert.rejects(client.request("example.plugin", "write"), /disposed/);
+});
+
+test("tunnelled operations reuse session tokens and refresh them after a rejection", async () => {
+    const urls = [];
+    let reject = false;
+    globalThis.fetch = async url => {
+        urls.push(String(url));
+        if (String(url).endsWith("/session")) return Response.json({ version: 1, headerName: "csrf", requestToken: "token" + urls.length });
+        if (reject) { reject = false; return Response.json({ detail: "Invalid antiforgery token." }, { status: 400 }); }
+        return Response.json({ ok: true });
+    };
+    const client = createClient({ baseUrl: "https://dash.test/my-panel/" });
+    for (let i = 0; i < 3; i++) await client.request("example.plugin", "read");
+    assert.equal(urls.filter(url => url.endsWith("/session")).length, 1, "one session round trip serves later operations");
+    reject = true;
+    assert.deepEqual(await client.request("example.plugin", "write"), { ok: true }, "a stale antiforgery token is refreshed once");
+    assert.equal(urls.filter(url => url.endsWith("/session")).length, 2);
+    assert.equal(urls.filter(url => url.endsWith("/write")).length, 2);
+    client.dispose();
+});
+
+test("other rejections are not retried and fetch fresh tokens next time", async () => {
+    const urls = [];
+    globalThis.fetch = async url => {
+        urls.push(String(url));
+        if (String(url).endsWith("/session")) return Response.json({ version: 1, headerName: "csrf", requestToken: "token" });
+        if (String(url).endsWith("/write")) return Response.json({ detail: "Forbidden" }, { status: 403 });
+        return Response.json({ ok: true });
+    };
+    const client = createClient({ baseUrl: "https://dash.test/my-panel/" });
+    await client.request("example.plugin", "read");
+    await assert.rejects(client.request("example.plugin", "write"), error => error.status === 403);
+    assert.equal(urls.filter(url => url.endsWith("/write")).length, 1);
+    await client.request("example.plugin", "read");
+    assert.equal(urls.filter(url => url.endsWith("/session")).length, 2);
+    client.dispose();
 });

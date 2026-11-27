@@ -56,6 +56,10 @@ public sealed class AccessSetupDialogTests : IDisposable
         context.Services.AddHttpClient<SteamProfileClient>()
             .ConfigurePrimaryHttpMessageHandler(() => profiles ?? new ProfileLookupHandler());
         context.Services.AddSingleton<HostedPanelService>();
+        context.Services.AddSingleton(Microsoft.Extensions.Options.Options.Create(new Quasar.Services.Plugins.QuasarRtcOptions { PeerExecutable = Path.Combine(_root, "absent-peer") }));
+        context.Services.AddSingleton<Quasar.Services.Plugins.QuasarPeerProcess>();
+        context.Services.AddSingleton<Microsoft.Extensions.Logging.ILogger<Quasar.Services.Plugins.QuasarDirectPortService>>(NullLogger<Quasar.Services.Plugins.QuasarDirectPortService>.Instance);
+        context.Services.AddSingleton<Quasar.Services.Plugins.QuasarDirectPortService>();
         context.Services.AddDirectCoreOperations();
         context.Services.AddSingleton(provider => new Quasar.Client.DashboardSdk(new DashboardTestTransport(provider)));
         return context;
@@ -478,7 +482,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         await using var context = Context();
         await context.Services.GetRequiredService<RbacConfigCatalog>().SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig(SteamId)!);
         var provider = await OpenAsync(context);
-        Assert.Contains("Step 1 of 3", provider.Markup);
+        Assert.Contains("Step 1 of 4", provider.Markup);
         Assert.True(provider.FindAll("button").Single(b => b.TextContent.Contains("Next")).HasAttribute("disabled"));
         var hosted = provider.FindAll("button").Single(b => b.TextContent.Contains("Use hosted panel"));
         Assert.Contains("mud-button-outlined", hosted.ClassList);
@@ -486,7 +490,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         Assert.Equal("true", provider.FindAll("button").Single(b => b.TextContent.Contains("Use hosted panel")).GetAttribute("aria-pressed"));
         Assert.False(File.Exists(HostedPanelState.StatePath));
         await provider.FindAll("button").Single(b => b.TextContent.Contains("Next")).ClickAsync();
-        Assert.Contains("Step 2 of 3", provider.Markup);
+        Assert.Contains("Step 2 of 4", provider.Markup);
         Assert.DoesNotContain("Self-deploy", provider.Markup);
         provider.Find("input").Input("my-panel");
         await provider.FindAll("button").Single(b => b.TextContent.Contains("Back")).ClickAsync();
@@ -574,7 +578,13 @@ public sealed class AccessSetupDialogTests : IDisposable
 
         await new HostedConnectorHealth("test-panel", true, true, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(default);
         await service.RefreshAsync();
+        // A newly ready panel asks for the direct connection port before finishing.
+        await provider.WaitForAssertionAsync(() => Assert.Contains("Speed up your panel with a direct connection", provider.Markup), TimeSpan.FromSeconds(6));
+        Assert.Contains("Step 4 of 4 · Direct connections", provider.Markup);
+        await provider.FindAll("button").Single(b => b.TextContent.Trim() == "Skip for now").ClickAsync();
+        Assert.True(HostedDirectPort.Read()!.Skipped);
         await provider.WaitForAssertionAsync(() => Assert.Contains("Your hosted panel is ready", provider.Markup), TimeSpan.FromSeconds(6));
+        Assert.Contains("Direct connections: off; browsers use the tunnel", provider.Markup);
         var dashboard = provider.FindAll("a").Single(a => a.TextContent.Contains("Open Quasar dashboard"));
         Assert.Equal("https://dash.se-servers.net/test-panel/", dashboard.GetAttribute("href"));
         Assert.Null(dashboard.GetAttribute("target"));
@@ -612,6 +622,42 @@ public sealed class AccessSetupDialogTests : IDisposable
         await new HostedConnectorHealth("test-panel", true, true, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(default);
         await service.RefreshAsync();
         await provider.WaitForAssertionAsync(() => Assert.Contains("Open Quasar dashboard", provider.Markup), TimeSpan.FromSeconds(6));
+    }
+
+    [Fact]
+    public async Task ExistingHostedPanelIsAskedForTheDirectPortOnce()
+    {
+        await HostedPanelState.SaveAsync(new() { Choice = "hosted", PanelId = "test-panel", EnrollmentId = "enrollment",
+            Credential = "test-panel." + new string('a', 64), SetupCompleted = true });
+        await new HostedConnectorHealth("test-panel", true, true, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(default);
+        await using var context = Context();
+        context.Services.AddHttpClient("Nebula").ConfigurePrimaryHttpMessageHandler(() => new EnrollmentHandler { Active = true });
+        await context.Services.GetRequiredService<RbacConfigCatalog>().SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig(SteamId)!);
+        await context.Services.GetRequiredService<HostedPanelService>().RefreshAsync();
+        var provider = context.Render<MudDialogProvider>();
+        context.Render<Quasar.Client.Administration.DashboardSetupPrompt>();
+        await provider.WaitForAssertionAsync(() => Assert.Contains("Speed up your panel with a direct connection", provider.Markup), TimeSpan.FromSeconds(6));
+        Assert.Contains("sudo ufw allow 3479/udp", provider.Markup);
+
+        // Saving runs the external check; without the native peer it reports why and keeps the port.
+        await provider.FindAll("button").Single(b => b.TextContent.Trim() == "Save and test").ClickAsync();
+        await provider.WaitForAssertionAsync(() => Assert.Contains("The port check could not finish", provider.Markup), TimeSpan.FromSeconds(6));
+        Assert.Equal(3479, HostedDirectPort.Read()!.Port);
+        Assert.Contains("Test again", provider.Markup);
+        await provider.FindAll("button").Single(b => b.TextContent.Trim() == "Continue").ClickAsync();
+        await provider.WaitForAssertionAsync(() => Assert.Contains("Your hosted panel is ready", provider.Markup), TimeSpan.FromSeconds(6));
+        Assert.Contains("Direct connections: UDP 3479, not reachable at the last check", provider.Markup);
+        provider.Dispose();
+
+        // The answered step no longer prompts, but stays reachable from the ready screen.
+        provider = context.Render<MudDialogProvider>();
+        context.Render<Quasar.Client.Administration.DashboardSetupPrompt>();
+        await provider.InvokeAsync(() => Task.CompletedTask);
+        Assert.DoesNotContain("access-setup-header", provider.Markup);
+        provider = await OpenAsync(context);
+        await provider.FindAll("button").Single(b => b.TextContent.Trim() == "Configure direct connection port").ClickAsync();
+        Assert.Contains("Speed up your panel with a direct connection", provider.Markup);
+        Assert.Contains("Back", provider.Markup);
     }
 
     [Fact]

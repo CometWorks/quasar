@@ -102,6 +102,51 @@ without obtaining a Nebula lease. They keep working when Nebula is unavailable.
 Hosted sessions receive no trusted-network principal or private-machine API
 shortcut. No Origin header is stripped, and DIS-0042 remains in force.
 
+## Fixed direct connection port
+
+STUN-only ICE fails when neither side can reach the other's candidates. That
+happens, for example, when a VPS firewall drops unsolicited UDP to Pion's random
+ports and the browser's STUN result is unusable (a browser on the same LAN as the
+STUN server learns only its private address). Hosted setup therefore asks for one
+UDP port (default 3479, 1024–65535) that the operator opens to the installation.
+
+The worker passes the port to the native peer as `QUASAR_PEER_UDP_PORT`, plus
+the last verified public IPv4 as `QUASAR_PEER_PUBLIC_IP`. The peer serves every
+session through one Pion UDP mux on that port. It advertises the local interface
+addresses and the public address as host candidates on the same port, and with
+a known public address it skips random-port STUN gathering. Browser checks then
+arrive at the opened port, and the peer learns the browser's real address from
+them. No browser change or TURN relay is involved. Without a port, or when the
+port cannot be bound, the peer keeps today's ephemeral-port behavior and reports
+the reason (`udpError`) in its readiness line. `Quasar:WebRtc:UdpPort` overrides
+the setup choice for development.
+
+**Save and test** runs an external check. The peer sends a STUN Binding request
+from a separate socket to the configured discovery service, carrying the
+comprehension-optional attribute `0xC051` (port, reserved, nonce, padding). Nebula's
+STUN service answers normally and also sends `QUASAR-PROBE-1\0\0` plus the nonce
+to the sender's public IP at the requested port. The ICE mux passes that non-STUN
+datagram to the peer's unhandled-packet hook, which matches the nonce. Because
+the fixed port never sent anything to the service, only an inbound firewall rule
+or port forward delivers the probe. A check takes at most four seconds. The
+result and the observed address go to `HostedPanel/direct-port.json`. Nebula never
+probes private, loopback or shared addresses, so an installation on Nebula's own
+LAN is reported as "cannot be checked" rather than open or closed.
+
+The worker repeats the check every 15 minutes, keeping the advertised address
+current after an ISP address change, and logs when a reachable port closes.
+Changing the port restarts the peer: established direct sessions end and their
+browsers reconnect. Existing hosted panels are prompted once for the port; the
+answer or a skip is saved, and the ready screen reopens the step.
+
+On the browser side, tunnelled SDK calls reuse their session tokens for up to
+60 seconds and refresh them after a 400, 401 or 403 response; each HTTPS operation
+still authenticates and binds its session on the server. When a sign-in change
+makes cached tokens stale, an operation or reservation rejected with "Invalid
+antiforgery token." is sent once more with fresh tokens. Antiforgery runs before
+any handler, so this cannot replay feature work; uploads are never resent. A failed direct attempt
+retries after 30 seconds, doubling to five minutes.
+
 ## Development configuration
 
 Hosted SDK operations begin over the existing authenticated HTTPS tunnel. The
@@ -109,7 +154,7 @@ first operation starts a STUN-only peer attempt in the background. Once a peer
 is confirmed, new operations use it, including resource reservation, transfer,
 and cleanup. Established peer operations use their bound browser session and
 server-side authorization. If setup fails, the SDK keeps using HTTPS and the
-next operation after 30 seconds can try again. An interrupted operation reports
+next operation after 30 seconds can try again, with the interval doubling to five minutes. An interrupted operation reports
 its own outcome. Local SDK calls continue over ordinary HTTP(S).
 
 The WASM dashboard and browser UI plugins use the SDK for worker operations.

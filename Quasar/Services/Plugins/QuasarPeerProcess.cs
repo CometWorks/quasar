@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using Quasar.Hosting;
 using Quasar.Plugin.Abstractions.Operations;
 
 namespace Quasar.Services.Plugins;
@@ -17,7 +18,15 @@ public sealed class QuasarRtcOptions
         ? StunUrls : throw new QuasarOperationException(503, "Invalid self-hosted STUN configuration.");
     public string PeerExecutable { get; set; } = Path.Combine(AppContext.BaseDirectory, "Peer",
         OperatingSystem.IsWindows() ? "quasar-peer.exe" : "quasar-peer");
+    // Overrides the hosted setup choice. Normally unset; the setup wizard stores the port.
+    public int? UdpPort { get; set; }
+    // host:port of the discovery service that also performs the reachability probe.
+    public string ProbeServer() => ValidatedStunUrls() is [var first, ..] ? first["stun:".Length..]
+        : throw new QuasarOperationException(503, "No discovery service is configured.");
 }
+
+public sealed record QuasarDirectPortProbe(bool Reachable, string? Address, int Port, bool Public, string? Error);
+public sealed record QuasarDirectPortBinding(int? Port, string? Error);
 
 public sealed record QuasarRtcDescription(string Type, string Sdp)
 {
@@ -57,6 +66,43 @@ public sealed class QuasarPeerProcess(IOptions<QuasarRtcOptions> options) : IAsy
 {
     private readonly SemaphoreSlim startGate = new(1, 1);
     private Connection? connection;
+
+    // The fixed port the running peer bound, or why it could not. Null before start.
+    public QuasarDirectPortBinding? DirectPort => Volatile.Read(ref connection) is { Process.HasExited: false } current ? current.DirectPort : null;
+
+    private int? ConfiguredUdpPort()
+    {
+        if (options.Value.UdpPort is { } configured) return configured;
+        return HostedPanelState.Read() is { Choice: "hosted" } && HostedDirectPort.Read() is { Port: { } port, Skipped: false } ? port : null;
+    }
+
+    // Starts the peer if needed, then asks Nebula's discovery service to reach its fixed port.
+    public async Task<QuasarDirectPortProbe> ProbeAsync(CancellationToken token)
+    {
+        var current = await StartAsync(token);
+        if (current.DirectPort.Port is null)
+            return new(false, null, ConfiguredUdpPort() ?? 0, false, current.DirectPort.Error ?? "No direct port is configured.");
+        using var response = await current.Http.PostAsJsonAsync("direct/probe", new { server = options.Value.ProbeServer() }, token);
+        if (!response.IsSuccessStatusCode) throw new QuasarOperationException(503, "The direct peer could not run the port check.");
+        return await response.Content.ReadFromJsonAsync<QuasarDirectPortProbe>(token)
+            ?? throw new QuasarOperationException(503, "The direct peer returned no port check.");
+    }
+
+    // Applies a changed port. Existing direct sessions end and their browsers reconnect.
+    public async Task RestartAsync()
+    {
+        await startGate.WaitAsync();
+        try
+        {
+            if (connection is { } current)
+            {
+                connection = null;
+                try { await current.DisposeAsync(); }
+                catch (IOException) { }
+            }
+        }
+        finally { startGate.Release(); }
+    }
 
     public async Task<QuasarRtcDescription> CreateAsync(string id, QuasarRtcDescription offer, CancellationToken token, bool hosted = false, bool trickle = false)
     {
@@ -141,6 +187,14 @@ public sealed class QuasarPeerProcess(IOptions<QuasarRtcOptions> options) : IAsy
             start.Environment.Clear();
             foreach (var (name, value) in inherited) if (value is not null) start.Environment[name] = value;
             start.Environment["QUASAR_PEER_TOKEN"] = secret;
+            var udpPort = ConfiguredUdpPort();
+            if (udpPort is { } port)
+            {
+                start.Environment["QUASAR_PEER_UDP_PORT"] = port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                // The last verified public address is advertised until the next check refreshes it.
+                if (HostedDirectPort.Read() is { AddressPublic: true, Address: { } address } && System.Net.IPAddress.TryParse(address, out _))
+                    start.Environment["QUASAR_PEER_PUBLIC_IP"] = address;
+            }
             var process = Process.Start(start) ?? throw new QuasarOperationException(503, "Cannot start the direct connection component.");
             var diagnostics = process.StandardError.BaseStream.CopyToAsync(Stream.Null);
             try
@@ -152,9 +206,12 @@ public sealed class QuasarPeerProcess(IOptions<QuasarRtcOptions> options) : IAsy
                     || url.Scheme != "http" || url.Host != "127.0.0.1" || url.AbsolutePath != "/" || url.UserInfo.Length != 0 || url.Query.Length != 0 || url.Fragment.Length != 0)
                     throw new IOException("Invalid private peer endpoint.");
                 var http = new HttpClient(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false })
-                { BaseAddress = url, Timeout = TimeSpan.FromSeconds(5), MaxResponseContentBufferSize = QuasarSdkLimits.MaximumJsonBytes };
+                { BaseAddress = url, Timeout = TimeSpan.FromSeconds(8), MaxResponseContentBufferSize = QuasarSdkLimits.MaximumJsonBytes };
                 http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", secret);
-                connection = new(process, http, diagnostics);
+                var root = ready.RootElement;
+                var bound = root.TryGetProperty("udpPort", out var value) && value.TryGetInt32(out var number) && HostedDirectPort.IsPort(number) ? number : (int?)null;
+                var error = root.TryGetProperty("udpError", out var problem) && problem.ValueKind == JsonValueKind.String ? problem.GetString() : null;
+                connection = new(process, http, diagnostics) { DirectPort = new(bound, udpPort is null ? null : error ?? (bound is null ? "The peer did not open its port." : null)) };
                 return connection;
             }
             catch
@@ -201,6 +258,7 @@ public sealed class QuasarPeerProcess(IOptions<QuasarRtcOptions> options) : IAsy
 
     private sealed record Connection(Process Process, HttpClient Http, Task Diagnostics) : IAsyncDisposable
     {
+        public QuasarDirectPortBinding DirectPort { get; init; } = new(null, null);
         public async ValueTask DisposeAsync()
         {
             Http.Dispose();
