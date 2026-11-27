@@ -603,8 +603,12 @@ are simulated; no push subscription or running Quasar service is required.
 
 Run `node --test Quasar.Tests/Browser/connection-boot.test.mjs Quasar.Tests/Browser/restart-reload.test.mjs`
 for loading errors, update polling, worker changes and manual reload. Release CI
-runs `tests/Quasar.Wasm.DashboardChecks` in Chromium and Firefox against a
-published dashboard, including panel-prefixed routes. Run
+runs `tests/Quasar.Wasm.DashboardChecks` against a framework-dependent published
+dashboard, including panel-prefixed routes. Pull requests run this browser/RTC
+verify leg on Linux with Chromium only; main, tags and manual runs use Chromium
+and Firefox on Linux and Windows. Locally, `QUASAR_BROWSER` (default
+`chromium,firefox`) selects browsers for these checks and
+`Quasar.Tests/browser-rtc-data.test.mjs`. Run
 `dotnet test Quasar.Tests/Quasar.Tests.csproj --filter FullyQualifiedName~PublicEndpointSecurityTests`
 to check status-only public probes and the version endpoint's read permission.
 These checks do not start the Quasar web service.

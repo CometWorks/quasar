@@ -255,6 +255,8 @@ jobs:
       VERSION: ${{ needs.metadata.outputs.version }}
       NuGetPackageSourceCredentials_github: Username=${{ github.actor }};Password=${{ github.token }};ValidAuthenticationTypes=Basic
       DS64: ${{ github.workspace }}/ds64
+      # Pull requests check Chromium; main, tags and manual runs add Firefox.
+      QUASAR_BROWSER: ${{ github.event_name == 'pull_request' && 'chromium' || 'chromium,firefox' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -433,12 +435,14 @@ jobs:
           browser="$RUNNER_TEMP/quasar-rtc-browser"
           npm install --prefix "$browser" --no-save playwright@1.61.1
           # The browser download and its system packages overlap the .NET build.
-          node "$browser/node_modules/playwright/cli.js" install --with-deps chromium firefox \
+          node "$browser/node_modules/playwright/cli.js" install --with-deps ${QUASAR_BROWSER//,/ } \
             > "$RUNNER_TEMP/playwright-install.log" 2>&1 < /dev/null &
           browsers=$!
           dotnet build Quasar.Tests/Quasar.Tests.csproj -c Release
           dotnet build tests/Quasar.Wasm.DashboardChecks -c Release
-          dotnet publish Quasar/Quasar.csproj -c Release -r linux-x64 --self-contained -o "$RUNNER_TEMP/quasar-wasm" -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          # The dashboard checks host the published wwwroot and endpoint manifest in-process;
+          # a framework-dependent publish is enough.
+          dotnet publish Quasar/Quasar.csproj -c Release -o "$RUNNER_TEMP/quasar-wasm"
           echo "QUASAR_DASHBOARD_PUBLISH=$RUNNER_TEMP/quasar-wasm" >> "$GITHUB_ENV"
           status=0
           wait "$browsers" || status=$?
@@ -525,11 +529,12 @@ jobs:
     # Packaging, the browser/RTC verification and the full test suite share no
     # outputs, so they run as parallel legs on separate runners. `release` needs
     # every leg of both platforms, so nothing is published unless every check
-    # passed.
+    # passed. Pull requests run the browser/RTC verification on Linux only; the
+    # Windows leg runs it on main, tags and manual runs.
     strategy:
       fail-fast: false
       matrix:
-        part: [package, verify, test]
+        part: ${{ fromJSON(github.event_name == 'pull_request' && '["package","test"]' || '["package","verify","test"]') }}
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
       NuGetPackageSourceCredentials_github: Username=${{ github.actor }};Password=${{ github.token }};ValidAuthenticationTypes=Basic
@@ -716,7 +721,8 @@ jobs:
           dotnet build tests/Quasar.Wasm.DashboardChecks -c Release
           if ($LASTEXITCODE -ne 0) { throw 'Dashboard check build failed.' }
           $dashboard = Join-Path $env:RUNNER_TEMP 'quasar-wasm'
-          dotnet publish Quasar/Quasar.csproj -c Release -r win-x64 --self-contained -o $dashboard -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          # The dashboard checks host the published wwwroot and endpoint manifest in-process.
+          dotnet publish Quasar/Quasar.csproj -c Release -o $dashboard
           if ($LASTEXITCODE -ne 0) { throw 'Dashboard publish failed.' }
           "QUASAR_DASHBOARD_PUBLISH=$dashboard" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           $browsers.WaitForExit()
