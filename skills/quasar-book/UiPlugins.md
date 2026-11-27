@@ -291,6 +291,10 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - Last-known-good activation: Quasar does not mark a plugin set as good after a healthy start. The only automatic fallback is the Bootstrap crash-loop safe boot marker, which native service installs don't have.
 - Hub fields `DependencyIds`, `CompanionPluginIds` and `Platforms`, and the package manifest's `dependencies`, are read but not acted on. `QuasarVersion` only gates automatic updates; a manual install does not check it.
 
+## Native UI kit for plugins
+
+The dashboard's native controls ship in `Quasar.Ui.Abstractions.dll`, so a browser plugin can use the same buttons, fields, tables, tabs and menus as the dashboard without MudBlazor, and the same notices from `Quasar.Ui.Components`. Controls are in `Quasar.Ui.Components`; shared vocabulary (`QuasarTone`, `QuasarVariant`, `QuasarSize`) is in `Quasar.Ui`. Text and number fields commit on change; set `Immediate` to commit while typing, after a short pause. Field validation is asynchronous and can return several messages; `QuasarForm` aggregates validity and dirty state. Tables take in-memory `Items` or a `LoadData` callback, scroll sideways on narrow screens, and can stack rows into labelled cards instead. Styles come from the host's `quasar-ui.css`, and its `quasar-ui.js` adds keyboard handling for tabs, menus and tooltips. See the "Native controls" section of `Docs/QuasarPluginSystem.md`.
+
 ## Common problems
 
 - **".NET 10 SDK was not found globally or in Quasar managed storage."** Install the SDK from the prompt or with your package manager, then **Refresh SDK check**.
@@ -339,8 +343,11 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar.Ui.Abstractions/Dialogs/QuasarDialogOptions.cs`
 - `Quasar.Ui.Abstractions/Toasts/IQuasarToastService.cs`
 - `Quasar.Ui.Abstractions/Toasts/QuasarToastOptions.cs`
-- `Quasar.Ui.Abstractions/Components/QuasarInlineNotice.razor`
-- `Quasar.Ui.Abstractions/Components/QuasarInlineNoticeVariant.cs`
+- `Quasar.Ui.Abstractions/Components/Feedback/QuasarInlineNotice.razor`
+- `Quasar.Ui.Abstractions/Components/Feedback/QuasarInlineNoticeVariant.cs`
+- `Quasar.Ui.Abstractions/Components/Forms/QuasarFieldBase.cs`
+- `Quasar.Ui.Abstractions/Components/Tables/QuasarTable.razor`
+- `Quasar.Ui.Abstractions/Components/Patterns/QuasarCopyablePath.razor`
 - `Quasar.Client/Components/Shared/QuasarDialogHost.razor`
 - `Quasar.Client/Components/Shared/QuasarDialogInstanceHost.razor`
 - `Quasar.Client/Components/Shared/QuasarDialogContentHost.razor`

@@ -1,0 +1,61 @@
+@namespace Quasar.Ui.Components
+@using Quasar.Ui
+@inject IJSRuntime JS
+@inject IQuasarToastService Toasts
+
+@if (!string.IsNullOrWhiteSpace(Value))
+{
+    <span class="@RootClass">
+        <span class="@TextClassName" title="@(ShowValueTooltip ? ResolvedValueTooltip : null)">@ResolvedDisplayValue</span>
+        <QuasarIconButton Label="@Label" Icon="@QuasarIcons.ContentCopy" Class="quasar-copyable-path-button" OnClick="CopyAsync" />
+    </span>
+}
+
+@code {
+    /// <summary>The text copied to the clipboard. Nothing renders when it is empty.</summary>
+    [Parameter] public string Value { get; set; } = string.Empty;
+
+    /// <summary>Text shown instead of <see cref="Value"/>, for example a shortened path.</summary>
+    [Parameter] public string? DisplayValue { get; set; }
+
+    /// <summary>Renders the path and button inline with surrounding text.</summary>
+    [Parameter] public bool Inline { get; set; }
+
+    /// <summary>Accessible name and tooltip of the copy button.</summary>
+    [Parameter] public string Label { get; set; } = "Copy path";
+
+    /// <summary>Shows <see cref="ValueTooltip"/>, or the full value, as a tooltip on the text.</summary>
+    [Parameter] public bool ShowValueTooltip { get; set; }
+
+    /// <summary>Tooltip text for the path. Defaults to the full value.</summary>
+    [Parameter] public string? ValueTooltip { get; set; }
+
+    /// <summary>Toast shown after a successful copy.</summary>
+    [Parameter] public string SuccessMessage { get; set; } = "Path copied to clipboard.";
+
+    /// <summary>Toast shown when the browser refuses the copy.</summary>
+    [Parameter] public string FailureMessage { get; set; } = "Copy failed - select and copy the path manually.";
+
+    /// <summary>Additional class applied to the wrapper.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Additional class applied to the path text.</summary>
+    [Parameter] public string? TextClass { get; set; }
+
+    private string RootClass => Join(Inline ? "quasar-copyable-path quasar-copyable-path-inline" : "quasar-copyable-path", Class);
+
+    private string TextClassName => Join("quasar-copyable-path-text", TextClass);
+
+    private string ResolvedDisplayValue => string.IsNullOrWhiteSpace(DisplayValue) ? Value : DisplayValue;
+
+    private string ResolvedValueTooltip => string.IsNullOrWhiteSpace(ValueTooltip) ? Value : ValueTooltip;
+
+    private async Task CopyAsync()
+    {
+        var copied = await JS.InvokeAsync<bool>("quasarUi.copyText", Value);
+        Toasts.Add(copied ? SuccessMessage : FailureMessage, copied ? QuasarSeverity.Info : QuasarSeverity.Warning);
+    }
+
+    private static string Join(string first, string? second) =>
+        string.IsNullOrWhiteSpace(second) ? first : first + " " + second;
+}

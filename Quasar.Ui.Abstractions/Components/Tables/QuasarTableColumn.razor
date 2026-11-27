@@ -1,0 +1,106 @@
+@namespace Quasar.Ui.Components
+@typeparam T
+@implements IDisposable
+
+<th scope="col" class="quasar-table-heading @AlignClass" aria-sort="@AriaSort">
+    @if (IsSortable)
+    {
+        <button type="button" class="quasar-table-sort" @onclick="SortAsync">@Title</button>
+    }
+    else
+    {
+        @Title
+    }
+</th>
+
+@code {
+    private string? _registeredKey;
+
+    /// <summary>The owning table, supplied as a cascading value.</summary>
+    [CascadingParameter] public QuasarTable<T>? Table { get; set; }
+
+    /// <summary>Visible column title.</summary>
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Sort selector for in-memory rows. Omit it for an unsortable column. With
+    /// <c>LoadData</c>, set <see cref="SortKey"/> instead.
+    /// </summary>
+    [Parameter] public Func<T, object?>? SortBy { get; set; }
+
+    /// <summary>
+    /// Stable sort key, passed to <c>LoadData</c> as the sort key. Defaults to
+    /// <see cref="Title"/>. In a table that uses <c>LoadData</c>, setting it makes
+    /// the column sortable without a <see cref="SortBy"/> selector.
+    /// </summary>
+    [Parameter] public string? SortKey { get; set; }
+
+    /// <summary>First click sorts descending instead of ascending.</summary>
+    [Parameter] public bool InitialDescending { get; set; }
+
+    /// <summary>Horizontal alignment.</summary>
+    [Parameter] public QuasarAlign Align { get; set; }
+
+    private string Key => SortKey ?? Title;
+
+    private bool IsSortable => SortBy is not null || (Table?.UsesLoadData == true && SortKey is not null);
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        if (Table is null)
+            return;
+
+        Table.RegisterColumn(this);
+        Table.SortChanged += OnSortChanged;
+    }
+
+    // The heading shows the sort state, but the column's own parameters do not change
+    // when another column is sorted, so it must ask to render.
+    private void OnSortChanged() => _ = InvokeAsync(StateHasChanged);
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        // The selector or key can change between renders, for example when the
+        // selector captures state, so registration follows the parameters. The key is
+        // registered whenever the column is sortable, with or without a selector, and
+        // withdrawn as soon as it is not, so the table never keeps sorting by a column
+        // that cannot sort any more.
+        var key = IsSortable ? Key : null;
+
+        if (_registeredKey is not null && !string.Equals(_registeredKey, key, StringComparison.Ordinal))
+            Table?.UnregisterSort(this, _registeredKey);
+
+        if (key is not null)
+            Table?.RegisterSort(this, key, SortBy);
+
+        _registeredKey = key;
+    }
+
+    private string AriaSort => Table?.SortDirection(Key) ?? "none";
+
+    private string AlignClass => Align switch
+    {
+        QuasarAlign.Center => "quasar-table-align-center",
+        QuasarAlign.End => "quasar-table-align-end",
+        _ => "quasar-table-align-start",
+    };
+
+    private Task SortAsync() =>
+        Table?.SortAsync(Key, InitialDescending) ?? Task.CompletedTask;
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Table is null)
+            return;
+
+        Table.SortChanged -= OnSortChanged;
+
+        if (_registeredKey is not null)
+            Table.UnregisterSort(this, _registeredKey);
+
+        Table.UnregisterColumn(this);
+    }
+}

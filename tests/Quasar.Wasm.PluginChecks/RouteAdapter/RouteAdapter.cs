@@ -19,5 +19,6 @@ public sealed class RouteAdapter : IQuasarPlugin
     public IEnumerable<QuasarNavItem> GetNavItems() =>
     [
         new("UI Fixture", "/fixture/ui", FixtureIcon, QuasarNavZones.Tools, 1000, QuasarPolicyNames.CanView),
+        new("UI Kit Fixture", "/fixture/ui-kit", FixtureIcon, QuasarNavZones.Tools, 1001, QuasarPolicyNames.CanView),
     ];
 }

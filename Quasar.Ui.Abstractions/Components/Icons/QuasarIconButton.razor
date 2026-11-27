@@ -1,4 +1,4 @@
-@namespace Quasar.Components.Shared
+@namespace Quasar.Ui.Components
 @if (Href is not null && QuasarUrlSafety.IsSafeHref(Href))
 {
     <a class="quasar-icon-button @Class" href="@Href" title="@Label" aria-label="@Label"><QuasarIcon Icon="@Icon" TrustedMarkup="@TrustedMarkup" />@if (ShowLabel) { <span>@(Text ?? Label)</span> }</a>

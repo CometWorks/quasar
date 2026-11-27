@@ -1,0 +1,453 @@
+@namespace Quasar.Ui.Components
+@typeparam T
+@implements IDisposable
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="quasar-table-wrap @Class" aria-busy="@(_loading ? "true" : null)" @attributes="AdditionalAttributes">
+    @if (_loading)
+    {
+        <div class="quasar-table-progress" role="status"><span class="quasar-sr-only">Loading</span></div>
+    }
+
+    <div class="@ScrollClass" style="@HeightStyle">
+        <table class="@TableClass">
+            @if (!string.IsNullOrWhiteSpace(Caption))
+            {
+                <caption class="quasar-table-caption">@Caption</caption>
+            }
+
+            <CascadingValue Value="this" IsFixed="true">
+                @if (HeaderContent is not null)
+                {
+                    <thead><tr>@HeaderContent</tr></thead>
+                }
+
+                <tbody>
+                    @if (RowTemplate is not null)
+                    {
+                        @for (var index = 0; index < _items.Count; index++)
+                        {
+                            var item = _items[index];
+                            var key = KeyOf(item, index);
+                            <tr @key="key"
+                                class="@(OnRowClick.HasDelegate ? "quasar-table-row quasar-table-row-clickable" : "quasar-table-row")"
+                                @onclick="RowClickHandler(item)">@RowTemplate(item)</tr>
+
+                            @if (DetailTemplate is not null && IsExpanded?.Invoke(item) == true)
+                            {
+                                <tr @key="(key, DetailKey)" class="quasar-table-detail">
+                                    <td colspan="@Math.Max(1, _columns.Count)">@DetailTemplate(item)</td>
+                                </tr>
+                            }
+                        }
+                    }
+                </tbody>
+            </CascadingValue>
+        </table>
+
+        @if (!_loading && _loadError is null && _items.Count == 0 && EmptyContent is not null)
+        {
+            <div class="quasar-table-empty">@EmptyContent</div>
+        }
+
+        @if (_loadError is not null)
+        {
+            <div class="quasar-table-empty quasar-table-error" role="alert">@_loadError</div>
+        }
+    </div>
+
+    @if (ShowPager)
+    {
+        <QuasarTablePager Page="_page"
+                          PageSize="EffectivePageSize"
+                          TotalItems="_totalItems"
+                          PageChanged="SetPageAsync" />
+    }
+</div>
+
+@code {
+    private const string DetailKey = "detail";
+
+    // A column can sort in-memory rows with a selector, or only name a key for LoadData
+    // to sort by, in which case the selector is null. The owner is the column that
+    // registered the key, so a column that is going away cannot remove the entry of the
+    // column that replaced it.
+    private readonly record struct SortRegistration(object Owner, Func<T, object?>? Selector);
+
+    private readonly Dictionary<string, SortRegistration> _sorters = new(StringComparer.Ordinal);
+    private readonly HashSet<object> _columns = new(ReferenceEqualityComparer.Instance);
+    private IReadOnlyList<T> _items = [];
+    private CancellationTokenSource? _load;
+    private int _generation;
+    private int _page = 1;
+    private int _totalItems;
+    private int _loadedPageSize;
+    private string? _sortKey;
+    private bool _descending;
+    private bool _loading;
+    private bool _initialized;
+    private bool _disposed;
+    private string? _loadError;
+
+    /// <summary>In-memory rows. Use either this or <see cref="LoadData"/>, never both.</summary>
+    [Parameter] public IEnumerable<T>? Items { get; set; }
+
+    /// <summary>
+    /// Server-side loader, called for the first page and again whenever the page,
+    /// sort or <see cref="RowsPerPage"/> changes, or <see cref="ReloadAsync"/> is
+    /// called. Use either this or <see cref="Items"/>, never both.
+    /// </summary>
+    [Parameter] public Func<QuasarTableState, CancellationToken, Task<QuasarTableData<T>>>? LoadData { get; set; }
+
+    /// <summary>
+    /// Stable, unique row key. Set it when rows contain popovers, inputs or other
+    /// stateful content so the state follows the row when the page or sort
+    /// changes. Without it rows are matched by position.
+    /// </summary>
+    [Parameter] public Func<T, string>? RowKey { get; set; }
+
+    /// <summary>Header cells, normally <see cref="QuasarTableColumn{T}"/> elements.</summary>
+    [Parameter] public RenderFragment? HeaderContent { get; set; }
+
+    /// <summary>
+    /// Row template rendering the cells for one row. Use
+    /// <see cref="QuasarTableCell"/> so a stacked layout can label each value.
+    /// </summary>
+    [Parameter] public RenderFragment<T>? RowTemplate { get; set; }
+
+    /// <summary>Content rendered below a row for which <see cref="IsExpanded"/> returns true.</summary>
+    [Parameter] public RenderFragment<T>? DetailTemplate { get; set; }
+
+    /// <summary>Tells the table whether to render the <see cref="DetailTemplate"/> for a row.</summary>
+    [Parameter] public Func<T, bool>? IsExpanded { get; set; }
+
+    /// <summary>
+    /// Raised when a row is clicked. A row click has no keyboard equivalent, so
+    /// give keyboard users a button or link in the row for the same action.
+    /// Controls inside the row should stop click propagation.
+    /// </summary>
+    [Parameter] public EventCallback<T> OnRowClick { get; set; }
+
+    /// <summary>Content shown when there are no rows.</summary>
+    [Parameter] public RenderFragment? EmptyContent { get; set; }
+
+    /// <summary>Optional table caption.</summary>
+    [Parameter] public string? Caption { get; set; }
+
+    /// <summary>Uses tighter row spacing.</summary>
+    [Parameter] public bool Dense { get; set; }
+
+    /// <summary>Highlights rows on hover.</summary>
+    [Parameter] public bool Hover { get; set; }
+
+    /// <summary>Keeps the header visible while the body scrolls.</summary>
+    [Parameter] public bool FixedHeader { get; set; }
+
+    /// <summary>Optional CSS height for the scroll container.</summary>
+    [Parameter] public string? Height { get; set; }
+
+    /// <summary>Rows per page.</summary>
+    [Parameter] public int RowsPerPage { get; set; } = 10;
+
+    /// <summary>Shows the built-in pager.</summary>
+    [Parameter] public bool ShowPager { get; set; } = true;
+
+    /// <summary>
+    /// What the table does below <see cref="Breakpoint"/>. The default scrolls the
+    /// table sideways inside its box.
+    /// </summary>
+    [Parameter] public QuasarTableNarrowLayout NarrowLayout { get; set; }
+
+    /// <summary>The width below which <see cref="NarrowLayout"/> applies when it is Stack.</summary>
+    [Parameter] public QuasarBreakpoint Breakpoint { get; set; }
+
+    /// <summary>Additional class applied to the table wrapper.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Additional attributes forwarded to the wrapper.</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string ScrollClass => FixedHeader ? "quasar-table-viewport quasar-table-fixed" : "quasar-table-viewport";
+
+    private string? HeightStyle => string.IsNullOrWhiteSpace(Height) ? null : $"height:{Height}";
+
+    private string TableClass
+    {
+        get
+        {
+            var classes = "quasar-table";
+            if (Dense)
+                classes += " quasar-table-dense";
+            if (Hover)
+                classes += " quasar-table-hover";
+            if (NarrowLayout == QuasarTableNarrowLayout.Stack)
+            {
+                classes += Breakpoint switch
+                {
+                    QuasarBreakpoint.Medium => " quasar-table-stack quasar-table-stack-md",
+                    QuasarBreakpoint.Large => " quasar-table-stack quasar-table-stack-lg",
+                    _ => " quasar-table-stack quasar-table-stack-sm",
+                };
+            }
+
+            return classes;
+        }
+    }
+
+    private int EffectivePageSize => Math.Max(1, RowsPerPage);
+
+    /// <inheritdoc />
+    protected override async Task OnInitializedAsync()
+    {
+        if (LoadData is not null)
+            await LoadAsync();
+
+        _initialized = true;
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Items is not null && LoadData is not null)
+            throw new InvalidOperationException("QuasarTable takes either Items or LoadData, not both.");
+
+        if (LoadData is null)
+        {
+            ApplyLocal();
+        }
+        else if (_initialized && EffectivePageSize != _loadedPageSize)
+        {
+            _page = 1;
+            await LoadAsync();
+        }
+    }
+
+    /// <summary>Reloads the current page, optionally returning to the first page.</summary>
+    public async Task ReloadAsync(bool resetPage = false)
+    {
+        if (resetPage)
+            _page = 1;
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// Raised when the active sort changes. A column re-renders only when its own
+    /// parameters change, which is never true for one that has just a sort key, so
+    /// columns listen to this to keep their sort state current.
+    /// </summary>
+    internal event Action? SortChanged;
+
+    /// <summary>True when rows come from <see cref="LoadData"/>, whose callback sorts them.</summary>
+    internal bool UsesLoadData => LoadData is not null;
+
+    internal void RegisterColumn(object column) => _columns.Add(column);
+
+    internal void UnregisterColumn(object column) => _columns.Remove(column);
+
+    /// <summary>
+    /// Records that <paramref name="owner"/> can sort by <paramref name="key"/>. The
+    /// selector sorts in-memory rows; it is null when <see cref="LoadData"/> sorts.
+    /// </summary>
+    internal void RegisterSort(object owner, string key, Func<T, object?>? selector) =>
+        _sorters[key] = new SortRegistration(owner, selector);
+
+    /// <summary>
+    /// Withdraws <paramref name="owner"/>'s registration of <paramref name="key"/>. When
+    /// the active sort uses that key and no column provides it any more, the sort is
+    /// cleared and the rows are refreshed.
+    /// </summary>
+    internal void UnregisterSort(object owner, string key)
+    {
+        if (_sorters.TryGetValue(key, out var registration) && ReferenceEquals(registration.Owner, owner))
+            _sorters.Remove(key);
+
+        if (!_disposed && string.Equals(_sortKey, key, StringComparison.Ordinal))
+            _ = DropSortWithoutColumnAsync();
+    }
+
+    private async Task DropSortWithoutColumnAsync()
+    {
+        try
+        {
+            // Let the render that withdrew the key finish first, so a column that
+            // took the key over has registered it by the time this checks.
+            await Task.Yield();
+            await InvokeAsync(async () =>
+            {
+                if (_disposed || _sortKey is null || _sorters.ContainsKey(_sortKey))
+                    return;
+
+                _sortKey = null;
+                _descending = false;
+                _page = 1;
+                SortChanged?.Invoke();
+                await LoadAsync();
+            });
+        }
+        catch (Exception ex)
+        {
+            await DispatchExceptionAsync(ex);
+        }
+    }
+
+    internal string SortDirection(string key)
+    {
+        if (!string.Equals(_sortKey, key, StringComparison.Ordinal))
+            return "none";
+        return _descending ? "descending" : "ascending";
+    }
+
+    internal async Task SortAsync(string key, bool initialDescending)
+    {
+        if (string.Equals(_sortKey, key, StringComparison.Ordinal))
+        {
+            _descending = !_descending;
+        }
+        else
+        {
+            _sortKey = key;
+            _descending = initialDescending;
+        }
+
+        _page = 1;
+        SortChanged?.Invoke();
+        await LoadAsync();
+    }
+
+    internal async Task SetPageAsync(int page)
+    {
+        var pageCount = Math.Max(1, (int)Math.Ceiling(_totalItems / (double)EffectivePageSize));
+        page = Math.Clamp(page, 1, pageCount);
+        if (page == _page)
+            return;
+
+        _page = page;
+        await LoadAsync();
+    }
+
+    private EventCallback<MouseEventArgs> RowClickHandler(T item) =>
+        OnRowClick.HasDelegate
+            ? EventCallback.Factory.Create<MouseEventArgs>(this, () => OnRowClick.InvokeAsync(item))
+            : default;
+
+    // Rows are matched by position unless the caller supplies a stable key.
+    // Using the row object itself would throw when two rows compare equal.
+    private object KeyOf(T item, int index) => RowKey is null ? index : RowKey(item);
+
+    private void ApplyLocal()
+    {
+        IEnumerable<T> source = Items ?? [];
+
+        if (_sortKey is not null && _sorters.TryGetValue(_sortKey, out var registration)
+            && registration.Selector is { } selector)
+        {
+            source = source.OrderBy(selector, _descending
+                ? QuasarNullsLastComparer.Descending
+                : QuasarNullsLastComparer.Ascending);
+        }
+        else if (source is IReadOnlyList<T> list)
+        {
+            // Unsorted rows are paged in place, without copying the whole list.
+            _totalItems = list.Count;
+            _page = ClampPage(_page);
+            _items = Slice(list);
+            return;
+        }
+
+        var all = source.ToList();
+        _totalItems = all.Count;
+        _page = ClampPage(_page);
+        _items = Slice(all);
+    }
+
+    private int ClampPage(int page)
+    {
+        var pageCount = Math.Max(1, (int)Math.Ceiling(_totalItems / (double)EffectivePageSize));
+        return Math.Clamp(page, 1, pageCount);
+    }
+
+    private List<T> Slice(IReadOnlyList<T> list)
+    {
+        var start = (_page - 1) * EffectivePageSize;
+        var end = Math.Min(list.Count, start + EffectivePageSize);
+        var page = new List<T>(Math.Max(0, end - start));
+        for (var index = start; index < end; index++)
+            page.Add(list[index]);
+        return page;
+    }
+
+    private async Task LoadAsync()
+    {
+        if (LoadData is null)
+        {
+            ApplyLocal();
+            StateHasChanged();
+            return;
+        }
+
+        var generation = ++_generation;
+        _loadError = null;
+        _loadedPageSize = EffectivePageSize;
+
+        if (_load is { } previous)
+        {
+            _load = null;
+            await previous.CancelAsync();
+            previous.Dispose();
+        }
+
+        var cts = new CancellationTokenSource();
+        _load = cts;
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var data = await LoadData(
+                new QuasarTableState(_page, EffectivePageSize, _sortKey, _descending),
+                cts.Token);
+
+            if (generation != _generation || cts.IsCancellationRequested)
+                return;
+
+            _items = data.Items;
+            _totalItems = data.TotalItems;
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            if (generation == _generation)
+            {
+                _items = [];
+                _totalItems = 0;
+                _loadError = "Could not load the table.";
+                System.Diagnostics.Trace.TraceError("Quasar table load failed: {0}", ex);
+            }
+        }
+        finally
+        {
+            if (generation == _generation)
+                _loading = false;
+        }
+
+        if (generation == _generation)
+            StateHasChanged();
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _disposed = true;
+        var load = _load;
+        _load = null;
+        if (load is not null)
+        {
+            load.Cancel();
+            load.Dispose();
+        }
+    }
+}

@@ -1,0 +1,77 @@
+@namespace Quasar.Ui.Components
+@typeparam T
+@inherits QuasarFieldBase<T>
+
+<div class="@FieldClass" aria-busy="@(IsValidating ? "true" : null)">
+    @if (!string.IsNullOrWhiteSpace(Label))
+    {
+        <label class="quasar-input-label" for="@FieldId">
+            @Label
+            @if (Required)
+            {
+                <span class="quasar-input-required" aria-hidden="true">*</span>
+            }
+        </label>
+    }
+
+    <select id="@FieldId"
+            value="@SelectedValue"
+            disabled="@(Disabled || ReadOnly)"
+            aria-invalid="@(Errors.Count > 0 ? "true" : null)"
+            aria-describedby="@DescribedBy"
+            @onchange="OnChangeAsync"
+            @attributes="AdditionalAttributes">
+        @for (var index = 0; index < _options.Count; index++)
+        {
+            var option = _options[index];
+            <option value="@index" disabled="@option.Disabled">@option.Text</option>
+        }
+    </select>
+
+    <QuasarFieldMessages Hint="@Hint" HintId="@HintId" MessagesId="@MessagesId" Errors="@Errors" />
+</div>
+
+@code {
+    private IReadOnlyList<QuasarOption<T>> _options = [];
+
+    /// <summary>Options rendered as native option elements.</summary>
+    [Parameter] public IEnumerable<QuasarOption<T>>? Items { get; set; }
+
+    // Binding through the select's value keeps the displayed choice in step with
+    // the model, including after the user has picked something by hand.
+    private string SelectedValue
+    {
+        get
+        {
+            for (var index = 0; index < _options.Count; index++)
+            {
+                if (EqualityComparer<T>.Default.Equals(_options[index].Value, CurrentValue))
+                    return index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            return string.Empty;
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+        _options = Items as IReadOnlyList<QuasarOption<T>> ?? Items?.ToList() ?? [];
+    }
+
+    private Task OnChangeAsync(ChangeEventArgs args)
+    {
+        if (!int.TryParse(
+                args.Value?.ToString(),
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var index)
+            || index >= _options.Count)
+        {
+            return Task.CompletedTask;
+        }
+
+        return SetValueAsync(_options[index].Value);
+    }
+}

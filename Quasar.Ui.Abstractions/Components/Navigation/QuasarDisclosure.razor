@@ -1,0 +1,68 @@
+@namespace Quasar.Ui.Components
+
+<details class="quasar-disclosure @Class" open="@_open" @attributes="AdditionalAttributes">
+    <summary class="quasar-disclosure-summary"
+             @onclick="ToggleAsync"
+             @onclick:preventDefault="true">
+        @if (SummaryContent is not null)
+        {
+            @SummaryContent
+        }
+        else
+        {
+            @Summary
+        }
+    </summary>
+
+    <div class="quasar-disclosure-body">@ChildContent</div>
+</details>
+
+@code {
+    private bool _open;
+    private bool _initialized;
+    private bool _lastOpen;
+
+    /// <summary>Plain summary text.</summary>
+    [Parameter] public string? Summary { get; set; }
+
+    /// <summary>Optional summary markup, used instead of <see cref="Summary"/>.</summary>
+    [Parameter] public RenderFragment? SummaryContent { get; set; }
+
+    /// <summary>Disclosure body.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Initial or controlled open state.</summary>
+    [Parameter] public bool Open { get; set; }
+
+    /// <summary>Raised when the open state changes.</summary>
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+
+    /// <summary>Additional class applied to the disclosure.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Additional attributes forwarded to the details element.</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (!_initialized)
+        {
+            _open = Open;
+            _initialized = true;
+        }
+        else if (Open != _lastOpen)
+        {
+            _open = Open;
+        }
+
+        _lastOpen = Open;
+    }
+
+    private async Task ToggleAsync()
+    {
+        _open = !_open;
+        await OpenChanged.InvokeAsync(_open);
+    }
+}

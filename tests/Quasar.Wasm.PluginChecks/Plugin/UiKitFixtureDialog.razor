@@ -1,0 +1,45 @@
+@using Quasar.Ui
+@using Quasar.Ui.Components
+
+<header class="quasar-dialog-header">
+    <h2 class="quasar-dialog-title">@Dialog.Title</h2>
+</header>
+<div class="quasar-dialog-content">
+    <div class="quasar-layout quasar-gap-3">
+        <QuasarSelect T="string"
+                      @bind-Value="_region"
+                      Label="Dialog region"
+                      Items="_regions" />
+
+        <div class="quasar-row">
+            <QuasarMenu Label="Dialog actions">
+                <ChildContent>
+                    <QuasarMenuItem OnClick='() => _status = "Dialog edit chosen."'>Edit</QuasarMenuItem>
+                    <QuasarMenuItem OnClick='() => _status = "Dialog copy chosen."'>Copy</QuasarMenuItem>
+                </ChildContent>
+            </QuasarMenu>
+
+            <QuasarTooltip Text="Tooltip inside a dialog">
+                <QuasarButton>Dialog tooltip</QuasarButton>
+            </QuasarTooltip>
+        </div>
+
+        <p class="quasar-text" role="status">@_status</p>
+    </div>
+</div>
+<footer class="quasar-dialog-actions">
+    <QuasarButton OnClick="Dialog.Cancel">Close</QuasarButton>
+</footer>
+
+@code {
+    [CascadingParameter] private IQuasarDialogInstance Dialog { get; set; } = default!;
+
+    private string _region = "eu";
+    private string _status = "Dialog idle.";
+
+    private readonly IReadOnlyList<QuasarOption<string>> _regions =
+    [
+        new("eu", "Europe"),
+        new("us", "North America"),
+    ];
+}

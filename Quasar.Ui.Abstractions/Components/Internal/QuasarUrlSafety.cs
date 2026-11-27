@@ -1,4 +1,4 @@
-namespace Quasar.Components.Shared;
+namespace Quasar.Ui.Components;
 
 /// <summary>
 /// Allows relative links and the small set of absolute schemes Quasar uses.

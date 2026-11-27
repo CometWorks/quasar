@@ -1,0 +1,63 @@
+@namespace Quasar.Ui.Components
+
+<button type="button"
+        class="quasar-menu-trigger @TriggerClass"
+        popovertarget="@PopoverId"
+        aria-haspopup="menu"
+        aria-expanded="false"
+        aria-controls="@PopoverId"
+        aria-label="@Label"
+        style="anchor-name:@AnchorName"
+        @attributes="AdditionalAttributes">
+    @if (TriggerContent is not null)
+    {
+        @TriggerContent
+    }
+    else
+    {
+        <QuasarIcon Icon="@QuasarIcons.Menu" />
+    }
+</button>
+
+<div id="@PopoverId"
+     popover
+     class="quasar-menu @Class"
+     role="menu"
+     aria-label="@Label"
+     data-quasar-menu
+     style="position-anchor:@AnchorName">
+    <CascadingValue Value="PopoverId" IsFixed="true">
+        @ChildContent
+    </CascadingValue>
+</div>
+
+@code {
+    private readonly string _id = Guid.NewGuid().ToString("n");
+
+    /// <summary>Accessible name of the trigger button and of the menu.</summary>
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+
+    /// <summary>Optional custom trigger content. Defaults to the menu icon.</summary>
+    [Parameter] public RenderFragment? TriggerContent { get; set; }
+
+    /// <summary>
+    /// Menu items. The dashboard script moves focus into the menu when it opens,
+    /// handles the arrow, Home and End keys, and closes the menu when focus
+    /// leaves it.
+    /// </summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Additional class applied to the trigger.</summary>
+    [Parameter] public string? TriggerClass { get; set; }
+
+    /// <summary>Additional class applied to the menu surface.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Additional attributes forwarded to the trigger button.</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string PopoverId => $"quasar-menu-{_id}";
+
+    private string AnchorName => $"--quasar-menu-{_id}";
+}

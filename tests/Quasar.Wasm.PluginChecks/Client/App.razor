@@ -42,9 +42,14 @@
         // Fixed, test-owned artifact. Production must resolve enabled plugins through Quasar.
         var bytes = await Http.GetByteArrayAsync("plugins/ViewerFixture.dll");
         var assembly = Assembly.Load(bytes);
-        var uiFixture = Navigation.Uri.Contains("ui=1", StringComparison.Ordinal);
-        _component = assembly.GetType(uiFixture ? "ViewerFixture.UiFixturePage" : "ViewerFixture.ViewerAction", throwOnError: true);
-        if (uiFixture)
+        var typeName = "ViewerFixture.ViewerAction";
+        if (Navigation.Uri.Contains("ui=1", StringComparison.Ordinal))
+            typeName = "ViewerFixture.UiFixturePage";
+        else if (Navigation.Uri.Contains("ui=kit", StringComparison.Ordinal))
+            typeName = "ViewerFixture.UiKitFixturePage";
+
+        _component = assembly.GetType(typeName, throwOnError: true);
+        if (typeName != "ViewerFixture.ViewerAction")
             _parameters.Clear();
     }
 }

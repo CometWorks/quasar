@@ -1,0 +1,56 @@
+@namespace Quasar.Ui.Components
+
+@if (TotalItems > 0)
+{
+    <nav class="quasar-table-pager" aria-label="Table pagination">
+        <span class="quasar-table-pageinfo">@StartItem&ndash;@EndItem of @TotalItems</span>
+        <div class="quasar-table-pages">
+            <button type="button" class="quasar-page-button" aria-label="First page"
+                    disabled="@(Page <= 1)" @onclick="() => GoAsync(1)">&laquo;</button>
+            <button type="button" class="quasar-page-button" aria-label="Previous page"
+                    disabled="@(Page <= 1)" @onclick="() => GoAsync(Page - 1)">&lsaquo;</button>
+
+            @for (var number = FirstVisible; number <= LastVisible; number++)
+            {
+                var pageNumber = number;
+                <button type="button"
+                        class="quasar-page-button"
+                        aria-label="Page @pageNumber"
+                        aria-current="@(pageNumber == Page ? "page" : null)"
+                        @onclick="() => GoAsync(pageNumber)">@pageNumber</button>
+            }
+
+            <button type="button" class="quasar-page-button" aria-label="Next page"
+                    disabled="@(Page >= PageCount)" @onclick="() => GoAsync(Page + 1)">&rsaquo;</button>
+            <button type="button" class="quasar-page-button" aria-label="Last page"
+                    disabled="@(Page >= PageCount)" @onclick="() => GoAsync(PageCount)">&raquo;</button>
+        </div>
+    </nav>
+}
+
+@code {
+    /// <summary>One-based current page.</summary>
+    [Parameter] public int Page { get; set; } = 1;
+
+    /// <summary>Rows per page.</summary>
+    [Parameter] public int PageSize { get; set; } = 10;
+
+    /// <summary>Total rows across every page.</summary>
+    [Parameter] public int TotalItems { get; set; }
+
+    /// <summary>Raised when the user requests another page.</summary>
+    [Parameter] public EventCallback<int> PageChanged { get; set; }
+
+    private int PageCount => Math.Max(1, (int)Math.Ceiling(TotalItems / (double)Math.Max(1, PageSize)));
+
+    private int FirstVisible => Math.Max(1, Math.Min(Page - 2, PageCount - 4));
+
+    private int LastVisible => Math.Min(PageCount, FirstVisible + 4);
+
+    private int StartItem => TotalItems == 0 ? 0 : (Page - 1) * PageSize + 1;
+
+    private int EndItem => Math.Min(TotalItems, Page * PageSize);
+
+    private Task GoAsync(int page) =>
+        PageChanged.InvokeAsync(Math.Clamp(page, 1, PageCount));
+}

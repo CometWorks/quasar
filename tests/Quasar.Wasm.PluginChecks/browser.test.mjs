@@ -9,12 +9,224 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const fixture = path.dirname(fileURLToPath(import.meta.url));
 const playwright = await import(process.env.PLAYWRIGHT_MODULE
     ? pathToFileURL(process.env.PLAYWRIGHT_MODULE).href : "playwright");
-const { chromium, firefox } = playwright.default ?? playwright;
+const { chromium, firefox, webkit } = playwright.default ?? playwright;
 const output = await mkdtemp(path.join(tmpdir(), "quasar-wasm-plugin-"));
 const host = path.join(output, "host", "wwwroot");
 const plugin = path.join(output, "plugin", "ViewerFixture.dll");
 const mime = { ".js": "text/javascript", ".html": "text/html", ".wasm": "application/wasm",
     ".json": "application/json", ".dll": "application/octet-stream", ".css": "text/css" };
+
+// Exercises Quasar.Ui.Components from a plugin that references only
+// Quasar.Ui.Abstractions, including popup controls inside a native modal dialog.
+async function checkUiKit(page, prefix) {
+    // A tooltip is shown when a hit test at its centre lands on it. That is what a
+    // user can see and point at, and it does not depend on getComputedStyle, which
+    // Firefox reports late for anchor-positioned elements.
+    const isShown = locator => locator.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return hit !== null && element.contains(hit);
+    });
+    const waitForTooltip = async (locator, shown) => {
+        for (let attempt = 0; attempt < 40 && await isShown(locator) !== shown; attempt++)
+            await page.waitForTimeout(50);
+        assert.equal(await isShown(locator), shown, shown ? "The tooltip must be shown" : "The tooltip must be hidden");
+    };
+    const scrollTop = () => page.evaluate(() => document.scrollingElement.scrollTop);
+
+    await page.goto("https://panel.invalid" + prefix + "?ui=kit");
+    await page.getByRole("heading", { name: "Native UI kit (test plugin)" }).waitFor({ timeout: 15000 });
+    const formState = page.getByTestId("form-state");
+    assert.equal((await formState.textContent()).trim(), "valid / clean");
+
+    // Fields commit on change, so a fill is followed by a blur.
+    const name = page.getByLabel("Server name");
+    await name.fill("Alpha");
+    await name.blur();
+    await page.getByText("valid / dirty").waitFor();
+
+    await name.fill("not valid");
+    await name.blur();
+    await page.getByText("Use a name without spaces.").waitFor();
+    assert.equal(await name.getAttribute("aria-invalid"), "true");
+    await name.fill("Alpha");
+    await name.blur();
+    await page.getByText("Use a name without spaces.").waitFor({ state: "hidden" });
+
+    const port = page.getByLabel("Port");
+    await port.fill("70000");
+    await port.blur();
+    await page.waitForFunction(() => document.getElementById(
+        [...document.querySelectorAll("label")].find(label => label.textContent.trim().startsWith("Port")).htmlFor).value === "65535");
+
+    // A whole-number field ignores the keys that can only make a decimal, an
+    // exponent or a minus sign (the minimum is 1, so negatives are out too).
+    await port.fill("");
+    await port.pressSequentially("7.5e+-1,2");
+    assert.equal(await port.inputValue(), "7512");
+    assert.equal(await port.getAttribute("step"), "1");
+    await port.blur();
+    await page.waitForFunction(() => document.getElementById(
+        [...document.querySelectorAll("label")].find(label => label.textContent.trim().startsWith("Port")).htmlFor).value === "7512");
+
+    await page.getByLabel("Region").first().selectOption({ label: "North America" });
+    await page.getByLabel("Balanced").check();
+    await page.getByLabel("Auto restart").check();
+    await page.getByRole("button", { name: "Validate and save" }).click();
+    await page.getByText("Saved.", { exact: true }).waitFor();
+    await page.getByText("valid / clean").waitFor();
+    assert.equal(await page.getByLabel("Region").first().inputValue(), "1");
+
+    // A link with an unsafe address is a disabled link, not a followable one.
+    const unsafe = page.locator("a", { hasText: "Unsafe link" });
+    assert.equal(await unsafe.getAttribute("aria-disabled"), "true");
+    assert.equal(await unsafe.getAttribute("href"), null);
+    assert.equal(await page.locator('a[href^="javascript"]').count(), 0);
+
+    // The menu opens beside its trigger, takes focus, and follows the keyboard.
+    const trigger = page.getByRole("button", { name: "Row actions" });
+    await trigger.click();
+    const menu = page.locator('[role="menu"][aria-label="Row actions"]');
+    await menu.waitFor({ state: "visible" });
+    const triggerBox = await trigger.boundingBox();
+    const menuBox = await menu.boundingBox();
+    const gap = Math.min(
+        Math.abs(menuBox.y - (triggerBox.y + triggerBox.height)),
+        Math.abs(menuBox.y + menuBox.height - triggerBox.y));
+    assert.ok(gap < 24, `Menu must open beside its trigger; gap ${gap}`);
+    assert.ok(menuBox.x < triggerBox.x + 300 && menuBox.x + menuBox.width > triggerBox.x - 300,
+        "Menu must open horizontally near its trigger");
+    // The browser raises the toggle event shortly after the popover changes.
+    const settle = async (read, expected, message) => {
+        for (let attempt = 0; attempt < 40 && await read() !== expected; attempt++)
+            await page.waitForTimeout(50);
+        assert.equal(await read(), expected, message);
+    };
+    const expanded = () => trigger.getAttribute("aria-expanded");
+    await settle(expanded, "true", "Opening the menu must set aria-expanded");
+    const activeText = () => page.evaluate(() => document.activeElement?.textContent?.trim());
+    await settle(activeText, "Edit", "Opening the menu must focus its first item");
+    await page.keyboard.press("ArrowDown");
+    assert.equal(await activeText(), "Copy");
+    await page.keyboard.press("ArrowDown");
+    assert.equal(await activeText(), "Edit", "Arrow keys must skip the disabled item and wrap");
+    await page.keyboard.press("Escape");
+    await menu.waitFor({ state: "hidden" });
+    await settle(expanded, "false", "Closing the menu must clear aria-expanded");
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Row actions");
+
+    await trigger.click();
+    await page.getByRole("menuitem", { name: "Copy" }).click();
+    await page.getByText("Copy chosen.").waitFor();
+
+    // Tabs move with the arrow, Home and End keys and do not scroll the page.
+    const overview = page.getByRole("tab", { name: "Overview" });
+    await overview.scrollIntoViewIfNeeded();
+    await page.evaluate(() => document.scrollingElement.scrollBy(0, 120));
+    await overview.focus();
+    const before = await scrollTop();
+    assert.ok(before > 0, "The page must be scrolled for the key check");
+    await page.keyboard.press("ArrowRight");
+    await page.getByText("Activity panel.").waitFor();
+    await page.keyboard.press("End");
+    await page.getByText("Settings panel.").waitFor();
+    await page.keyboard.press("Home");
+    await page.getByText("Overview panel.").waitFor();
+    assert.ok(Math.abs(await scrollTop() - before) < 4, "Tab keys must not scroll the page");
+    assert.equal(await page.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected"), "true");
+
+    await page.getByText("Advanced settings").click();
+    await page.getByText("Disclosure content is hidden until the summary is activated.").waitFor();
+
+    // The tooltip shows on hover, is dismissed by Escape, and shows again on a new hover.
+    const tooltipTarget = page.getByRole("button", { name: "Hover me" });
+    const tooltip = page.locator('[role="tooltip"]', { hasText: "Copies the value to the clipboard" });
+    // Earlier steps leave the pointer wherever the last click was; a tooltip that
+    // Escape dismissed while hovered stays dismissed until the pointer leaves.
+    await page.mouse.move(0, 0);
+    await waitForTooltip(tooltip, false);
+    await tooltipTarget.hover();
+    await waitForTooltip(tooltip, true);
+    await page.keyboard.press("Escape");
+    await waitForTooltip(tooltip, false);
+    await page.mouse.move(0, 0);
+    await tooltipTarget.hover();
+    await waitForTooltip(tooltip, true);
+    await page.mouse.move(0, 0);
+
+    // An Immediate field commits after a pause and filters the table.
+    const search = page.getByLabel("Search servers");
+    await search.fill("Delta");
+    const sampleTable = page.getByRole("table", { name: "Sample servers" });
+    await sampleTable.getByText("Delta").waitFor();
+    await sampleTable.getByText("Bravo").waitFor({ state: "hidden" });
+    await search.fill("");
+    await sampleTable.getByText("Bravo").waitFor();
+
+    // Sorting and paging.
+    await sampleTable.getByRole("button", { name: "Port" }).click();
+    assert.equal(await sampleTable.locator("th", { hasText: "Port" }).getAttribute("aria-sort"), "ascending");
+    await page.getByRole("navigation", { name: "Table pagination" }).first()
+        .getByRole("button", { name: "Next page" }).click();
+    await sampleTable.getByText("Hotel").waitFor();
+
+    // The stacked table turns into labelled cards below its breakpoint. The
+    // default table keeps its columns and scrolls instead.
+    const stacked = page.getByRole("table", { name: "Stacked servers" });
+    const cellDisplay = locator => locator.locator("tbody td").first().evaluate(
+        element => getComputedStyle(element).display);
+    const cellLabel = locator => locator.locator("tbody td").first().evaluate(
+        element => getComputedStyle(element, "::before").content);
+    const viewport = page.viewportSize();
+    await page.setViewportSize({ width: 390, height: 900 });
+    assert.equal(await cellDisplay(stacked), "flex");
+    assert.equal(await cellLabel(stacked), '"Name"');
+    assert.equal(await cellDisplay(sampleTable), "table-cell");
+    await page.setViewportSize({ width: 1440, height: 900 });
+    assert.equal(await cellDisplay(stacked), "table-cell");
+    if (process.env.QUASAR_SHOTS) {
+        const engine = page.context().browser().browserType().name();
+        const shot = (width) => path.join(process.env.QUASAR_SHOTS,
+            `ui-kit-${engine}-${prefix === "/" ? "root" : "prefixed"}-${width}.png`);
+        await page.screenshot({ path: shot(1440), fullPage: true });
+        await page.setViewportSize({ width: 390, height: 900 });
+        await page.screenshot({ path: shot(390), fullPage: true });
+    }
+    await page.setViewportSize(viewport);
+
+    // Each control owns its classes; the older hand-written markup keeps its own.
+    // A span with the legacy tooltip class must still be layout-neutral.
+    assert.equal(await page.evaluate(() => {
+        const span = document.createElement("span");
+        span.className = "quasar-tooltip";
+        document.body.append(span);
+        const display = getComputedStyle(span).display;
+        span.remove();
+        return display;
+    }), "contents");
+
+    // Popup controls work inside a native modal dialog.
+    await page.getByRole("button", { name: "Open kit dialog" }).click();
+    const dialog = page.locator('dialog.quasar-dialog[aria-label="Kit dialog"]');
+    await dialog.waitFor({ state: "visible" });
+    await dialog.getByLabel("Dialog region").selectOption({ label: "North America" });
+    assert.equal(await dialog.getByLabel("Dialog region").inputValue(), "1");
+
+    await dialog.getByRole("button", { name: "Dialog actions" }).click();
+    const dialogMenu = dialog.getByRole("menuitem", { name: "Edit" });
+    await dialogMenu.waitFor({ state: "visible" });
+    await dialogMenu.click();
+    await dialog.getByText("Dialog edit chosen.").waitFor();
+
+    const dialogTooltip = page.locator('[role="tooltip"]', { hasText: "Tooltip inside a dialog" });
+    await dialog.getByRole("button", { name: "Dialog tooltip" }).hover();
+    await waitForTooltip(dialogTooltip, true);
+    await page.mouse.move(0, 0);
+
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await dialog.waitFor({ state: "hidden" });
+    console.log("UI kit checks passed at " + prefix);
+}
 
 async function check(browser, prefix) {
     const context = await browser.newContext();
@@ -263,6 +475,8 @@ async function check(browser, prefix) {
         assert.ok(toastLayout.hostBottom <= toastLayout.viewportHeight,
             "top toast host must not extend below the viewport");
 
+        await checkUiKit(page, prefix);
+
         assert.deepEqual(errors, []);
         console.log(browser.browserType().name() + ": independent Razor plugin and Display settings passed at " + prefix);
     } finally {
@@ -275,7 +489,11 @@ try {
         { cwd: fixture, stdio: "inherit" });
     execFileSync("dotnet", ["build", "Plugin/ViewerFixture.csproj", "-c", "Release", "-o", path.dirname(plugin)],
         { cwd: fixture, stdio: "inherit" });
-    for (const browserType of (process.env.QUASAR_BROWSER === "chromium" ? [chromium] : [chromium, firefox])) {
+    // QUASAR_BROWSER is a comma-separated list of chromium, firefox and webkit.
+    // Without it the checks run on Chromium and Firefox.
+    const available = { chromium, firefox, webkit };
+    const requested = (process.env.QUASAR_BROWSER ?? "chromium,firefox").split(",").map(name => name.trim());
+    for (const browserType of requested.map(name => available[name] ?? assert.fail("Unknown browser " + name))) {
         const browser = await browserType.launch(browserType === chromium ? { executablePath: process.env.CHROME_PATH } : {});
         try {
             await check(browser, "/");

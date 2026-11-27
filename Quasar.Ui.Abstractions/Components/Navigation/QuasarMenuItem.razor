@@ -1,0 +1,36 @@
+@namespace Quasar.Ui.Components
+
+<button type="button"
+        class="quasar-menu-item @Class"
+        role="menuitem"
+        tabindex="-1"
+        popovertarget="@PopoverId"
+        popovertargetaction="hide"
+        disabled="@Disabled"
+        @onclick="OnClick">
+    @if (!string.IsNullOrWhiteSpace(Icon))
+    {
+        <QuasarIcon Icon="@Icon" />
+    }
+    @ChildContent
+</button>
+
+@code {
+    /// <summary>Id of the owning popover, supplied by <see cref="QuasarMenu"/>.</summary>
+    [CascadingParameter] public string? PopoverId { get; set; }
+
+    /// <summary>Optional leading icon.</summary>
+    [Parameter] public string? Icon { get; set; }
+
+    /// <summary>Disables the item.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Raised when the item is activated.</summary>
+    [Parameter] public EventCallback OnClick { get; set; }
+
+    /// <summary>Additional class applied to the item.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Item content.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

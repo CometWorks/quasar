@@ -507,7 +507,10 @@ This is a single cutover with no compatibility code.
 1. **Before you start:** recheck every QuasarHub catalog entry at its current
    pinned commit for MudBlazor package references, `<Mud*>` markup and
    `ISnackbar`/`IDialogService`. Clean any plugin that has picked up Mud and
-   bump its pin first.
+   bump its pin first. Also check the same entries for the old
+   `Quasar.Components.Shared.QuasarIcon`, `QuasarIconButton` and `QuasarIcons`
+   names. They moved to `Quasar.Ui.Components`, and Quasar forwards only the new
+   names.
 2. Remove both package references, the CSS/JS links in `App.razor`, the
    `QuasarWebReleaseLayout` entries, `AddMudServices()` and every
    `@using MudBlazor`.

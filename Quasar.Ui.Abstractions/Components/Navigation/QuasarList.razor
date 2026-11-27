@@ -1,0 +1,15 @@
+@namespace Quasar.Ui.Components
+
+<ul class="quasar-list @Class" @attributes="AdditionalAttributes">@ChildContent</ul>
+
+@code {
+    /// <summary>List items.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Additional class applied to the list.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Additional attributes forwarded to the list element.</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+}

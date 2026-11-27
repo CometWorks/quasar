@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
-namespace Quasar.Components.Shared;
+namespace Quasar.Ui.Components;
 
 /// <summary>
 /// Recognizes the compiled-in Quasar icon constants. Custom SVG supplied by a

@@ -1,0 +1,74 @@
+@namespace Quasar.Ui.Components
+
+<li class="quasar-list-row">
+    @if (Href is not null && QuasarUrlSafety.IsSafeHref(Href))
+    {
+        <a class="@CssClass"
+           href="@Href"
+           aria-current="@(Selected ? "page" : null)"
+           @onclick="OnClick"
+           @attributes="AdditionalAttributes">
+            @if (!string.IsNullOrWhiteSpace(Icon))
+            {
+                <QuasarIcon Icon="@Icon" />
+            }
+            @ChildContent
+        </a>
+    }
+    else if (OnClick.HasDelegate)
+    {
+        <button type="button"
+                class="@CssClass"
+                aria-current="@(Selected ? "page" : null)"
+                disabled="@Disabled"
+                @onclick="OnClick"
+                @attributes="AdditionalAttributes">
+            @if (!string.IsNullOrWhiteSpace(Icon))
+            {
+                <QuasarIcon Icon="@Icon" />
+            }
+            @ChildContent
+        </button>
+    }
+    else
+    {
+        <span class="@CssClass" aria-current="@(Selected ? "page" : null)" @attributes="AdditionalAttributes">
+            @if (!string.IsNullOrWhiteSpace(Icon))
+            {
+                <QuasarIcon Icon="@Icon" />
+            }
+            @ChildContent
+        </span>
+    }
+</li>
+
+@code {
+    /// <summary>Link target. Unsafe schemes are ignored.</summary>
+    [Parameter] public string? Href { get; set; }
+
+    /// <summary>Raised when the item is activated.</summary>
+    [Parameter] public EventCallback OnClick { get; set; }
+
+    /// <summary>Marks the item as the current page or selection.</summary>
+    [Parameter] public bool Selected { get; set; }
+
+    /// <summary>Disables the item action.</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Optional leading icon.</summary>
+    [Parameter] public string? Icon { get; set; }
+
+    /// <summary>Additional class applied to the item.</summary>
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>Item content.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Additional attributes forwarded to the item element.</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string CssClass => string.IsNullOrWhiteSpace(Class)
+        ? "quasar-list-item"
+        : $"quasar-list-item {Class}";
+}
