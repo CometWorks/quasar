@@ -323,13 +323,15 @@ public sealed class HostGatewayPreparationTests : IDisposable
     {
         string bundle = Path.Combine(_root, "bundle");
         Directory.CreateDirectory(Path.Combine(bundle, "seed"));
-        string executable = Path.Combine(bundle, "gateway");
+        // Named sleep: on uutils coreutils (Ubuntu 26.04) /bin/sleep is a multicall binary that
+        // picks the tool by argv[0], so a copy named anything else exits at once.
+        string executable = Path.Combine(bundle, "sleep");
         File.Copy("/bin/sleep", executable);
         File.SetUnixFileMode(executable, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         File.WriteAllText(Path.Combine(bundle, "seed/world.dat"), "original world");
         string Hash(string path) => HostApp.ExecutionBundle.Hash(File.ReadAllBytes(path));
-        var manifest = new HostApp.BundleManifest(1, "revision-1", [new("gateway", Hash(executable))], [],
-            new HostApp.GatewaySpawnSpec("gateway", "", ["60"], new()),
+        var manifest = new HostApp.BundleManifest(1, "revision-1", [new("sleep", Hash(executable))], [],
+            new HostApp.GatewaySpawnSpec("sleep", "", ["60"], new()),
             ConfigFiles: [new("seed/world.dat", Hash(Path.Combine(bundle, "seed/world.dat")))],
             RuntimeRoot: Path.Combine(_root, "runtime"), InitialDirectories: new() { ["world"] = "seed" },
             ClusterId: "cluster", HostId: "host");
