@@ -151,4 +151,65 @@ public sealed class ClusterBackupStoreTests : IDisposable
         File.Delete(path);
         Assert.Throws<InvalidDataException>(() => Read("first"));
     }
+
+    // SE-1969: text-like content compresses (registry, journals, configs); saves and random bytes do not.
+    private static byte[] Text(int length, int seed)
+    {
+        var random = new Random(seed);
+        var text = new System.Text.StringBuilder();
+        while (text.Length < length) text.Append("<Entity Id=\"").Append(random.Next(1000)).Append("\" Subtype=\"LargeBlockArmorBlock\"/>\n");
+        return System.Text.Encoding.UTF8.GetBytes(text.ToString()[..length]);
+    }
+
+    [Fact]
+    public void ObjectsThatCompressAreKeptGzippedAndReadBackByteForByte()
+    {
+        byte[] journal = Text(100_000, 1), save = Text(100_000, 2), noise = Bytes(100_000, 3), big = Text(300_000, 4);
+        // A name over 100 bytes travels in a pax record, so its extension must come from there.
+        string longName = "runtime/nodes/ed8d5b95aab2b765df4848bb/data/cluster/voxel/00158113B6143CA3FA64AF73E165C7745BB8A2CF89F1F68F6EF4DF09CF56CB2B/1.vjr";
+        string longSave = "runtime/nodes/ed8d5b95aab2b765df4848bb/data/cluster/saves/P-0000000000000523/" + new string('x', 60) + "/g00000011-s0000115A.mps";
+        byte[] archive = Tar((longName, journal), (longSave, save), ("runtime/noise.sbc", noise), ("runtime/gateway/registry/registry.db", big));
+        Store("first", archive, buffered: 200_000);
+
+        string Stored(byte[] data) => Path.GetFileName(Assert.Single(Objects(), path => Path.GetFileName(path).StartsWith(Hash(data))));
+        Assert.Equal(Hash(journal) + ClusterBackupStore.PackedSuffix, Stored(journal));
+        Assert.Equal(Hash(big) + ClusterBackupStore.PackedSuffix, Stored(big)); // Streamed through a file, then gzipped.
+        Assert.Equal(Hash(save), Stored(save)); // .mps is never gzipped, whatever it holds.
+        Assert.Equal(Hash(noise), Stored(noise)); // Tried, saved too little, kept as it is.
+        Assert.True(new FileInfo(Assert.Single(Objects(), path => path.EndsWith(ClusterBackupStore.PackedSuffix) && path.Contains(Hash(journal)))).Length < journal.Length / 5);
+        Assert.Empty(Directory.GetFiles(root, "*incoming*", SearchOption.AllDirectories));
+        Assert.Equal(archive, Read("first"));
+
+        // The same content in a later backup is not stored again, gzipped or not.
+        Store("second", archive, buffered: 200_000);
+        Assert.Equal(4, Objects().Length);
+        Directory.Delete(Path.Combine(root, "first"), true);
+        Assert.Equal(0, ClusterBackupStore.Collect(root));
+        Directory.Delete(Path.Combine(root, "second"), true);
+        Assert.True(ClusterBackupStore.Collect(root) > 0);
+        Assert.Empty(Objects());
+    }
+
+    [Fact]
+    public void AGzippedObjectThatChangedFailsTheRead()
+    {
+        byte[] data = Text(100_000, 1);
+        Store("first", Tar(("runtime/a.sbc", data)));
+        string path = Assert.Single(Objects());
+        File.SetAttributes(path, FileAttributes.Normal);
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        using (var output = new System.IO.Compression.GZipStream(File.Create(path), System.IO.Compression.CompressionLevel.Fastest))
+            output.Write(Text(100_001, 1));
+        Assert.Throws<InvalidDataException>(() => Read("first"));
+    }
+
+    [Fact]
+    public void ManyObjectsWriteInParallelWithinTheMemoryBudget()
+    {
+        var files = Enumerable.Range(0, 200).Select(i => ($"runtime/f{i}.sbc", Text(50_000 + i, i))).ToArray();
+        byte[] archive = Tar(files);
+        Store("first", archive);
+        Assert.Equal(200, Objects().Count(path => path.EndsWith(ClusterBackupStore.PackedSuffix)));
+        Assert.Equal(archive, Read("first"));
+    }
 }

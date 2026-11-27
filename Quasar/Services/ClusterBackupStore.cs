@@ -19,8 +19,14 @@ internal static class ClusterBackupStore
     // Files up to this size are hashed in memory first, so an object the store has is not written again.
     internal const int BufferedBytes = 64 * 1024 * 1024;
     private const byte Raw = 1, Object = 2;
+    // SE-1969: an object whose bytes compress is kept gzipped under its name plus this suffix. Its name is still the
+    // SHA-256 of the file it holds, so deduplication and the skeleton do not change.
+    internal const string PackedSuffix = ".gz";
 
     internal static string ObjectPath(string clusterRoot, string sha256) => Path.Combine(clusterRoot, Objects, sha256[..2], sha256);
+
+    private static bool HasObject(string clusterRoot, string sha256) =>
+        File.Exists(ObjectPath(clusterRoot, sha256)) || File.Exists(ObjectPath(clusterRoot, sha256) + PackedSuffix);
 
     /// <summary>Stores the archive read from <paramref name="archive"/> as <paramref name="path"/> plus the
     /// skeleton suffix, and lists the objects it refers to next to it. Returns the archive's length and SHA-256.</summary>
@@ -29,20 +35,26 @@ internal static class ClusterBackupStore
         using var whole = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var input = new HashingReader(archive, whole);
         var references = new SortedSet<string>(StringComparer.Ordinal);
-        using (var file = new FileStream(path + SkeletonSuffix, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        using (var objects = new ClusterBackupObjectWriter(clusterRoot))
         {
-            using (var skeleton = new BinaryWriter(new GZipStream(file, CompressionLevel.Fastest, leaveOpen: true)))
-                WriteEntries(clusterRoot, input, skeleton, references, buffered);
-            file.Flush(true);
+            using (var file = new FileStream(path + SkeletonSuffix, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                using (var skeleton = new BinaryWriter(new GZipStream(file, CompressionLevel.Fastest, leaveOpen: true)))
+                    WriteEntries(clusterRoot, input, skeleton, references, buffered, objects);
+                file.Flush(true);
+            }
+            objects.Complete(); // The references name only objects that are complete.
         }
         File.WriteAllLines(path + ReferencesSuffix, references);
         return (input.Total, Convert.ToHexString(whole.GetHashAndReset()).ToLowerInvariant());
     }
 
-    private static void WriteEntries(string clusterRoot, HashingReader input, BinaryWriter skeleton, SortedSet<string> references, int buffered)
+    private static void WriteEntries(string clusterRoot, HashingReader input, BinaryWriter skeleton, SortedSet<string> references, int buffered,
+        ClusterBackupObjectWriter objects)
     {
         byte[] header = new byte[512];
         long? paxSize = null;
+        string? paxPath = null;
         while (true)
         {
             int got = input.Read(header);
@@ -54,18 +66,20 @@ internal static class ClusterBackupStore
                 return;
             }
             size = paxSize ?? size;
+            string name = paxPath ?? EntryName(header);
             paxSize = null;
+            paxPath = null;
             long padded = (size + 511) / 512 * 512;
             if (type is 'x' or 'g' or 'L' or 'K')
             {
                 if (padded > BufferedBytes || !WriteBuffered(input, skeleton, padded, out byte[] data)) { input.CopyRest(skeleton); return; }
-                if (type == 'x') paxSize = PaxSize(data.AsSpan(0, (int)size));
+                if (type == 'x') (paxSize, paxPath) = (PaxSize(data.AsSpan(0, (int)size)), PaxRecord(data.AsSpan(0, (int)size), "path"));
                 continue;
             }
             // The Host's snapshot.json differs in every backup; in the skeleton it is at least compressed.
             if (type is '0' or '\0' or '7' && size >= InlineBytes && !IsManifest(header))
             {
-                string? sha = StoreObject(clusterRoot, input, skeleton, size, buffered);
+                string? sha = StoreObject(clusterRoot, input, skeleton, size, buffered, objects, Compressible(name));
                 if (sha is null) return; // The archive ended inside the file; its bytes are in the skeleton.
                 references.Add(sha);
                 skeleton.Write(Object);
@@ -97,7 +111,8 @@ internal static class ClusterBackupStore
                     referenced.UnionWith(File.ReadLines(list));
         long freed = 0;
         foreach (string file in Directory.EnumerateFiles(objects, "*", SearchOption.AllDirectories))
-            if (!referenced.Contains(Path.GetFileName(file)))
+            if (!referenced.Contains(Path.GetFileName(file) is var name && name.EndsWith(PackedSuffix, StringComparison.Ordinal)
+                    ? name[..^PackedSuffix.Length] : name))
             {
                 freed += new FileInfo(file).Length;
                 File.Delete(file);
@@ -106,7 +121,8 @@ internal static class ClusterBackupStore
     }
 
     // Null when the archive ends inside the file: what was read is then in the skeleton as raw bytes.
-    private static string? StoreObject(string clusterRoot, HashingReader input, BinaryWriter skeleton, long size, int buffered)
+    private static string? StoreObject(string clusterRoot, HashingReader input, BinaryWriter skeleton, long size, int buffered,
+        ClusterBackupObjectWriter objects, bool compress)
     {
         if (size <= buffered)
         {
@@ -114,13 +130,12 @@ internal static class ClusterBackupStore
             int got = input.Read(data);
             if (got < data.Length) { WriteRaw(skeleton, data.AsSpan(0, got)); return null; }
             string sha = Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant();
-            string target = ObjectPath(clusterRoot, sha);
-            if (!File.Exists(target)) Publish(target, temporary => File.WriteAllBytes(temporary, data));
+            objects.Add(sha, data, null, compress);
             return sha;
         }
         string directory = Path.Combine(clusterRoot, Objects);
         Directory.CreateDirectory(directory);
-        string incoming = Path.Combine(directory, "incoming-" + Guid.NewGuid().ToString("N"));
+        string? incoming = Path.Combine(directory, "incoming-" + Guid.NewGuid().ToString("N"));
         try
         {
             long left = size;
@@ -143,27 +158,28 @@ internal static class ClusterBackupStore
                     while (output.Read(buffer) is var count and > 0) WriteRaw(skeleton, buffer.AsSpan(0, count));
                     return null;
                 }
-                output.Flush(true);
                 sha = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
             }
-            string target = ObjectPath(clusterRoot, sha);
-            if (!File.Exists(target)) Publish(target, temporary => File.Move(incoming, temporary));
+            if (objects.Add(sha, null, incoming, compress)) incoming = null; // The writer owns it now.
             return sha;
         }
-        finally { if (File.Exists(incoming)) File.Delete(incoming); }
+        finally { if (incoming is not null && File.Exists(incoming)) File.Delete(incoming); }
     }
 
-    // An object appears under its name only once it is complete and read-only.
-    private static void Publish(string target, Action<string> write)
+    // An object appears under its name only once it is complete and read-only. A write that returns false keeps it out.
+    internal static void Publish(string target, Action<string> write) => Publish(target, temporary => { write(temporary); return true; });
+
+    internal static bool Publish(string target, Func<string, bool> write)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         string temporary = target + ".incoming-" + Guid.NewGuid().ToString("N");
         try
         {
-            write(temporary);
+            if (!write(temporary)) return false;
             using (var file = new FileStream(temporary, FileMode.Open, FileAccess.ReadWrite)) file.Flush(true);
             if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temporary, UnixFileMode.UserRead);
             File.Move(temporary, target);
+            return true;
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
@@ -223,17 +239,37 @@ internal static class ClusterBackupStore
     }
 
     // A pax header's "size" record overrides the next entry's size field (files of 8 GiB and more).
-    private static long? PaxSize(ReadOnlySpan<byte> records)
+    private static long? PaxSize(ReadOnlySpan<byte> records) =>
+        long.TryParse(PaxRecord(records, "size"), out long size) && size >= 0 ? size : null;
+
+    // A pax header's "path" record overrides the next entry's name (names of more than 100 bytes).
+    private static string? PaxRecord(ReadOnlySpan<byte> records, string key)
     {
         foreach (string record in Encoding.UTF8.GetString(records).Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             int space = record.IndexOf(' ');
-            if (space > 0 && record.AsSpan(space + 1).StartsWith("size=", StringComparison.Ordinal)
-                && long.TryParse(record.AsSpan(space + 1 + "size=".Length), out long size) && size >= 0)
-                return size;
+            if (space > 0 && record.AsSpan(space + 1).StartsWith(key + "=", StringComparison.Ordinal))
+                return record[(space + 2 + key.Length)..];
         }
         return null;
     }
+
+    // A ustar header's name, with its prefix field when it has one.
+    private static string EntryName(byte[] header)
+    {
+        static string Field(ReadOnlySpan<byte> field) => Encoding.UTF8.GetString(field[..(field.IndexOf((byte)0) is var end and >= 0 ? end : field.Length)]);
+        string name = Field(header.AsSpan(0, 100));
+        string prefix = header.AsSpan(257, 5).SequenceEqual("ustar"u8) ? Field(header.AsSpan(345, 155)) : "";
+        return prefix.Length == 0 ? name : prefix + "/" + name;
+    }
+
+    // SE-1969: what gzip would only spend time on. Partition saves (.mps) are most of a cluster's bytes and are
+    // compressed already; so are the game's binary saves (B5), voxel files and images. Other files are compressed
+    // and kept as they are when that saves less than a tenth.
+    private static readonly HashSet<string> Compressed = new(StringComparer.OrdinalIgnoreCase)
+        { ".mps", ".gz", ".zip", ".7z", ".zst", ".br", ".png", ".jpg", ".jpeg", ".dds", ".vx2", ".sbcB5", ".sbsB5" };
+
+    internal static bool Compressible(string name) => !Compressed.Contains(Path.GetExtension(name));
 
     // Reads the archive once, hashing every byte that passes.
     private sealed class HashingReader(Stream source, IncrementalHash hash)
@@ -271,6 +307,7 @@ internal static class ClusterBackupStore
             if (buffer.Length == 0) return 0;
             while (_left == 0)
             {
+                if (_object is not null && _object.ReadByte() != -1) throw new InvalidDataException("A backup object is longer than its record.");
                 _object?.Dispose();
                 _object = null;
                 int kind = _records.BaseStream.ReadByte();
@@ -280,9 +317,14 @@ internal static class ClusterBackupStore
                     string sha = Convert.ToHexString(_records.ReadBytes(32)).ToLowerInvariant();
                     _left = _records.ReadInt64();
                     string path = ObjectPath(clusterRoot, sha);
-                    if (!File.Exists(path)) throw new InvalidDataException($"Backup object {sha} is missing.");
-                    _object = File.OpenRead(path);
-                    if (_object.Length != _left) throw new InvalidDataException($"Backup object {sha} has the wrong size.");
+                    if (File.Exists(path))
+                    {
+                        _object = File.OpenRead(path);
+                        if (_object.Length != _left) throw new InvalidDataException($"Backup object {sha} has the wrong size.");
+                    }
+                    else if (File.Exists(path + PackedSuffix))
+                        _object = new GZipStream(new FileStream(path + PackedSuffix, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16), CompressionMode.Decompress);
+                    else throw new InvalidDataException($"Backup object {sha} is missing.");
                 }
                 else if (kind == Raw) _left = _records.ReadInt64();
                 else throw new InvalidDataException("Invalid backup skeleton.");
