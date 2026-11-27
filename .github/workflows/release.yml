@@ -475,8 +475,8 @@ jobs:
         if: matrix.part == 'test'
         run: |
           set -euo pipefail
-          python3 -m unittest discover -s scripts -p 'test_*.py'
           dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --logger trx --results-directory artifacts/test-results
+          python3 -m unittest discover -s scripts -p 'test_*.py'
 
       - name: Retain test results
         if: always() && matrix.part == 'test'
