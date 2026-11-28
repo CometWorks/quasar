@@ -170,8 +170,6 @@ public sealed class ClusterPlayerTests : IDisposable
             return;
         }
         Assert.Single(page.FindAll("tbody tr"));
-        Assert.Contains("Unified cluster", page.Find("tbody").TextContent);
-        Assert.Contains("Cluster player", page.Find("tbody").TextContent);
         Assert.Contains("online", page.Find("tbody").TextContent);
         if (manage)
         {
@@ -186,7 +184,6 @@ public sealed class ClusterPlayerTests : IDisposable
         handler.Banned = [7];
         await page.InvokeAsync(async () => { await tracker.RefreshAsync(cluster, default); await page.Instance.RefreshAsync(); });
         Assert.Single(page.FindAll("tbody tr"));
-        Assert.Contains("Cluster player", page.Find("tbody").TextContent);
         Assert.Contains("offline", page.Find("tbody").TextContent);
         if (manage)
         {

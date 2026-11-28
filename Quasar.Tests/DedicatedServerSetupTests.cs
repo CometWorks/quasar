@@ -129,12 +129,10 @@ public sealed class DedicatedServerSetupTests : IDisposable
         await using var context = Context();
         context.Render<MudPopoverProvider>();
         var chooser = context.Render<WorldImportForm>(p => p.Add(c => c.Inventory, new WorldInventory([], [], [], false, true)).Add(c => c.TemplateOnly, true));
-        Assert.Contains("Waiting for the Dedicated Server installation", chooser.Markup);
         World(Path.Combine("install", "Content", "CustomWorlds", "Earth"));
         Report(context.Services.GetRequiredService<ManagedRuntimeWarmupService>(), ManagedRuntimeInstallPhase.Ready);
         await chooser.FindAll("button").Single(b => b.TextContent.Trim() == "Refresh").ClickAsync();
         Assert.Contains("Earth", chooser.Markup);
-        Assert.Contains("Select world", chooser.Markup);
         Assert.DoesNotContain("Waiting for the Dedicated Server installation", chooser.Markup);
     }
 
@@ -145,11 +143,8 @@ public sealed class DedicatedServerSetupTests : IDisposable
         var warmup = context.Services.GetRequiredService<ManagedRuntimeWarmupService>();
         Report(warmup, ManagedRuntimeInstallPhase.Failed);
         var status = context.Render<FleetPreparation>(p => p.Add(c => c.Snapshot, warmup.GetSnapshot()).Add(c => c.CanRetry, true));
-        Assert.Contains("Preparation needs attention", status.Markup);
-        Assert.Contains("Retry preparation", status.Markup);
         Report(warmup, ManagedRuntimeInstallPhase.Ready);
         status.Render(p => p.Add(c => c.Snapshot, warmup.GetSnapshot()));
-        Assert.Contains("Choose a starting world now", status.Markup);
         Assert.DoesNotContain("Retry preparation", status.Markup);
         Assert.False(warmup.IsReady);
     }

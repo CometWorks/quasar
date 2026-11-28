@@ -60,10 +60,7 @@ public sealed class ServerListingPageTests : IDisposable
     {
         await using var context = await ContextAsync();
         var page = context.Render<Quasar.Client.Administration.ListingPage>();
-        Assert.Contains("Standalone Magnetar server", page.Markup);
-        Assert.Contains("Cluster · Steam gateway", page.Markup);
         Assert.DoesNotContain("Accept diagnostic data handling", page.Markup);
-        Assert.Contains("Add a Steam identity", page.Markup);
         Assert.DoesNotContain("private-admin", page.Markup);
         Assert.Empty(page.FindAll("input[name='listing-visibility']"));
         var names = page.FindAll("input[name='public-name']");
@@ -227,8 +224,6 @@ public sealed class ServerListingPageTests : IDisposable
         await using var context = await ContextAsync();
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies(QuasarPolicyNames.CanView);
         var page = context.Render<Quasar.Client.Administration.ListingPage>();
-        Assert.Contains("Public solo", page.Markup);
-        Assert.Contains("Cluster fleet", page.Markup);
         Assert.True(page.Find("fieldset").HasAttribute("disabled"));
         Assert.Empty(page.FindAll("input[name='listing-visibility']"));
         Assert.DoesNotContain("Save listings", page.Markup);

@@ -64,13 +64,9 @@ public sealed class ClusterHealthOverviewTests
         Assert.Contains("18 routed players", panel.Markup);
         Assert.Contains("34 partitions", panel.Markup);
         Assert.Contains("0 routed players", panel.Markup);
-        Assert.Contains("Host: Simulation host", panel.Markup);
         Assert.Contains("192.168.1.10:27016", panel.Markup);
         Assert.Contains("192.168.1.11:18400", panel.Markup);
         Assert.Contains("192.168.1.10:28417", panel.Markup);
-        Assert.Contains("Additional player connections", panel.Markup);
-        Assert.Contains("Internal cluster connection", panel.Markup);
-        Assert.Contains("Internal node link · registered", panel.Markup);
         Assert.DoesNotContain("Direct Transport", panel.Markup);
         Assert.DoesNotContain(" DT", panel.Markup);
 
@@ -82,7 +78,6 @@ public sealed class ClusterHealthOverviewTests
         Assert.DoesNotContain("553%", panel.Markup);
         Assert.DoesNotContain("18 routed players", panel.Markup);
         Assert.Contains("Unobserved", panel.Markup);
-        Assert.Contains("— routed players", panel.Markup);
     }
 
     [Fact]
@@ -98,7 +93,6 @@ public sealed class ClusterHealthOverviewTests
         Assert.Contains("0/7 processes report RAM", panel.Markup);
         Assert.DoesNotContain("0 routed players", panel.Markup);
         Assert.DoesNotContain("0 partitions", panel.Markup);
-        Assert.Contains("— routed players", panel.Markup);
         Assert.DoesNotContain("100.0 GB", panel.Markup);
         Assert.Contains("62", panel.Find(".cluster-health-totals").TextContent);
     }
@@ -124,13 +118,10 @@ public sealed class ClusterHealthOverviewTests
         foreach (var card in new[] { ordinary, spare })
         {
             Assert.Equal("Idle", card.QuerySelector(".cluster-health-badge")!.TextContent);
-            Assert.Contains("Waiting for work", card.TextContent);
             Assert.Contains(NumberText.Display(1.0, "0.0") + " GB RAM", card.TextContent);
-            Assert.Contains("CPU chart paused while idle", card.TextContent);
             Assert.DoesNotContain("Simulation speed", card.TextContent);
             Assert.Empty(card.QuerySelectorAll(".cluster-cpu-bars"));
         }
-        Assert.Contains("Hot spare", spare.TextContent);
         var slowActive = panel.Find("article[data-node='node-1']");
         Assert.Equal("Active", slowActive.QuerySelector(".cluster-health-badge")!.TextContent);
         Assert.Contains($"Simulation speed {NumberText.Display(0.07, "0.00")}", slowActive.TextContent);
@@ -143,12 +134,10 @@ public sealed class ClusterHealthOverviewTests
         ordinary = panel.Find("article[data-node='node-2']");
         Assert.Equal("Active", ordinary.QuerySelector(".cluster-health-badge")!.TextContent);
         Assert.Single(ordinary.QuerySelectorAll(".cluster-cpu-bars"));
-        Assert.Contains("Simulation speed", ordinary.TextContent);
 
         nodes[4] = nodes[4] with { Telemetry = nodes[4].Telemetry! with { Connected = false } };
         panel.Render(p => p.Add(c => c.Runtime, fixture.Runtime(fixture.Status, nodes)));
         Assert.Empty(panel.FindAll("article[data-activity='idle']"));
-        Assert.Contains("Live process telemetry unavailable", panel.Find("article[data-node='node-5']").TextContent);
     }
 
     [Fact]

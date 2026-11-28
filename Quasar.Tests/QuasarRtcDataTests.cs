@@ -40,7 +40,7 @@ public sealed partial class QuasarRtcTests
         try { for (var i = 0; ; i++) { token.ThrowIfCancellationRequested(); yield return i; await Task.Delay(10, token); } }
         finally { Interlocked.Increment(ref subscriptionsClosed); }
     }
-    [RtcPeerFact]
+    [RtcPeerFact, Trait("Requires", "RealPeer")]
     public async Task RealSdkDirectStreamsUploadsSubscriptionsAndDownloads()
     {
         await HostedPanelState.SaveAsync(new HostedPanelState { Choice = "hosted", PanelId = Prefix[1..], Credential = Prefix[1..] + "." + new string('a', 64) });
@@ -53,7 +53,7 @@ public sealed partial class QuasarRtcTests
         await UntilAsync(() => app.Services.GetRequiredService<Quasar.Services.Plugins.QuasarRtcSessions>().PeerCount == 0);
     }
     // Same proof with the hosted direct port: every native candidate uses one UDP port.
-    [RtcPeerFact]
+    [RtcPeerFact, Trait("Requires", "RealPeer")]
     public async Task RealSdkDirectStreamsThroughTheFixedDirectPort()
     {
         await HostedPanelState.SaveAsync(new HostedPanelState { Choice = "hosted", PanelId = Prefix[1..], Credential = Prefix[1..] + "." + new string('a', 64) });

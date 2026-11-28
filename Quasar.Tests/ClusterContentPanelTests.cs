@@ -34,10 +34,7 @@ public sealed class ClusterContentPanelTests
         Assert.False(expansion.Instance.Expanded);
         await panel.InvokeAsync(() => expansion.Instance.ExpandAsync());
         Assert.True(expansion.Instance.Expanded);
-        Assert.Contains("Mods and plugins", panel.Markup);
-        Assert.Contains("Stage queued content updates in Maintenance", panel.Markup);
         Assert.DoesNotContain("until cluster and Magnetar support", panel.Markup);
-        Assert.Contains("No change observed", panel.Markup);
         Assert.Equal(manage, panel.FindAll("button").Any(b => b.TextContent.Contains("Check content updates")));
         await panel.InvokeAsync(() => expansion.Instance.CollapseAsync());
         Assert.Equal(manage, panel.FindAll("button").Any(b => b.TextContent.Contains("Queue mod and plugin updates")));

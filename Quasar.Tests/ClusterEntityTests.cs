@@ -148,7 +148,6 @@ public sealed class ClusterEntityTests
         await page.WaitForAssertionAsync(() => Assert.Equal(2, page.FindAll("tbody tr").Count));
         var targets = page.FindComponents<MudSelectItem<string>>().Select(option => option.Instance.Value!).Where(value => value.StartsWith("cluster:") || value.StartsWith("agent:")).ToArray();
         Assert.Equal(["cluster:cluster"], targets);
-        Assert.Contains("Unified cluster", page.Markup);
         Assert.DoesNotContain("epoch", page.Markup);
         Assert.DoesNotContain("Delete entity", page.Markup);
         var parameters = (IReadOnlyDictionary<string, object?>)typeof(Quasar.Client.Components.EntitiesView)

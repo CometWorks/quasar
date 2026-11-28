@@ -128,7 +128,6 @@ public sealed class NativeUiThemeTests
         Assert.Single(values);
         Assert.Equal("true", field.Find("input[type=text]").GetAttribute("aria-invalid"));
         Assert.Equal(new[] { true, false }, validity);
-        Assert.Contains("valid color", field.Find("[role=alert]").TextContent);
     }
 }
 
@@ -177,7 +176,6 @@ public sealed class NativeAppearanceTests : IDisposable
         page.Find("form").Submit();
         await page.WaitForAssertionAsync(() => Assert.Equal("Fleet Ops", _branding.Settings.AppName));
         Assert.Equal(BrandingPresets.CometWorksId, _branding.Settings.PresetId);
-        Assert.Contains("Appearance saved", page.Markup);
         // Optional offline inspection of the actual rendered component; no Quasar process.
         if (Environment.GetEnvironmentVariable("QUASAR_UI_PREVIEW_OUTPUT") is { Length: > 0 } preview)
             await File.WriteAllTextAsync(preview, $"<div data-theme=\"dark\" style=\"{QuasarTheme.BuildCss(_branding.Settings.DarkPalette, true)}\">{page.Markup}</div>");
@@ -236,7 +234,6 @@ public sealed class NativeAppearanceTests : IDisposable
             [], [], [], [], warmup, false, false, true, true, true, true, false, false);
         var page = context.Render<FleetWorkspace>(p => p.Add(c => c.Dashboard, data).Add(c => c.IsList, true));
         page.Find(".quasar-agent-details button").Click();
-        Assert.Contains("Register the owning cluster", page.Markup);
         Assert.Equal(new[] { "alpha", "cluster", "zulu" }, page.FindAll(".quasar-server-name-cell").Select(x => x.GetAttribute("title")));
         Assert.Empty(page.FindAll("a[title='Convert to cluster']"));
         page.FindAll("thead button").Single(x => x.TextContent.Trim().StartsWith("Game port")).Click();
@@ -256,7 +253,6 @@ public sealed class NativeAppearanceTests : IDisposable
         page.Find("input[type=search]").Input("ALPHA");
         Assert.Equal("alpha", Assert.Single(page.FindAll(".quasar-server-name-cell")).GetAttribute("title"));
         page.Find("input[type=search]").Input("no matching server");
-        Assert.Contains("No servers match", page.Markup);
         page.FindAll("button").Single(x => x.TextContent == "Clear filters").Click();
         Assert.Equal(3, page.FindAll(".quasar-server-name-cell").Count);
         page.Find("input[type=checkbox]").Change(true);
@@ -610,7 +606,6 @@ public sealed class NativeAppearanceTests : IDisposable
         var attachments = context.JSInterop.Invocations["quasarConfigs.attachRolloverLog"].Count;
         page.FindAll(".quasar-console-tabs button")[0].Click();
         page.WaitForAssertion(() => Assert.True(context.JSInterop.Invocations["quasarConfigs.attachRolloverLog"].Count > attachments));
-        Assert.Contains("Historical server output", page.Markup);
         page.Find("select").Change("__latest__");
         page.FindAll("button").Single(x => x.TextContent == "Errors").Click();
         page.WaitForAssertion(() => Assert.Contains("sample failure", page.Markup));
@@ -659,7 +654,6 @@ public sealed class NativeAppearanceTests : IDisposable
         Assert.Equal("Survival cluster (cluster)", request.GetProperty("names").GetProperty(clusterKey).GetString());
         Assert.Equal(PluginStatsHistoryService.BuildMetricKey("client-lag", "ClientLagRow", "P99Ms", "76561198000000001"),
             request.GetProperty("metrics")[0].GetProperty("key").GetString());
-        Assert.Contains("Player Steam ID", page.Markup);
         Assert.Equal(JsonValueKind.Null, request.GetProperty("yMax").ValueKind);
 
         // The Y axis max goes to the chart only

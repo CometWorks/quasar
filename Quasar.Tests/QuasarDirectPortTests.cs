@@ -48,7 +48,7 @@ public sealed class QuasarDirectPortTests : IDisposable
         await Assert.ThrowsAsync<Quasar.Plugin.Abstractions.Operations.QuasarOperationException>(() => service.ConfigureAsync(3479, false, default));
     }
 
-    [RtcPeerProcessFact]
+    [RtcPeerProcessFact, Trait("Requires", "RealPeer")]
     public async Task RealPeerOpensThePortAndTheProbeReportsItsReachability()
     {
         await HostedPanelState.SaveAsync(new() { Choice = "hosted", PanelId = "test-panel", Credential = "test-panel." + new string('a', 64), SetupCompleted = true });

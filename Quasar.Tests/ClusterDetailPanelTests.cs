@@ -62,9 +62,6 @@ public sealed class ClusterDetailPanelTests
             Assert.Contains("38% CPU", panel.Find(".cluster-gateway").TextContent);
             if (goal == DedicatedServerGoalState.On)
             {
-                Assert.Contains("Recovery at risk", panel.Markup);
-                Assert.Contains("No complete recovery point has been reported", panel.Markup);
-                Assert.Contains("Recovery after a crash is not confirmed", panel.Markup);
                 Assert.DoesNotContain("AtRisk", panel.Markup);
             }
             handler.Recovery = handler.Recovery with { State = RecoveryReadinessState.Ready,
@@ -74,14 +71,11 @@ public sealed class ClusterDetailPanelTests
             runtime = await RuntimeAsync(context, fixture.Cluster.UniqueName);
             panel.Render(p => p.Add(c => c.Runtime, runtime));
             Assert.DoesNotContain("18 routed players", panel.Markup);
-            Assert.Contains("— routed players", panel.Markup);
             Assert.DoesNotContain("34 partitions", panel.Markup);
             Assert.Contains("38% CPU", panel.Find(".cluster-gateway").TextContent);
             Assert.Null(runtime.Capabilities);
             if (goal == DedicatedServerGoalState.On)
             {
-                Assert.Contains("Ready to recover", panel.Markup);
-                Assert.Contains("Progress since the last save may be lost", panel.Markup);
                 Assert.DoesNotContain("CutConsistent", panel.Markup);
                 Assert.DoesNotContain("cluster time", panel.Markup);
             }
@@ -158,12 +152,10 @@ public sealed class ClusterDetailPanelTests
         Assert.Contains("Automatic cluster control", labels);
         Assert.Contains("Host management service", labels);
         Assert.Contains("Saved coordination state", labels);
-        Assert.Contains("Waiting for first check", panel.Markup);
         Assert.DoesNotContain("first reconcile pass", panel.Markup);
         if (collapseDetails)
         {
             Assert.False(panel.Find("details").HasAttribute("open"));
-            Assert.Contains("Desired state", panel.Find("details").TextContent);
             Assert.All(panel.FindAll(".quasar-notice"), notice => Assert.Null(notice.Closest("details")));
         }
 

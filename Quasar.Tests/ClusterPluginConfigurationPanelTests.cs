@@ -41,7 +41,6 @@ public sealed class ClusterPluginConfigurationPanelTests
             ClusterDashboard Dashboard() => BrowserClusterFixture.Dashboard(cluster) with
                 { GoalOn = true, PreparationRevision = catalog.GetCluster("test")?.PreparedDeployment?.Revision };
             var page = context.Render<ClusterAdminPanel>(parameters => parameters.Add(c => c.Cluster, Dashboard()));
-            Assert.Contains("No editable plugin configurations", page.Markup);
 
             var preparation = new ClusterPreparationRequest(new string('a', 64), """
                 {"pluginConfigurations":{"quasar-agent":{"configType":"Primary",

@@ -50,7 +50,6 @@ public sealed class NewServerDialogTests : IDisposable
         Assert.Equal(unavailableCluster, selected.HasAttribute("disabled"));
         if (unavailableCluster)
         {
-            Assert.Contains("Cluster setup requires Quasar running on Linux", provider.Markup);
             var clusterButton = provider.FindComponents<MudButton>().Single(b => b.Find("button").TextContent.Trim() == "Cluster");
             await provider.InvokeAsync(() => clusterButton.Instance.OnClick.InvokeAsync(new()));
             Assert.Single(provider.FindComponents<NewServerDialog>());

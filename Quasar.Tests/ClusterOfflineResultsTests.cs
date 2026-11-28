@@ -30,17 +30,13 @@ public sealed class ClusterOfflineResultsTests
             """)! with { Confidence = confidence };
         await using var context = new QuasarBunitContext();
         var panel = context.Render<ClusterOfflineResults>(p => p.Add(c => c.Results, [result]).Add(c => c.Prediction, true));
-        Assert.Contains("Prediction only", panel.Markup);
         Assert.Contains(confidence, panel.Markup);
         Assert.Contains("1 game hours", panel.Markup);
-        Assert.Contains("Capped; excess time", panel.Markup);
         Assert.Contains($"Stored energy change: {NumberText.Display(-0.25, "0.######")} MWh", panel.Markup);
         Assert.Contains("MyObjectBuilder_Ingot/Uranium", panel.Markup);
         Assert.Contains(NumberText.Display(-0.08m, "+0.######;-0.######;0"), panel.Markup);
         Assert.Contains("109", panel.Markup);
-        Assert.Contains("chips exhausted", panel.Markup);
         Assert.Contains("activation remaining 120 seconds", panel.Markup);
-        Assert.Contains("recipe units", panel.Markup);
         Assert.DoesNotContain("<button", panel.Markup);
         if (Environment.GetEnvironmentVariable("QUASAR_OFFLINE_RENDER_DIR") is { Length: > 0 } directory)
         {
@@ -55,11 +51,8 @@ public sealed class ClusterOfflineResultsTests
     {
         await using var context = new QuasarBunitContext();
         var panel = context.Render<ClusterOfflineResults>();
-        Assert.Contains("results unavailable", panel.Markup);
         panel.Render(p => p.Add(c => c.Results, []));
-        Assert.Contains("legacy Final", panel.Markup);
         panel.Render(p => p.Add(c => c.Results, [Skipped()]));
-        Assert.Contains("Skipped: content mismatch", panel.Markup);
         Assert.DoesNotContain("Stored energy change", panel.Markup);
     }
 

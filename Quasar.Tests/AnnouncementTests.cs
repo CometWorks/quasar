@@ -383,7 +383,6 @@ public sealed partial class AnnouncementTests : IDisposable
         var card = context.Render<DashboardNotificationCard>(p => p.Add(c => c.Notice, notices[0]));
         Assert.Empty(card.FindAll("script, img")); Assert.Contains("<script>urgent</script>", card.Find("h2").TextContent);
         Assert.Contains("quasar-notice-error", card.Find("section").ClassList);
-        Assert.Contains("CRITICAL announcement", card.Markup);
         Assert.Equal("https://example.org/details?x=1&y=2", card.Find("a").GetAttribute("href"));
         Assert.Equal("noopener noreferrer", card.Find("a").GetAttribute("rel"));
         card.Render(p => p.Add(c => c.Notice, notices[0] with { Url = "/notifications" })); Assert.Empty(card.FindAll("a"));

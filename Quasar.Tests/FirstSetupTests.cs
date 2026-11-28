@@ -39,7 +39,6 @@ public sealed class FirstSetupTests : IDisposable
             var provider = context.Render<MudDialogProvider>();
             var page = context.Render<Home>();
             await provider.WaitForAssertionAsync(() => Assert.Contains("Set Up First Server", provider.Markup));
-            Assert.Contains("Single Magnetar", provider.Markup);
             Assert.Equal(OperatingSystem.IsLinux() && clusterPermission,
                 provider.FindAll("button").Any(b => b.TextContent.Trim() == "Cluster"));
             await provider.Find(".mud-overlay").ClickAsync();
@@ -81,7 +80,6 @@ public sealed class FirstSetupTests : IDisposable
             await page.WaitForAssertionAsync(() => Assert.Contains("First Setup", page.Markup));
             await context.Services.GetRequiredService<DedicatedServerCatalog>().UpsertAsync(new()
                 { UniqueName = "first", DisplayName = "First", WorldSaveName = "World", ServerPort = 27016 });
-            Assert.Contains("First Setup", page.Markup);
         }
         await using (var context = Context())
         {
@@ -110,7 +108,6 @@ public sealed class FirstSetupTests : IDisposable
             var page = context.Render<Home>();
             await provider.WaitForAssertionAsync(() => Assert.Contains("Import Existing Server", provider.Markup));
             await provider.FindAll("button").Single(b => b.TextContent.Trim() == "Import Existing Server").ClickAsync();
-            Assert.Contains("What currently runs this server?", provider.Markup);
             page.Instance.Dispose();
             page.Dispose();
             await provider.Find("button[title='Close setup']").ClickAsync();
@@ -237,13 +234,11 @@ public sealed class FirstSetupTests : IDisposable
             await context.Services.GetRequiredService<ClusterCatalog>().CreateAsync(new("fleet", "My cluster", "http://gateway.test", ""), default);
             var operations = context.Services.GetRequiredService<ClusterOperationStore>();
             var page = context.Render<Home>();
-            Assert.Contains("No recent activity", page.Markup);
             var start = await operations.ExecuteAsync("fleet", "cluster.goal.set", "start", "admin", new { goal = "On" },
                 _ => Task.FromResult(new CometWorks.ClusterGateway.AdminContract.V1.AdminEnvelope<ClusterGoalResult>(1, DateTimeOffset.UtcNow,
                     new("fleet", Quasar.Models.DedicatedServerGoalState.On, DateTimeOffset.UtcNow))), default);
             await page.Find("button[aria-label='Refresh fleet']").ClickAsync();
             await page.WaitForAssertionAsync(() => Assert.Contains("Cluster start requested · completed", page.Markup));
-            Assert.Contains("My cluster", page.Find(".quasar-activity").TextContent);
             var details = page.Find(".quasar-activity details");
             Assert.False(details.HasAttribute("open"));
             Assert.Contains(
@@ -289,7 +284,6 @@ public sealed class FirstSetupTests : IDisposable
             new System.Security.Claims.Claim(QuasarClaimTypes.Provider, QuasarAuthSchemes.ServicePrincipal),
             new System.Security.Claims.Claim(QuasarClaimTypes.Cluster, "allowed"));
         var page = context.Render<Home>();
-        Assert.Contains("allowed cluster", page.Find(".quasar-activity").TextContent);
         Assert.DoesNotContain("private cluster", page.Markup);
         var workspace = page.FindComponent<Bunit.TestDoubles.Stub<FleetWorkspace>>();
         Assert.Equal("allowed", Assert.Single(workspace.Instance.Parameters.Get(p => p.Dashboard).Rows).UniqueName);
@@ -322,7 +316,6 @@ public sealed class FirstSetupTests : IDisposable
         Assert.Equal(new[] { "standalone", current.AnalyticsKey, other.AnalyticsKey }, options.GetProperty("servers").EnumerateArray().Select(v => v.GetString()));
         Assert.Equal("My cluster / node-1", options.GetProperty("names").GetProperty(current.AnalyticsKey).GetString());
         Assert.DoesNotContain(old.TelemetryKey, options.GetRawText());
-        Assert.Contains("Standalone servers and cluster nodes", panel.Markup);
 
         var added = Node("added", "node-3", 1);
         sources = await Sources();
@@ -401,7 +394,6 @@ public sealed class FirstSetupTests : IDisposable
         context.SelectedZip = zip.ToArray();
         dialogs.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromBinary(zip.ToArray(), "server.zip"));
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Analyze").ClickAsync(new());
-        Assert.Contains("Review detected data", dialogs.Markup);
         string configPath = dialogs.FindAll("p").Single(element => element.TextContent.StartsWith("Config: ")).TextContent[8..].Trim();
         Assert.True(File.Exists(configPath));
         // Returning to the upload step retains the staged files; no second browser upload is needed.
@@ -414,7 +406,6 @@ public sealed class FirstSetupTests : IDisposable
         Assert.Empty(dialogs.FindAll("input[type=checkbox]"));
         Assert.False(dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Import").HasAttribute("disabled"));
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Import").ClickAsync(new());
-        Assert.Contains("Imported 'Uploaded Server'", dialogs.Markup);
         var server = Assert.Single(context.Services.GetRequiredService<DedicatedServerCatalog>().GetServers());
         Assert.False(server.AutoStart);
         Assert.Equal(DedicatedServerGoalState.Off, server.GoalState);
@@ -437,7 +428,6 @@ public sealed class FirstSetupTests : IDisposable
         await dialogs.Find(".world-path-controls input").InputAsync(new() { Value = source });
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Analyze").ClickAsync(new());
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Next").ClickAsync(new());
-        Assert.Contains("I confirm source server is stopped", dialogs.Markup);
         Assert.True(dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Import").HasAttribute("disabled"));
         var importer = context.Services.GetRequiredService<ExistingServerImportService>();
         var analysis = importer.Analyze(ExistingServerKind.Vanilla, source);

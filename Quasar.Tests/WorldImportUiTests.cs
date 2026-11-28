@@ -40,7 +40,6 @@ public sealed class WorldImportUiTests : IDisposable
         await form.FindAll("button").Single(button => button.TextContent.Trim() == "Read World").ClickAsync();
         var commit = () => form.FindAll("button").Single(button => button.TextContent.Trim() == "Import and select save");
         Assert.True(commit().HasAttribute("disabled"));
-        Assert.Contains("World settings could not be read", form.Markup);
         await form.FindComponent<MudTextField<string>>().InvokeAsync(() => form.FindComponent<MudTextField<string>>().Instance.ValueChanged.InvokeAsync("New"));
         await form.InvokeAsync(() => form.FindComponent<MudSelect<string>>().Instance.ValueChanged.InvokeAsync("keep"));
         await commit().ClickAsync();

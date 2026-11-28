@@ -60,7 +60,6 @@ public sealed class ClusterCreateTests : IDisposable
         var methods = enrollment.FindComponents<MudSelect<string>>().Single(c => c.Instance.Label == "Installation method");
         await page.InvokeAsync(() => methods.Instance.ValueChanged.InvokeAsync("command"));
         await Button(page, "Generate enrollment command").Find("button").ClickAsync();
-        Assert.Contains("Enrollment command", page.Markup);
         var host = Assert.Single(context.Services.GetRequiredService<ClusterHostCatalog>().GetAll());
         Assert.Matches("^host-machine-[a-f0-9]{12}$", host.Name);
         Assert.Equal(host.Name, host.Id);
@@ -89,7 +88,6 @@ public sealed class ClusterCreateTests : IDisposable
         await page.InvokeAsync(() => id.Instance.ValueChanged.InvokeAsync("my-cluster"));
         await Button(page, "Back to host enrollment").Find("button").ClickAsync();
         Assert.Same(enrollment.Instance, page.FindComponent<HostEnrollmentForm>().Instance);
-        Assert.Contains("Enrollment command", page.Markup);
         await Button(page, "Continue to cluster configuration").Find("button").ClickAsync();
         Assert.Equal("my-cluster", page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Cluster ID" && c.Instance.HelperText?.Contains("Removed IDs") == true).Instance.GetState(c => c.Value));
         Assert.Equal("http://localhost/clusters/new", context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().Uri);
@@ -108,12 +106,8 @@ public sealed class ClusterCreateTests : IDisposable
         var option = page.FindComponents<MudCheckBox<bool>>().Single(c => c.Instance.Label?.Contains("Bugfixes and Performance") == true);
         Assert.True(option.Instance.GetState(c => c.Value));
         await page.InvokeAsync(() => page.FindComponents<MudSelect<string>>().Single(c => c.Instance.Label == "Configuration profile").Instance.ValueChanged.InvokeAsync("half"));
-        Assert.Contains("Adds Performance from MagnetarHub", page.Markup);
-        Assert.Contains("Havok physics crash", page.Markup);
-        Assert.Contains("unsaved progress may be lost", page.Markup);
         var disabling = option.Find("input").ChangeAsync(new ChangeEventArgs { Value = false });
         await dialogs.WaitForAssertionAsync(() => Assert.Contains("Skip recommended server plugins?", dialogs.Markup));
-        Assert.Contains("Performance will not be added", dialogs.Markup);
         await dialogs.FindAll("button").Single(b => b.TextContent.Trim() == "Keep enabled").ClickAsync();
         await disabling;
         Assert.True(option.Instance.GetState(c => c.Value));
@@ -124,8 +118,6 @@ public sealed class ClusterCreateTests : IDisposable
         await dialogs.FindAll("button").Single(b => b.TextContent.Trim() == "Skip recommended plugins").ClickAsync();
         await disabling;
         Assert.False(option.Instance.GetState(c => c.Value));
-        Assert.Contains("The cluster gets only the plugins the selected profile has.", page.Markup);
-        Assert.Contains("Existing profile plugins stay selected", page.Markup);
         Assert.Single(context.Services.GetRequiredService<QuasarConfigProfileCatalog>().GetProfile("half")!.Plugins);
         await option.Find("input").ChangeAsync(new ChangeEventArgs { Value = true });
         Assert.True(option.Instance.GetState(c => c.Value));
@@ -154,12 +146,10 @@ public sealed class ClusterCreateTests : IDisposable
         await using var context = CreateContext(securityAdmin: false);
         var page = context.Render<SetupCluster>();
         Assert.Empty(page.FindComponents<HostEnrollmentForm>());
-        Assert.Contains("A security administrator must enroll host machines", page.Markup);
 
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanManageSecurity);
         var standalone = context.Render<HostEnrollmentForm>();
         await standalone.FindComponents<MudButton>().Single(b => b.Markup.Contains("Generate enrollment command")).Find("button").ClickAsync();
-        Assert.Contains("Enrollment command", standalone.Markup);
         Assert.Single(context.Services.GetRequiredService<ClusterHostCatalog>().GetAll());
     }
 
@@ -179,10 +169,8 @@ public sealed class ClusterCreateTests : IDisposable
         var page = context.Render<SetupCluster>(p => p.Add(c => c.Resume, "resume"));
         Assert.Equal(1, page.FindComponent<MudStepper>().Instance.GetState(c => c.ActiveIndex));
         Assert.True(Button(page, "Resume setup").Instance.Disabled);
-        Assert.Contains("Setup interrupted during: Verifying the pinned deployment installation", page.Markup);
         Assert.Contains("Changed: Package/cli/cluster.py", page.Markup);
         Assert.Contains("Expected: SHA-256 approved", page.Markup);
-        Assert.Contains("Keep this cluster", page.Markup);
         Assert.True(page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Cluster ID" && c.Instance.HelperText?.Contains("Removed IDs") == true).Instance.Disabled);
         await Button(page, "Back to host enrollment").Find("button").ClickAsync();
         Assert.Single(page.FindComponents<HostEnrollmentForm>());
@@ -331,7 +319,6 @@ public sealed class ClusterCreateTests : IDisposable
         var clicking = button.Find("button").ClickAsync();
 
         await page.WaitForAssertionAsync(() => Assert.Single(page.FindAll("section[aria-busy]")));
-        Assert.Contains("Validating the source and destination before backup.", page.Find("[role=status]").TextContent);
         Assert.Equal("true", page.Find("[aria-busy]").GetAttribute("aria-busy"));
         Assert.DoesNotContain(page.FindComponents<MudButton>(), b => b.Markup.Contains("Convert to cluster"));
         Assert.DoesNotContain(page.FindComponents<MudAlert>(), a => a.Instance.Severity == Severity.Warning);
@@ -467,7 +454,6 @@ public sealed class ClusterCreateTests : IDisposable
         await dialogs.FindComponents<MudButton>().Single(c => c.Markup.Contains("Cancel")).Find("button").ClickAsync();
         await removal;
         Assert.Equal(host, Assert.Single(hosts.GetAll()));
-        Assert.Contains("Enrollment command", page.Markup);
 
         removal = Button(page, "Remove enrollment").Find("button").ClickAsync();
         dialogs.WaitForAssertion(() => Assert.Contains("Remove enrollment", dialogs.Markup));

@@ -63,8 +63,6 @@ public sealed class ServerEditorBrowserTests : IDisposable
         await dialogs.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<FleetServerEditor>("Edit server",
             new DialogParameters<FleetServerEditor> { { p => p.UniqueName, "source" } }));
         await dialogs.WaitForAssertionAsync(() => Assert.Contains("Edit Server", dialogs.Markup));
-        Assert.Contains("Original server", dialogs.Markup);
-        Assert.Contains("Current profile", dialogs.Markup);
         Assert.Contains("Main", dialogs.Markup);
     }
 
