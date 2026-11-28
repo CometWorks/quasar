@@ -1,8 +1,12 @@
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using Magnetar.Protocol.Transport;
 using PluginSdk.Clustering;
 using Quasar.Agent;
+using Sandbox.Engine.Multiplayer;
+using Sandbox.Game.Gui;
+using VRage.Network;
 using Xunit;
 
 namespace Quasar.Tests;
@@ -44,6 +48,31 @@ public sealed class ClusterChatRelayTests
         var result = await relay.SendAsync(new() { CommandType = ServerCommandType.SendWhisper, SteamId = 123, Text = "hello" }, default);
         Assert.False(result.Success);
         Assert.Contains("unavailable", result.Message);
+    }
+
+    // SE-2030: the client shows a Private message only when it targets the player's identity, so an untargeted
+    // whisper on a cluster was dropped on the client although every node reported it delivered.
+    [Theory]
+    [InlineData(ServerCommandType.SendWhisper, ChatChannel.Private, 42L, null)]
+    [InlineData(ServerCommandType.SendFactionChat, ChatChannel.Private, 42L, "Discord [ABC]")]
+    [InlineData(ServerCommandType.SendChat, ChatChannel.Global, 0L, null)]
+    public void DeliveryTargetsTheRecipientsIdentity(ServerCommandType type, ChatChannel channel, long target, string? author)
+    {
+        var command = new ServerCommandEnvelope { CommandType = type, Text = "hello", Payload = "ABC", SteamId = 7 };
+        var chat = ClusterChatRelay.Message(command, 42, 99);
+        Assert.Equal("hello", chat.Text);
+        Assert.Equal(99UL, chat.Author);
+        Assert.Equal((byte)channel, chat.Channel);
+        Assert.Equal(target, chat.TargetId);
+        Assert.Equal(author, chat.CustomData?.AuthorName);
+    }
+
+    [Fact]
+    public void DeliveryEventIsTheGamesClientChatEvent()
+    {
+        var method = ClusterChatRelay.ToPlayer()(null!).Method;
+        Assert.Equal(typeof(MyMultiplayerBase), method.DeclaringType);
+        Assert.NotNull(method.GetCustomAttribute<EventAttribute>());
     }
 
     private sealed class Provider : IPluginClusterProvider, IPluginClusterBroadcastProvider, IPluginClusterViewProvider
