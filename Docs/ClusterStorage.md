@@ -115,7 +115,7 @@ newly prepared revision built from the backup's recorded inputs:
   itself stay in the snapshot;
 - what processes write again on their own: Magnetar's patched game assemblies in
   `config/Preloader`, `data/NativeWrapperCache`, `data/Performance/Cache`, the node logs in
-  `config` and `data`, and `gateway/gateway.log` (`regenerated`);
+  `config` and `data`, and `gateway/gateway.log` with its rotations `gateway.log.<n>` (`regenerated`);
 - the cluster plugin's `data/cluster/handover-diff` dumps, which are diagnostics.
 
 A restore refuses a candidate deployment that does not pin or seed what its snapshot left out.
@@ -144,6 +144,25 @@ a capture in progress counts too. One capture, collection or restore upload at a
 cluster's store. Backups taken before this kept the archive as `<host>.tar`; they are read and
 restored as before. An older Quasar cannot read the new format, so it cannot restore these
 backups.
+
+New objects are written by a few threads (half the cores, at most 8) at nice 5 while the archive
+keeps streaming in, with at most 256 MiB of file content waiting for them (SE-1969). An object
+whose file compresses is kept gzipped (level 5) as `<sha256>.gz`: its name is still the hash of
+the file, so deduplication works across gzipped and plain objects. Files Quasar knows are
+compressed already are not tried: partition saves (`.mps`), voxel files (`.vx2`), the game's
+binary saves (`.sbcB5`, `.sbsB5`), images and archives. Any other file is gzipped and kept plain
+when that saves less than a tenth. A Quasar from before this cannot read gzipped objects.
+
+Measured on the 42.4 GB Host archive of a copy of Octahedron's live world (2026-11-26, 497,745
+files), stored into an empty store on one laptop NVMe: the store took 17.5 GB instead of 23.2 GB
+(93,889 objects gzipped, mostly voxel journals, the registry and configuration), and 9.3 minutes
+instead of 34, most of that gain from writing objects on several threads. Reading the archive back
+for a restore took 64 s either way.
+
+What a live Octahedron backup holds is mostly partition saves (33.6 of 41 GB): 25.7 GB are saves
+of archived partitions, which the cluster keeps for `retention.archiveFileDays`, and the rest
+includes old saves that registry snapshots still pin (SE-2008). The store keeps the two copies of
+each save once.
 
 On copies of five octahedron-test backups of 2026-11-11 (two online, three stopped, 43.9 GB of
 tar), the store took 5.6 GB: the first backup added 4.9 GB of objects, each later one up to

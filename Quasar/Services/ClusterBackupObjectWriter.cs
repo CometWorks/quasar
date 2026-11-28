@@ -10,6 +10,7 @@ namespace Quasar.Services;
 internal sealed class ClusterBackupObjectWriter : IDisposable
 {
     internal const long MaxPendingBytes = 256L * 1024 * 1024;
+
     // nice 5, the same as a BelowNormal dedicated server: the cluster and the web UI come first.
     private const int Nice = 5;
     private static readonly ZLibCompressionOptions Level = new() { CompressionLevel = 5 };
@@ -27,10 +28,17 @@ internal sealed class ClusterBackupObjectWriter : IDisposable
     internal ClusterBackupObjectWriter(string clusterRoot, int threads = 0)
     {
         _root = clusterRoot;
-        _threads = new Thread[threads > 0 ? threads : Math.Clamp(Environment.ProcessorCount / 2, 1, 8)];
+        _threads = new Thread[
+            threads > 0 ? threads : Math.Clamp(Environment.ProcessorCount / 2, 1, 8)
+        ];
         for (int i = 0; i < _threads.Length; i++)
         {
-            _threads[i] = new Thread(Run) { IsBackground = true, Name = "Backup objects", Priority = ThreadPriority.BelowNormal };
+            _threads[i] = new Thread(Run)
+            {
+                IsBackground = true,
+                Name = "Backup objects",
+                Priority = ThreadPriority.BelowNormal,
+            };
             _threads[i].Start();
         }
     }
@@ -40,13 +48,20 @@ internal sealed class ClusterBackupObjectWriter : IDisposable
     /// the file; otherwise the file stays the caller's.</summary>
     internal bool Add(string sha256, byte[]? data, string? file, bool compress)
     {
-        if (_failure is { } failure) throw new IOException("Writing a backup object failed.", failure);
+        if (_failure is { } failure)
+            throw new IOException("Writing a backup object failed.", failure);
         string target = ClusterBackupStore.ObjectPath(_root, sha256);
-        if (!_queued.Add(sha256) || File.Exists(target) || File.Exists(target + ClusterBackupStore.PackedSuffix)) return false;
+        if (
+            !_queued.Add(sha256)
+            || File.Exists(target)
+            || File.Exists(target + ClusterBackupStore.PackedSuffix)
+        )
+            return false;
         long size = data?.LongLength ?? 0;
         lock (_budget)
         {
-            while (_pending > 0 && _pending + size > MaxPendingBytes && _failure is null) Monitor.Wait(_budget);
+            while (_pending > 0 && _pending + size > MaxPendingBytes && _failure is null)
+                Monitor.Wait(_budget);
             _pending += size;
         }
         _jobs.Add(new Job(sha256, data, file, size, compress));
@@ -57,14 +72,18 @@ internal sealed class ClusterBackupObjectWriter : IDisposable
     internal void Complete()
     {
         _jobs.CompleteAdding();
-        foreach (var thread in _threads) thread.Join();
-        if (_failure is { } failure) throw new IOException("Writing a backup object failed.", failure);
+        foreach (var thread in _threads)
+            thread.Join();
+        if (_failure is { } failure)
+            throw new IOException("Writing a backup object failed.", failure);
     }
 
     public void Dispose()
     {
-        if (!_jobs.IsAddingCompleted) _jobs.CompleteAdding();
-        foreach (var thread in _threads) thread.Join();
+        if (!_jobs.IsAddingCompleted)
+            _jobs.CompleteAdding();
+        foreach (var thread in _threads)
+            thread.Join();
         _jobs.Dispose();
     }
 
@@ -76,12 +95,17 @@ internal sealed class ClusterBackupObjectWriter : IDisposable
             try
             {
                 // After a failure the rest is only drained: the capture fails anyway.
-                if (Volatile.Read(ref _failure) is null) Write(job);
+                if (Volatile.Read(ref _failure) is null)
+                    Write(job);
             }
-            catch (Exception error) { Interlocked.CompareExchange(ref _failure, error, null); }
+            catch (Exception error)
+            {
+                Interlocked.CompareExchange(ref _failure, error, null);
+            }
             finally
             {
-                if (job.File is not null && File.Exists(job.File)) File.Delete(job.File);
+                if (job.File is not null && File.Exists(job.File))
+                    File.Delete(job.File);
                 lock (_budget)
                 {
                     _pending -= job.Size;
@@ -95,26 +119,52 @@ internal sealed class ClusterBackupObjectWriter : IDisposable
     private void Write(Job job)
     {
         string target = ClusterBackupStore.ObjectPath(_root, job.Sha256);
-        if (job.Compress && ClusterBackupStore.Publish(target + ClusterBackupStore.PackedSuffix, temporary =>
-            {
-                using var input = Open(job);
-                using var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 16);
-                using (var gzip = new GZipStream(output, Level, leaveOpen: true)) input.CopyTo(gzip, 1 << 16);
-                return output.Length <= input.Length - input.Length / 10;
-            })) return;
-        if (job.Data is not null) ClusterBackupStore.Publish(target, temporary => File.WriteAllBytes(temporary, job.Data));
-        else ClusterBackupStore.Publish(target, temporary => File.Move(job.File!, temporary));
+        if (
+            job.Compress
+            && ClusterBackupStore.Publish(
+                target + ClusterBackupStore.PackedSuffix,
+                temporary =>
+                {
+                    using var input = Open(job);
+                    using var output = new FileStream(
+                        temporary,
+                        FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None,
+                        1 << 16
+                    );
+                    using (var gzip = new GZipStream(output, Level, leaveOpen: true))
+                        input.CopyTo(gzip, 1 << 16);
+                    return output.Length <= input.Length - input.Length / 10;
+                }
+            )
+        )
+            return;
+        if (job.Data is not null)
+            ClusterBackupStore.Publish(
+                target,
+                temporary => File.WriteAllBytes(temporary, job.Data)
+            );
+        else
+            ClusterBackupStore.Publish(target, temporary => File.Move(job.File!, temporary));
     }
 
-    private static Stream Open(Job job) => job.Data is not null ? new MemoryStream(job.Data, writable: false)
-        : new FileStream(job.File!, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
+    private static Stream Open(Job job) =>
+        job.Data is not null
+            ? new MemoryStream(job.Data, writable: false)
+            : new FileStream(job.File!, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
 
     // .NET does not apply thread priorities on Linux, where nice is per thread: renice this one.
     private static void LowerPriority()
     {
-        if (!OperatingSystem.IsLinux()) return;
-        try { _ = setpriority(0, gettid(), Nice); } // PRIO_PROCESS with a thread id names that thread alone.
-        catch (Exception error) when (error is EntryPointNotFoundException or DllNotFoundException) { }
+        if (!OperatingSystem.IsLinux())
+            return;
+        try
+        {
+            _ = setpriority(0, gettid(), Nice);
+        } // PRIO_PROCESS with a thread id names that thread alone.
+        catch (Exception error) when (error is EntryPointNotFoundException or DllNotFoundException)
+        { }
     }
 
     [DllImport("libc", SetLastError = true)]

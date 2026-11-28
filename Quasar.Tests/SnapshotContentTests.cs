@@ -18,5 +18,6 @@ public sealed class SnapshotContentTests
     [InlineData("gateway/registry/events.jsonl.1", false)]
     [InlineData("gateway/registry/registry.db", false)]
     [InlineData("nodes/abc/data/cluster/saves/P-1/g1-s1.mps", false)]
-    public void RegeneratedFilesAreLeftOut(string relative, bool leftOut) => Assert.Equal(leftOut, Snapshots.Regenerated(relative));
+    public void RegeneratedFilesAreLeftOut(string relative, bool leftOut) =>
+        Assert.Equal(leftOut, Snapshots.Regenerated(relative));
 }
