@@ -24,6 +24,9 @@ public sealed class KnownPlayerCatalog
     private readonly object _sync = new();
     private readonly ILogger<KnownPlayerCatalog> _logger;
     private readonly Dictionary<string, KnownPlayerRecord> _players = new(StringComparer.OrdinalIgnoreCase);
+    // Resolved once, so a debounced save can't land in a different Quasar directory.
+    private readonly string _playersPath = MagnetarPaths.GetQuasarKnownPlayersPath();
+    private readonly string _settingsPath = MagnetarPaths.GetQuasarKnownPlayerSettingsPath();
     private CancellationTokenSource? _saveDebounce;
     private int _retentionDays = DefaultRetentionDays;
 
@@ -338,7 +341,7 @@ public sealed class KnownPlayerCatalog
 
     private KnownPlayerSettings LoadSettings()
     {
-        var path = MagnetarPaths.GetQuasarKnownPlayerSettingsPath();
+        var path = _settingsPath;
         if (!File.Exists(path))
             return new KnownPlayerSettings();
 
@@ -356,7 +359,7 @@ public sealed class KnownPlayerCatalog
 
     private List<KnownPlayerRecord> LoadPlayers()
     {
-        var path = MagnetarPaths.GetQuasarKnownPlayersPath();
+        var path = _playersPath;
         if (!File.Exists(path))
             return [];
 
@@ -379,7 +382,7 @@ public sealed class KnownPlayerCatalog
             RetentionDays = RetentionDays,
         };
         var json = JsonSerializer.Serialize(settings, JsonOptions);
-        await AtomicFileWriter.WriteTextAsync(MagnetarPaths.GetQuasarKnownPlayerSettingsPath(), json, cancellationToken);
+        await AtomicFileWriter.WriteTextAsync(_settingsPath, json, cancellationToken);
     }
 
     private static bool ApplySnapshot(
@@ -589,7 +592,7 @@ public sealed class KnownPlayerCatalog
         }
 
         var json = JsonSerializer.Serialize(snapshot, JsonOptions);
-        await AtomicFileWriter.WriteTextAsync(MagnetarPaths.GetQuasarKnownPlayersPath(), json, cancellationToken);
+        await AtomicFileWriter.WriteTextAsync(_playersPath, json, cancellationToken);
     }
 
     private static string NormalizeUniqueName(string? uniqueName) =>

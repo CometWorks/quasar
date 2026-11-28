@@ -126,12 +126,24 @@ public sealed class QuasarDiagnosticLoggerTests : IDisposable
             Assert.NotEqual(JsonValueKind.Null, run.RootElement.GetProperty("endedAtUtc").ValueKind);
         }
         // Bootstrap's stdout batches may contain the same failure text and must keep working.
-        DiagnosticCollector.RecordOutput(provider.DiagnosticDirectory, BindFailure);
-        LogBatchCapture.Flush(provider.DiagnosticDirectory!, collector.PolicyFilePath, force: true);
-        await collector.CollectAsync(default);
+        // LogBatchCapture drops a line when a capture file is briefly locked, as a virus scanner on
+        // the Windows runner does with new files. Append again until a batch is out.
         var shared = new List<IncidentReport>();
-        foreach (var envelope in collector.GetReports())
-            shared.Add(await IncidentArchive.ValidateAsync(Path.Combine(collector.IncomingDirectory, envelope.ReportId + ".zip"), envelope, rsa));
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (true)
+        {
+            if (!Directory.EnumerateFiles(provider.DiagnosticDirectory!, "log-*.json").Any())
+            {
+                DiagnosticCollector.RecordOutput(provider.DiagnosticDirectory, BindFailure);
+                LogBatchCapture.Flush(provider.DiagnosticDirectory!, collector.PolicyFilePath, force: true);
+            }
+            await collector.CollectAsync(default);
+            shared.Clear();
+            foreach (var envelope in collector.GetReports())
+                shared.Add(await IncidentArchive.ValidateAsync(Path.Combine(collector.IncomingDirectory, envelope.ReportId + ".zip"), envelope, rsa));
+            if (shared.Any(report => report.Kind == "log_batch") || DateTime.UtcNow >= deadline) break;
+            await Task.Delay(100);
+        }
         var batch = Assert.Single(shared, report => report.Kind == "log_batch");
         Assert.Contains(BindFailure, batch.Message);
         Assert.Equal(excluded ? 1 : 3, shared.Count);

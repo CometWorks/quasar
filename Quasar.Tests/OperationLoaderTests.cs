@@ -1,4 +1,6 @@
 using Bunit;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using Quasar.Components.Shared;
 using Xunit;
 
@@ -10,6 +12,8 @@ public sealed class OperationLoaderTests
     public async Task LongOperationShowsItsActivityAndOnlyReportedPercentages()
     {
         using var context = new QuasarBunitContext();
+        var time = new FakeTimeProvider();
+        context.Services.AddSingleton<TimeProvider>(time);
         var loader = context.Render<QuasarOperationLoader>(p => p
             .Add(c => c.Title, "Preparing runtime")
             .Add(c => c.Message, "Downloading Dedicated Server"));
@@ -28,6 +32,9 @@ public sealed class OperationLoaderTests
         Assert.False(loader.Find("progress").HasAttribute("value"));
         Assert.DoesNotContain("42%", loader.Markup);
         Assert.Equal("Verifying downloaded files", loader.Find("[role=status]").TextContent);
-        await loader.WaitForAssertionAsync(() => Assert.DoesNotContain("Elapsed 00:00:00", loader.Markup), TimeSpan.FromSeconds(3));
+        Assert.Contains("Elapsed 00:00:00", loader.Markup);
+        time.Advance(TimeSpan.FromSeconds(31));
+        await loader.WaitForAssertionAsync(() => Assert.Contains("Elapsed 00:00:31", loader.Markup));
+        Assert.Contains("Still working.", loader.Markup);
     }
 }
