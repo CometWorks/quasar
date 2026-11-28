@@ -115,7 +115,8 @@ public sealed class ClusterDefaultPluginsTests : IDisposable
         // The Host executor is unreachable, so setup stops right after binding the profile snapshot.
         using var http = new HttpClient(new Offline());
         var setup = new ClusterSetupService(clusters, hosts, new ClusterHostClient(http, credentials), credentials,
-            null!, null!, null!, null!, worlds, profiles, null!, new ClusterOperationStore(Path.Combine(_root, "operations")), servers, null!);
+            null!, null!, null!, null!, worlds, profiles, null!, new ClusterOperationStore(Path.Combine(_root, "operations")), servers, null!)
+            { HostStartWait = TimeSpan.Zero };
         var request = new ClusterSetupRequest("demo", "Demo", world.WorldTemplateId, "profile", "one", 28000, [new("one", 2)],
             DefaultPlugins: enable);
 

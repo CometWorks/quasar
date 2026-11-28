@@ -2453,6 +2453,13 @@ Local HTTP remains independent. Direct failure is reported without silently
 relaying bulk data. Packaging and installed acceptance are still required; see
 [direct transport status and security](QuasarWebRtc.md).
 
+The hosted setup step stores the direct connection UDP port in
+`HostedPanel/direct-port.json`. For development, `Quasar:WebRtc:UdpPort` overrides
+it, `Quasar:WebRtc:StunUrls` (at most two `stun:` URLs, default
+`stun:rtc.se-servers.net:3478`) selects discovery and the port check, and
+`Quasar:WebRtc:PeerExecutable` points to a built peer. See
+[fixed direct connection port](QuasarWebRtc.md#fixed-direct-connection-port).
+
 Use **Security → Manage access setup** to choose self-deployment or Nebula hosted
 access. See [Hosted panel](HostedPanel.md) for enrollment, Steam requirements,
 private state, connector lifetime and current launch gates. Stripe checkout is implemented in Nebula and remains disabled pending provider

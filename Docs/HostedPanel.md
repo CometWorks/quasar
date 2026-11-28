@@ -98,6 +98,14 @@ existing release acceptance. See [Nebula billing setup](https://github.com/Comet
    **Manage Nebula hosting and billing** opens your Nebula account. **Self-deploy**
    is available only on the access-method selection screen, never on later hosted
    steps or when reopening a completed enrollment.
+6. Once the panel is ready, the last step asks for a **direct connection UDP port**
+   (default 3479). Allow inbound UDP on it in the host firewall, the cloud
+   provider's firewall or security group, or a home router port forward. **Save and
+   test** asks Nebula to send one datagram to that port from the internet and
+   reports whether it arrived. **Skip for now** keeps every browser on the tunnel.
+   Existing hosted panels see this step once after upgrading. Reopen it with
+   **Configure direct connection port** on the ready screen. See
+   [direct connection port](QuasarWebRtc.md#fixed-direct-connection-port).
 
 There are no customer frp commands or pasted credentials. Canceling an incomplete
 connection stops the connector without deleting the private identity; selecting
@@ -180,7 +188,7 @@ revocation. These controls cannot undo previous script activity. See
 
 The first visit downloads the dashboard runtime. Later visits can reuse files retained in the browser cache. The loading bar shows download progress while the dashboard starts. Hosted connections use the HTTPS tunnel immediately and try an authenticated STUN-only WebRTC connection in the background. The connection indicator shows when the direct path is ready. New SDK requests and transfers then use that path. An upload or download already in progress keeps its original path. If it fails, check its result before retrying. Local and self-hosted sessions use the same browser UI over HTTP(S).
 
-Nebula applies its aggregate 20 Mbit/s tunnel limit to bulk data in both directions. Direct transfers bypass this limit. UI operations that change worker or game state still wait for a response from Quasar. The initial page and sign-in use the panel URL.
+Nebula applies its aggregate 20 Mbit/s tunnel limit to bulk data in both directions. Direct transfers bypass this limit. Direct connections need the hosted panel's UDP port open to the internet; without it, browsers whose STUN result the server cannot reach stay on the tunnel. Tunnelled SDK calls reuse their session tokens for up to a minute (refreshed once after a stale antiforgery rejection), and a failed direct attempt retries after 30 seconds, doubling to five minutes. UI operations that change worker or game state still wait for a response from Quasar. The initial page and sign-in use the panel URL.
 
 For an approved Linux release, set the worker environment variable `QUASAR_NEBULA_RELEASE_SHA256` to the 64-character lowercase SHA-256 of the installed release archive. Nebula must have independently approved that archive. Quasar uses integrity metadata from the worker's own build to fetch matching binary runtime resources without cookies from `/_nebula/releases/<digest>/_framework/<filename>`. If the release is missing, retired, or fails integrity, it requests the panel copy with the same integrity. Without a pin, the browser requests its assets from the panel. Loader modules, plugins, and tenant data keep panel-scoped URLs. Changing releases or rolling back uses the complete worker package and its matching browser assets.
 
@@ -188,7 +196,8 @@ For an approved Linux release, set the worker environment variable `QUASAR_NEBUL
 
 `HostedPanel/` sits under the Quasar install/data root. It contains
 `enrollment.json` (installation proof, connector credential and local proxy
-proof), private generated `frpc.toml`, exported public trust roots and a verified
+proof), `direct-port.json` (the direct connection port and its last check),
+private generated `frpc.toml`, exported public trust roots and a verified
 frpc 0.71.1 download. The connector supports Linux x64 and Windows x64. Archives
 come from the official upstream release and are checked against pinned SHA-256
 values; the upstream Apache 2.0 license is preserved alongside the binary.

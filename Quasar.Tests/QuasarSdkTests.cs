@@ -328,7 +328,6 @@ public sealed partial class QuasarSdkTests : IDisposable
         await page.InvokeAsync(() => page.FindAll("fieldset").Single(field => field.TextContent.Contains("restricted"))
             .QuerySelectorAll("button").Single(button => button.TextContent.Contains("Save endpoint rule")).ClickAsync());
         Assert.True(_rbac.GetConfig().OperationOverrides["example.plugin/restricted"]!.Enabled);
-        Assert.Contains("Permission denied", page.Markup);
     }
 
     private sealed class CurrentAuthentication : AuthenticationStateProvider

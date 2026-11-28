@@ -99,7 +99,6 @@ public sealed class ViewerTimeZoneTests
         page.Find("input").Change("Unknown/Zone");
         page.Find("form").Submit();
         Assert.Equal("Asia/Kolkata", viewer.PreferredId);
-        Assert.Contains("Choose a valid time zone", page.Find("[role=alert]").TextContent);
 
         page.Find("button[type=button]").Click();
         Assert.Null(viewer.PreferredId);

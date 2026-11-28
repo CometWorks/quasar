@@ -45,7 +45,9 @@ async function checkPopupSurfaces(page) {
     assert.equal(restart, surface, "Restart feedback surface");
 }
 
-for (const browserType of [chromium, firefox]) {
+// CI pull requests set QUASAR_BROWSER=chromium; main and release runs check both.
+const selected = (process.env.QUASAR_BROWSER || "chromium,firefox").split(",").map(name => name.trim());
+for (const browserType of [chromium, firefox].filter(type => selected.includes(type.name()))) {
     const browser = await browserType.launch(browserType === chromium ? { executablePath: process.env.CHROME_PATH } : {});
     try {
         const context = await browser.newContext({ignoreHTTPSErrors: true});

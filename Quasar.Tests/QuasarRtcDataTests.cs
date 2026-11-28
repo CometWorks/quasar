@@ -40,7 +40,7 @@ public sealed partial class QuasarRtcTests
         try { for (var i = 0; ; i++) { token.ThrowIfCancellationRequested(); yield return i; await Task.Delay(10, token); } }
         finally { Interlocked.Increment(ref subscriptionsClosed); }
     }
-    [RtcPeerFact]
+    [RtcPeerFact, Trait("Requires", "RealPeer")]
     public async Task RealSdkDirectStreamsUploadsSubscriptionsAndDownloads()
     {
         await HostedPanelState.SaveAsync(new HostedPanelState { Choice = "hosted", PanelId = Prefix[1..], Credential = Prefix[1..] + "." + new string('a', 64) });
@@ -52,6 +52,23 @@ public sealed partial class QuasarRtcTests
         await BrowserAsync(app, "data");
         await UntilAsync(() => app.Services.GetRequiredService<Quasar.Services.Plugins.QuasarRtcSessions>().PeerCount == 0);
     }
+    // Same proof with the hosted direct port: every native candidate uses one UDP port.
+    [RtcPeerFact, Trait("Requires", "RealPeer")]
+    public async Task RealSdkDirectStreamsThroughTheFixedDirectPort()
+    {
+        await HostedPanelState.SaveAsync(new HostedPanelState { Choice = "hosted", PanelId = Prefix[1..], Credential = Prefix[1..] + "." + new string('a', 64) });
+        int direct;
+        using (var probe = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0)))
+            direct = ((System.Net.IPEndPoint)probe.Client.LocalEndPoint!).Port;
+        await new HostedDirectPort { Port = direct }.SaveAsync(default);
+        using var blackhole = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0));
+        var port = ((System.Net.IPEndPoint)blackhole.Client.LocalEndPoint!).Port;
+        await using var app = await StartAsync(network: true, hosted: true, stunUrl: $"stun:127.0.0.1:{port}");
+        await BrowserAsync(app, "data");
+        Assert.Equal(new Quasar.Services.Plugins.QuasarDirectPortBinding(direct, null), app.Services.GetRequiredService<Quasar.Services.Plugins.QuasarPeerProcess>().DirectPort);
+        await UntilAsync(() => app.Services.GetRequiredService<Quasar.Services.Plugins.QuasarRtcSessions>().PeerCount == 0);
+    }
+
     private sealed class DataFile(QuasarRtcTests owner) : Stream
     {
         public const int Size = 32 * 1024 * 1024;

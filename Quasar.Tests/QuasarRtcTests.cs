@@ -107,7 +107,8 @@ public sealed partial class QuasarRtcTests : IDisposable
         Assert.Contains("integrity", error.Message);
     }
 
-    [RtcPeerFact]
+    // Session and lease rules also have fast non-browser coverage; CI runs this browser proof on main.
+    [RtcPeerFact, Trait("Requires", "RealPeer"), Trait("CiScope", "Main")]
     public async Task HostedCredentialRemovalClosesActivePeerAndReactivationAcceptsFreshPeer()
     {
         var state = new HostedPanelState { Choice = "hosted", PanelId = Prefix[1..], EnrollmentId = "retained-enrollment",
@@ -123,7 +124,7 @@ public sealed partial class QuasarRtcTests : IDisposable
         await UntilAsync(() => app.Services.GetRequiredService<QuasarRtcSessions>().PeerCount == 0);
     }
 
-    [RtcPeerFact]
+    [RtcPeerFact, Trait("Requires", "RealPeer"), Trait("CiScope", "Main")]
     public async Task RealBrowserPeerBindsSessionsLogoutAndHostingExpiry()
     {
         await using (var local = await StartAsync(network: true))

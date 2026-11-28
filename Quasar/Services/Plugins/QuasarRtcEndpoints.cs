@@ -16,6 +16,8 @@ public static class QuasarRtcEndpoints
         services.AddSingleton<QuasarRtcAdapter>();
         services.AddSingleton<QuasarRtcSessions>();
         services.AddSingleton<IHostedService>(provider => provider.GetRequiredService<QuasarRtcSessions>());
+        services.AddSingleton<QuasarDirectPortService>();
+        services.AddSingleton<IHostedService>(provider => provider.GetRequiredService<QuasarDirectPortService>());
         return services;
     }
 

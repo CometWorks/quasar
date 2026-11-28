@@ -4,7 +4,9 @@ import { pathToFileURL } from "node:url";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 const playwright = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
-for (const name of ["chromium", "firefox"]) test(`RTC3 real SDK data and native download: ${name}`, { timeout: 110000 }, async () => {
+// CI pull requests set QUASAR_BROWSER=chromium; main and release runs check both.
+const browsers = (process.env.QUASAR_BROWSER || "chromium,firefox").split(",").map(name => name.trim()).filter(Boolean);
+for (const name of browsers) test(`RTC3 real SDK data and native download: ${name}`, { timeout: 110000 }, async () => {
     const browser = await playwright[name].launch({ headless: true, ...(name === "chromium" ? { executablePath: process.env.CHROME_PATH,
         args: ["--disable-features=WebRtcHideLocalIpsWithMdns"] } : {}) });
     try {

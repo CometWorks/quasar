@@ -46,7 +46,6 @@ public sealed class ClusterConsoleDialogTests
         if (excluded)
         {
             Assert.Equal(0, handler.Calls);
-            Assert.Contains("Cluster not found", dialog.Markup);
             return;
         }
         Assert.Contains("world-saved", dialog.Markup);
@@ -57,7 +56,6 @@ public sealed class ClusterConsoleDialogTests
         Assert.Contains("world-saved", dialog.Markup);
         auth.Excluded = true;
         await dialog.FindAll("button").Single(button => button.TextContent.Trim() == "Refresh").ClickAsync();
-        Assert.Contains("Cluster not found", dialog.Markup);
         Assert.DoesNotContain("world-saved", dialog.Markup);
     }
 

@@ -2843,6 +2843,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             // means it is no longer active.
             return false;
         }
+        catch (Exception error) when (error is System.Runtime.InteropServices.COMException or System.ComponentModel.Win32Exception)
+        {
+            // On Windows a handle closed concurrently fails the wait with E_HANDLE
+            // instead; the process is likewise gone.
+            return false;
+        }
     }
 
     /// <summary>

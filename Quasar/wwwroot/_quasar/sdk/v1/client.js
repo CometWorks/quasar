@@ -6,7 +6,7 @@ function panelState(base) {
     let owner = globalThis;
     try { if (globalThis.top?.location.origin === base.origin) owner = globalThis.top; } catch { /* standalone/cross-origin */ }
     const panels = owner[panelsKey] ||= new Map();
-    if (!panels.has(base.href)) panels.set(base.href, { running: 0, waiting: [], session: null });
+    if (!panels.has(base.href)) panels.set(base.href, { running: 0, waiting: [], session: null, tokens: null });
     return panels.get(base.href);
 }
 function acquire(state, signal) {
@@ -51,7 +51,7 @@ export function createClient({ baseUrl }) {
     const state = panelState(base);
     const active = new Set();
     let disposed = false;
-    let directConnection, directModule, connecting = false, retryAfter = 0;
+    let directConnection, directModule, connecting = false, retryAfter = 0, directFailures = 0;
     let connectionLifetime = new AbortController();
 
     function connectedPeer() {
@@ -72,10 +72,11 @@ export function createClient({ baseUrl }) {
             directModule ||= import("./rtc.js");
             directModule.then(module => module.connectDirect(root, tokens, lifetime)).then(peer => {
                 if (lifetime.aborted) peer.close();
-                else directConnection = peer;
+                else { directConnection = peer; directFailures = 0; }
             }).catch(() => {
-                // Back off on restricted networks. New work can use HTTPS during this interval.
-                if (!lifetime.aborted) retryAfter = performance.now() + 30000;
+                state.tokens = null;
+                // Back off on restricted networks: 30 s, doubling to 5 minutes. New work uses HTTPS meanwhile.
+                if (!lifetime.aborted) retryAfter = performance.now() + Math.min(30000 * 2 ** directFailures++, 300000);
             }).finally(() => {
                 if (!lifetime.aborted) connecting = false;
             });
@@ -103,12 +104,16 @@ export function createClient({ baseUrl }) {
     }
     async function checked(response) {
         if (!response.ok) {
+            // A changed sign-in or antiforgery cookie needs fresh tokens for the next call.
+            if ([400, 401, 403].includes(response.status)) state.tokens = null;
             const error = await response.json().catch(() => ({}));
             throw new QuasarSdkError(response.status, error.detail || error.title || "Quasar SDK request failed.");
         }
         return response;
     }
     async function session(entry) {
+        // Reuse recent tokens: each HTTPS operation still authenticates and binds its session on the server.
+        if (state.tokens && state.tokens.expires > Date.now()) return { ...state.tokens.value, cached: true };
         // Coalesce initial cookie setup so simultaneous views cannot reserve under different bindings.
         const pending = state.session ||= (async () => {
             const result = await (await checked(await fetch(new URL("session", root), {
@@ -116,16 +121,26 @@ export function createClient({ baseUrl }) {
             }))).json();
             if (result.version !== 1 || !result.headerName || !result.requestToken)
                 throw new QuasarSdkError(426, "Incompatible Quasar SDK session.");
+            state.tokens = { value: result, expires: Date.now() + 60000 };
             return result;
         })().finally(() => { state.session = null; });
         return untilAborted(pending, entry.controller.signal);
     }
 
     async function post(path, body, entry, tokens) {
-        return checked(await fetch(new URL(path, root), {
+        const send = current => fetch(new URL(path, root), {
             method: "POST", credentials: "same-origin", redirect: "error", cache: "no-store", signal: entry.controller.signal,
-            headers: { "Content-Type": "application/json", [tokens.headerName]: tokens.requestToken }, body,
-        }));
+            headers: { "Content-Type": "application/json", [current.headerName]: current.requestToken }, body,
+        });
+        let response = await send(tokens);
+        // A sign-in change makes cached tokens stale. Antiforgery runs before any handler,
+        // so one retry with fresh tokens cannot replay feature work.
+        if (tokens.cached && response.status === 400
+            && (await response.clone().json().catch(() => ({}))).detail === "Invalid antiforgery token.") {
+            state.tokens = null;
+            response = await send(await session(entry));
+        }
+        return checked(response);
     }
     async function resource(kind, plugin, operation, payload, signal, pinnedRoute) {
         const body = input(plugin, operation, payload);
@@ -201,7 +216,7 @@ export function createClient({ baseUrl }) {
     }
     function pagehide(event) {
         // A restored back/forward-cache page must remain usable, without replaying its old work.
-        if (event.persisted) { cancelOwned(); connectionLifetime.abort(); connectionLifetime = new AbortController(); connecting = false; retryAfter = 0; directConnection = null; }
+        if (event.persisted) { cancelOwned(); connectionLifetime.abort(); connectionLifetime = new AbortController(); connecting = false; retryAfter = 0; directFailures = 0; directConnection = null; state.tokens = null; }
         else client.dispose();
     }
     async function openWrite(plugin, operation, payload, signal, route) {

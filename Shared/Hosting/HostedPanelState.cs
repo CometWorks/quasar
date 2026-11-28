@@ -105,3 +105,34 @@ public sealed record HostedConnectorHealth(string PanelId, bool TunnelRegistered
     }
     public Task SaveAsync(CancellationToken ct) => HostedPanelState.WritePrivateAsync(FilePath, this, ct);
 }
+
+// The hosted direct-connection port chosen in setup, and its last external check.
+// Only the web worker writes it. A missing file on a hosted panel means the setup
+// step has not been answered yet.
+public sealed record HostedDirectPort
+{
+    public const int DefaultPort = 3479;
+    public int? Port { get; init; }
+    public bool Skipped { get; init; }
+    public long? CheckedAt { get; init; }
+    public bool Reachable { get; init; }
+    public string? Address { get; init; }
+    public bool AddressPublic { get; init; }
+    public string? Error { get; init; }
+    public static bool IsPort(int port) => port is >= 1024 and <= 65535;
+    public static string FilePath => Path.Combine(HostedPanelState.DirectoryPath, "direct-port.json");
+    public static HostedDirectPort? Read()
+    {
+        try
+        {
+            var value = File.Exists(FilePath) ? JsonSerializer.Deserialize<HostedDirectPort>(File.ReadAllText(FilePath)) : null;
+            return value is { Port: { } port } && !IsPort(port) ? null : value;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { return null; }
+    }
+    public async Task SaveAsync(CancellationToken ct)
+    {
+        Directory.CreateDirectory(HostedPanelState.DirectoryPath);
+        await HostedPanelState.WritePrivateAsync(FilePath, this, ct);
+    }
+}

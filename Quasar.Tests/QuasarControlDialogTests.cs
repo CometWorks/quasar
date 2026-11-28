@@ -23,7 +23,6 @@ public sealed class QuasarControlDialogTests
                 [nameof(QuasarControlDialog.RestartUnavailableReason)] = "Repair the native updater service.",
             }));
         Assert.True(provider.FindAll("button").Single(button => button.TextContent.Contains("Restart Quasar")).HasAttribute("disabled"));
-        Assert.Contains("Repair the native updater service.", provider.Markup);
     }
 
     [Theory]

@@ -34,7 +34,10 @@ You need admin permission in Quasar. On a fresh install that is normally the tru
 3. Choose **Use hosted panel**, then **Next**. (**Self-deploy** closes the dialog and opens the **Security** page. **Cancel** closes the dialog.)
 4. Enter the **Public panel name**: 3 to 63 lowercase letters and digits, in groups separated by single dashes. Names that Nebula uses for its own pages, such as `account`, `api`, `login` or `billing`, are refused. The dialog previews the public address.
 5. Choose **Start hosted enrollment**. Quasar stores its private installation identity, registers the name with Nebula and opens the Nebula account page in a new tab. If the browser blocks the tab, use **Continue enrollment with Steam**. Sign in with Steam on Nebula, confirm this installation and activate hosting.
-6. The dialog follows four stages: **Create enrollment**, **Confirm Steam account and hosting activation**, **Connect secure tunnel** and **Verify Quasar dashboard**. Once the tunnel and the local Quasar both report healthy, it shows **Open Quasar dashboard**, **Done** and **Manage Nebula hosting and billing**.
+6. The dialog follows four stages: **Create enrollment**, **Confirm Steam account and hosting activation**, **Connect secure tunnel** and **Verify Quasar dashboard**. Once the tunnel and the local Quasar both report healthy, it moves on to the direct connection step.
+7. **Speed up your panel with a direct connection** asks for a **Direct connection UDP port** (default 3479, range 1024 to 65535; pick one your game servers don't use). Allow inbound UDP on it: `sudo ufw allow 3479/udp` or a Windows Defender Firewall inbound rule, plus the cloud provider's firewall or security group, or a port forward on a home router. Choose **Save and test**: Nebula sends one datagram to that port from the internet. The dialog then says the port is reachable, that Nebula could not reach it, or that the machine appears at a private address and can't be checked. **Test again** repeats the check, **Continue** finishes, **Skip for now** leaves direct connections off. The ready screen then shows **Open Quasar dashboard**, **Done**, **Manage Nebula hosting and billing**, the direct connection status and **Configure direct connection port**.
+
+Hosted panels set up before this step existed open the dialog once at the direct connection step for an admin. Answering or skipping it stops the prompt.
 
 **Cancel** while connecting stops hosted setup and the connector. It keeps the private identity and does not cancel a subscription. Start again with the same name to resume. The Nebula link expires after 15 minutes ("Enrollment link expired. Choose hosted setup again."); start hosted enrollment again. Nebula reports a name that is already taken before activation; pick another one. An enrolled installation can't switch to a different name: "This installation is already enrolled. Use its existing public name to reconnect."
 
@@ -69,6 +72,8 @@ Status texts in the dialog:
 
 The browser downloads the dashboard runtime once per installed version. The loading bar shows download progress while the dashboard starts. Hosted connections use the HTTPS tunnel immediately and try an authenticated STUN-only WebRTC connection in the background. The connection indicator shows when the direct path is ready. New SDK requests and transfers then use that path. An upload or download already in progress keeps its original path. If it fails, check its result before retrying. Local and self-hosted sessions use the same browser UI over HTTP(S).
 
+The indicator in the top bar reads **Using tunnel** (HTTPS through Nebula), **Tunnel · connecting directly…** or **Connected directly**. If it stays on **Using tunnel**, the direct connection port is usually closed: run **Test again** in the direct connection step and check the firewall, security group or port forward. A failed direct attempt retries after 30 seconds, doubling up to five minutes. Browsers on networks that block outbound UDP, or with WebRTC restricted (for example Brave's "Disable non-proxied UDP"), always use the tunnel. Large Entity Viewer scenes load much faster when connected directly.
+
 Nebula applies its aggregate 20 Mbit/s tunnel limit to bulk data in both directions. Direct transfers bypass this limit. UI operations that change worker or game state still wait for a response from Quasar. The initial page and sign-in use the panel URL.
 
 ## Security of hosted requests
@@ -102,6 +107,7 @@ Disconnecting an installation on the Nebula account page does not cancel renewal
 | `frpc.toml` | Generated connector configuration, including secrets. |
 | `trusted-roots.pem` | Exported trusted root certificates. |
 | `connector-health.json`, `connector-process.json` | Last health report and the running connector's PID record. |
+| `direct-port.json` | Chosen direct connection UDP port, or that the step was skipped, and the last reachability check with the public address Nebula saw. |
 | `frp-0.71.1/` | The verified `frpc` binary and its license. |
 
 On Linux the folder is owner-only. On Windows only the account running Quasar, SYSTEM and Administrators have access. Treat backups of it as secrets. A copy restores the same identity, so run only one restored copy per enrollment.
@@ -128,6 +134,9 @@ The detailed operator guide, including the acceptance checks for push delivery, 
 - `Quasar/Services/Auth/RbacConfigCatalog.cs`
 - `Quasar/Services/Auth/SteamProfileClient.cs`
 - `Quasar.Client/Administration/DashboardSetupDialog.razor`
+- `Quasar/Services/Plugins/QuasarDirectPortService.cs`
+- `Quasar/wwwroot/_quasar/sdk/v1/client.js`
+- `Docs/QuasarWebRtc.md`
 - `Quasar/Components/Layout/WasmPageLayout.razor`
 - `Quasar.Client/Administration/SecurityPage.razor`
 - `Shared/Networking/QuasarControlAddress.cs`
