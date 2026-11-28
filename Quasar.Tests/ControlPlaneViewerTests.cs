@@ -314,12 +314,15 @@ public sealed class ControlPlaneViewerTests : IDisposable
     public async Task DiscordViewerGetsStatusAndBindingsWithoutCredentialsOrActions(bool editor)
     {
         await using var context = Context(editor, browser: true);
-        var options = new DiscordOptionsCatalog(
+        // Both catalogs watch their files. Dispose them before the folder goes, or a late reload
+        // rewrites the file under whichever folder MagnetarPaths points at by then (the next test's).
+        using var options = new DiscordOptionsCatalog(
             NullLogger<DiscordOptionsCatalog>.Instance,
             new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider());
         await options.SaveAsync(new() { BotToken = "secret-discord-token", Enabled = true, GuildId = 12345 });
         context.Services.AddSingleton(options);
-        context.Services.AddSingleton(new DeathMessagesCatalog(NullLogger<DeathMessagesCatalog>.Instance));
+        using var deathMessages = new DeathMessagesCatalog(NullLogger<DeathMessagesCatalog>.Instance);
+        context.Services.AddSingleton(deathMessages);
         context.Services.AddSingleton(new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(_root, "clusters") }).Build()));
         var registry = Registered<AgentRegistry>(context);

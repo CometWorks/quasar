@@ -10,8 +10,10 @@ import unittest
 
 class HostDeploymentCommandTest(unittest.TestCase):
     def test_prepare_reuse_and_tamper_rejection(self):
-        host = Path(__file__).resolve().parents[1] / "Quasar.Host/bin/Debug/net10.0/Quasar.Host.dll"
-        self.assertTrue(host.is_file(), "build Quasar.Host first")
+        bins = Path(__file__).resolve().parents[1] / "Quasar.Host/bin"
+        builds = [bins / c / "net10.0/Quasar.Host.dll" for c in ("Debug", "Release")]
+        host = next((b for b in builds if b.is_file()), None)
+        self.assertIsNotNone(host, "build Quasar.Host first")
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             package, dependencies = root / "package", root / "dependencies"

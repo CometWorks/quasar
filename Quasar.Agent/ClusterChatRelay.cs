@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,7 +9,10 @@ using Magnetar.Protocol.Transport;
 using Newtonsoft.Json;
 using PluginSdk.Clustering;
 using Sandbox.Engine.Multiplayer;
+using Sandbox.Game.Gui;
 using Sandbox.Game.World;
+using VRage.GameServices;
+using VRage.Network;
 
 namespace Quasar.Agent
 {
@@ -134,7 +138,8 @@ namespace Quasar.Agent
             var recipients = plan.Recipients.Where(p => p.Node == _client.Context.Node).Select(p => p.SteamId).Distinct().ToArray();
             // A handover may have changed the attachment since WA preparation. Fail visibly instead of
             // sending to both the old and new nodes or claiming delivery to an absent player.
-            if (recipients.Any(id => !server.Members.Contains(id) || !players.Any(p => p.SteamId == id && p.Node == _client.Context.Node)))
+            if (recipients.Any(id => !server.Members.Contains(id) || !players.Any(p => p.SteamId == id && p.Node == _client.Context.Node)
+                || session.Players.TryGetIdentityId(id) == 0))
                 return Reply(new Delivery { Error = "A chat recipient moved or disconnected; refresh the cluster and retry." });
             var delivery = new Delivery { Error = "Chat delivery was interrupted." };
             var reply = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(delivery));
@@ -144,8 +149,8 @@ namespace Quasar.Agent
                 foreach (var recipient in recipients)
                 {
                     // Direct delivery avoids re-entering the player's WA admission/replication path.
-                    server.SendChatMessageToPlayer(command.CommandType == ServerCommandType.SendFactionChat
-                        ? $"[Faction {command.Payload}] {command.Text}" : command.Text, recipient);
+                    var chat = Message(command, session.Players.TryGetIdentityId(recipient), server.ServerId);
+                    MyMultiplayer.RaiseStaticEvent(ToPlayer(), chat, new EndpointId(recipient));
                     delivery.Recipients++;
                 }
                 delivery.Error = null;
@@ -154,6 +159,35 @@ namespace Quasar.Agent
             reply = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(delivery));
             _seen[id] = (json, reply, now);
             return Task.FromResult(reply);
+        }
+
+        /// <summary>The message as the standalone path sends it. A Private message must name the recipient's
+        /// identity: the client's MyHudChat drops Private chat whose target and author are both someone else,
+        /// before the HUD and the chat history, so vanilla SendChatMessageToPlayer's untargeted Private message
+        /// never shows (SE-2030).</summary>
+        internal static ChatMsg Message(ServerCommandEnvelope command, long identityId, ulong author)
+        {
+            var chat = new ChatMsg { Text = command.Text, Author = author, Channel = (byte)ChatChannel.Private, TargetId = identityId };
+            if (command.CommandType == ServerCommandType.SendChat)
+            {
+                chat.Channel = (byte)ChatChannel.Global;
+                chat.TargetId = 0;
+            }
+            else if (command.CommandType == ServerCommandType.SendFactionChat)
+                chat.CustomData = new ChatMessageCustomData($"Discord [{command.Payload}]");
+            return chat;
+        }
+
+        // MyMultiplayerBase.OnChatMessageReceived_ToPlayer is the protected client event behind
+        // SendChatMessageToPlayer; the replication layer finds it by the returned delegate's method.
+        private static Func<IMyEventOwner, Action<ChatMsg>> _toPlayer;
+        internal static Func<IMyEventOwner, Action<ChatMsg>> ToPlayer()
+        {
+            if (_toPlayer != null) return _toPlayer;
+            var method = typeof(MyMultiplayerBase).GetMethod("OnChatMessageReceived_ToPlayer", BindingFlags.Static | BindingFlags.NonPublic)
+                ?? throw new MissingMethodException(nameof(MyMultiplayerBase), "OnChatMessageReceived_ToPlayer");
+            var action = (Action<ChatMsg>)Delegate.CreateDelegate(typeof(Action<ChatMsg>), method);
+            return _toPlayer = _ => action;
         }
 
         private static Task<byte[]> Reply(Delivery reply) => Task.FromResult(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(reply)));

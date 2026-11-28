@@ -172,7 +172,9 @@ public sealed class HostGatewayControlHealthTests : IDisposable
     {
         string bundle = Path.Combine(_root, "bundle");
         Directory.CreateDirectory(bundle);
-        string executable = Path.Combine(bundle, "gateway");
+        // Named sleep: on uutils coreutils (Ubuntu 26.04) /bin/sleep is a multicall binary that
+        // picks the tool by argv[0], so a copy named anything else exits at once.
+        string executable = Path.Combine(bundle, "sleep");
         File.Copy("/bin/sleep", executable);
         File.SetUnixFileMode(
             executable,
@@ -182,10 +184,10 @@ public sealed class HostGatewayControlHealthTests : IDisposable
         var manifest = new HostApp.BundleManifest(
             1,
             "revision-1",
-            [new("gateway", Hash(executable))],
+            [new("sleep", Hash(executable))],
             [],
             new HostApp.GatewaySpawnSpec(
-                "gateway",
+                "sleep",
                 "",
                 ["60"],
                 new() { ["CLUSTER_CONTROL"] = control },

@@ -205,36 +205,42 @@ public sealed class ClusterEntityTests
         await page.WaitForAssertionAsync(() => Assert.Equal(2, page.FindAll("tbody tr").Count));
         IReadOnlyList<ServerCommandEnvelope> Actions() => fixture.Commands.Where(command => command.CommandType == ServerCommandType.EntityAction).ToArray();
         AngleSharp.Dom.IElement Item(string label) => popovers.FindAll(".mud-popover-open .mud-menu-item").Single(item => item.TextContent.Trim() == label);
+        // Find and click in one renderer turn: the table re-renders after async handlers, and an
+        // element found before that render points at a removed event handler.
+        Task Click(Func<AngleSharp.Dom.IElement> find, Microsoft.AspNetCore.Components.Web.MouseEventArgs? args = null) =>
+            page.InvokeAsync(() => find().Click(args ?? new()));
         static bool Disabled(AngleSharp.Dom.IElement item) => item.ClassList.Contains("mud-disabled") || item.HasAttribute("disabled");
 
         // Power and ownership are grid actions; a character can only be stopped.
-        page.FindAll("tbody tr")[1].QuerySelector(".mud-menu button")!.Click();
+        await Click(() => page.FindAll("tbody tr")[1].QuerySelector(".mud-menu button")!);
         popovers.WaitForAssertion(() => Assert.True(Disabled(Item("Depower"))));
         Assert.True(Disabled(Item("Remove owner")));
         Assert.False(Disabled(Item("Stop")));
         await page.FindComponents<MudMenu>()[^1].InvokeAsync(() => page.FindComponents<MudMenu>()[^1].Instance.CloseMenuAsync());
 
         // Stop runs at once; Depower asks first.
-        page.FindAll("tbody tr")[0].QuerySelector(".mud-menu button")!.Click();
-        popovers.WaitForAssertion(() => Item("Stop").Click());
+        await Click(() => page.FindAll("tbody tr")[0].QuerySelector(".mud-menu button")!);
+        popovers.WaitForAssertion(() => Item("Stop"));
+        await Click(() => Item("Stop"));
         page.WaitForAssertion(() => Assert.Single(Actions()));
-        page.FindAll("tbody tr")[0].QuerySelector(".mud-menu button")!.Click();
-        popovers.WaitForAssertion(() => Item("Depower").Click());
+        await Click(() => page.FindAll("tbody tr")[0].QuerySelector(".mud-menu button")!);
+        popovers.WaitForAssertion(() => Item("Depower"));
+        await Click(() => Item("Depower"));
         dialogs.WaitForAssertion(() => Assert.Contains("\"Freighter\" (#1)", dialogs.Markup));
-        dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Depower").Click();
+        await Click(() => dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Depower"));
         page.WaitForAssertion(() => Assert.Equal(2, Actions().Count));
         Assert.All(Actions(), command => Assert.Equal("a", command.AgentId));
         Assert.Equal([EntityAction.Stop, EntityAction.Depower],
             Actions().Select(command => JsonSerializer.Deserialize<EntityActionRequest>(command.Payload!, JsonOptions)!.Action));
 
         // A mixed selection can be stopped together but not depowered.
-        page.FindAll("tbody tr")[0].Click();
-        page.FindAll("tbody tr")[1].Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { CtrlKey = true });
-        page.FindAll("button").Single(button => button.TextContent.Trim() == "Act on selected").Click();
+        await Click(() => page.FindAll("tbody tr")[0]);
+        await Click(() => page.FindAll("tbody tr")[1], new Microsoft.AspNetCore.Components.Web.MouseEventArgs { CtrlKey = true });
+        await Click(() => page.FindAll("button").Single(button => button.TextContent.Trim() == "Act on selected"));
         popovers.WaitForAssertion(() => Assert.True(Disabled(Item("Depower"))));
-        Item("Stop").Click();
+        await Click(() => Item("Stop"));
         dialogs.WaitForAssertion(() => Assert.Contains("the 2 selected entities", dialogs.Markup));
-        dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Stop").Click();
+        await Click(() => dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Stop"));
         page.WaitForAssertion(() => Assert.Equal(4, Actions().Count));
         Assert.Equal([1L, 2L], Actions().Skip(2).Select(command => JsonSerializer.Deserialize<EntityActionRequest>(command.Payload!, JsonOptions)!.EntityId).Order());
     }

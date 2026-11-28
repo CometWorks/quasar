@@ -447,9 +447,19 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
         }
         if (candidate.Manifest.Revision == current.Manifest.Revision) throw new InvalidDataException("Restore requires a newly prepared deployment with fresh node/admin/executor credential environment references; credential rotation produces a new revision.");
         if (!Directory.Exists(runtime) && Directory.Exists(previous)) Directory.Move(previous, runtime);
-        if (Directory.Exists(staging)) { ExecutionBundle.RefuseTree(staging); Directory.Delete(staging, true); }
-        Directory.CreateDirectory(staging);
-        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(staging, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        // SE-2027: a preview extracts and verifies the whole snapshot, then leaves it in place for the restore
+        // that follows with the same identity. Extracting a live-sized snapshot takes far longer than the rest.
+        string previewed = staging + ".preview.json";
+        bool reuse = Directory.Exists(staging) && File.Exists(previewed)
+            && File.ReadAllBytes(previewed).AsSpan().SequenceEqual(identityBytes);
+        bool keep = false;
+        if (!reuse)
+        {
+            File.Delete(previewed);
+            if (Directory.Exists(staging)) { ExecutionBundle.RefuseTree(staging); Directory.Delete(staging, true); }
+            Directory.CreateDirectory(staging);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(staging, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
         try
         {
             using var input = File.OpenRead(archive);
@@ -468,37 +478,19 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
                 || credentials.Intersect(Credentials(current.Manifest, attachment.TokenEnvironmentVariable)).Any())
                 throw new InvalidDataException("Restore requires new runtime credentials; use new environment references and rotate every node/admin/executor token.");
             var seen = new HashSet<string>(StringComparer.Ordinal);
-            while (reader.GetNextEntry() is { } entry)
+            if (!reuse)
+                Extract(request.ClusterId, reader, manifest, staging, seen, candidate.Manifest,
+                    Path.GetDirectoryName(Path.GetFullPath(request.CandidateManifestPath))!);
+            if (preview)
             {
-                if (entry.Name == ManifestEntry) continue;
-                ValidateEntryPath(entry.Name);
-                if (entry.EntryType == TarEntryType.Directory && manifest.Directories.TryGetValue(entry.Name, out int mode)
-                    && (int)entry.Mode == mode && seen.Add(entry.Name))
-                {
-                    Directory.CreateDirectory(Path.Combine(staging, entry.Name["runtime/".Length..]));
-                    continue;
-                }
-                if (!manifest.Modes.TryGetValue(entry.Name, out int fileMode) || (int)entry.Mode != fileMode)
-                    throw new InvalidDataException("Snapshot permissions mismatch.");
-                if (entry.EntryType != TarEntryType.RegularFile || !manifest.Files.TryGetValue(entry.Name, out string? hash)
-                    || !entry.Name.StartsWith("runtime/", StringComparison.Ordinal) || !seen.Add(entry.Name))
-                    throw new InvalidDataException("Unexpected snapshot entry.");
-                string relative = entry.Name["runtime/".Length..];
-                if (relative.Split('/').Any(p => p is "" or "." or "..") || relative.Contains('\\') || Path.IsPathRooted(relative))
-                    throw new InvalidDataException("Snapshot entry escapes runtime root.");
-                string path = Path.Combine(staging, relative);
-                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                using (var output = new FileStream(path, FileMode.CreateNew))
-                { entry.DataStream?.CopyTo(output); output.Flush(true); }
-                if (HashFile(path) != hash) throw new InvalidDataException("Snapshot file checksum mismatch.");
-                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, (UnixFileMode)fileMode);
+                // One sync before the marker: a marker that survives a crash vouches for data on disk.
+                SyncTree(staging);
+                File.WriteAllBytes(previewed, identityBytes);
+                keep = true;
+                return;
             }
-            if (seen.Count != manifest.Files.Count + manifest.Directories.Count) throw new InvalidDataException("Snapshot is incomplete.");
-            Reseed(staging, candidate.Manifest, Path.GetDirectoryName(Path.GetFullPath(request.CandidateManifestPath))!, manifest.ReseededMods ?? []);
-            if (!OperatingSystem.IsWindows())
-                foreach (var (name, mode) in manifest.Directories.OrderByDescending(d => d.Key.Length))
-                    File.SetUnixFileMode(Path.Combine(staging, name["runtime/".Length..]), (UnixFileMode)mode);
-            if (preview) return;
+            File.Delete(previewed);
+            SyncTree(staging);
             File.WriteAllBytes(Path.Combine(staging, ".quasar-restore.json"), identityBytes);
             if (candidate.Manifest.Gateway is not null)
             {
@@ -522,8 +514,80 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                 { Console.Error.WriteLine($"cluster={request.ClusterId} older runtime {older} not removed: {error.Message}"); }
         }
-        finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
+        finally { if (!keep && Directory.Exists(staging)) Directory.Delete(staging, true); }
     }
+
+    private static void Extract(string clusterId, TarReader reader, SnapshotManifest manifest, string staging,
+        HashSet<string> seen, BundleManifest candidate, string configRoot)
+    {
+        long files = 0, bytes = 0;
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        while (reader.GetNextEntry() is { } entry)
+            {
+                if (entry.Name == ManifestEntry) continue;
+                ValidateEntryPath(entry.Name);
+                if (entry.EntryType == TarEntryType.Directory && manifest.Directories.TryGetValue(entry.Name, out int mode)
+                    && (int)entry.Mode == mode && seen.Add(entry.Name))
+                {
+                    Directory.CreateDirectory(Path.Combine(staging, entry.Name["runtime/".Length..]));
+                    continue;
+                }
+                if (!manifest.Modes.TryGetValue(entry.Name, out int fileMode) || (int)entry.Mode != fileMode)
+                    throw new InvalidDataException("Snapshot permissions mismatch.");
+                if (entry.EntryType != TarEntryType.RegularFile || !manifest.Files.TryGetValue(entry.Name, out string? hash)
+                    || !entry.Name.StartsWith("runtime/", StringComparison.Ordinal) || !seen.Add(entry.Name))
+                    throw new InvalidDataException("Unexpected snapshot entry.");
+                string relative = entry.Name["runtime/".Length..];
+                if (relative.Split('/').Any(p => p is "" or "." or "..") || relative.Contains('\\') || Path.IsPathRooted(relative))
+                    throw new InvalidDataException("Snapshot entry escapes runtime root.");
+                string path = Path.Combine(staging, relative);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                using (var output = new FileStream(path, FileMode.CreateNew))
+                    entry.DataStream?.CopyTo(output); // No fsync per file: SyncTree once covers them all (SE-2027).
+                if (HashFile(path) != hash) throw new InvalidDataException("Snapshot file checksum mismatch.");
+                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, (UnixFileMode)fileMode);
+                bytes += entry.Length;
+                if (++files % 50_000 == 0)
+                    Console.Error.WriteLine($"cluster={clusterId} restore extracted {files} of {manifest.Files.Count} files, "
+                        + $"{bytes / (1024 * 1024)} MB, in {started.Elapsed.TotalSeconds:F0} s");
+            }
+            if (seen.Count != manifest.Files.Count + manifest.Directories.Count) throw new InvalidDataException("Snapshot is incomplete.");
+            Reseed(staging, candidate, configRoot, manifest.ReseededMods ?? []);
+            if (!OperatingSystem.IsWindows())
+                foreach (var (name, mode) in manifest.Directories.OrderByDescending(d => d.Key.Length))
+                    File.SetUnixFileMode(Path.Combine(staging, name["runtime/".Length..]), (UnixFileMode)mode);
+            Console.Error.WriteLine($"cluster={clusterId} restore extracted {files} files, {bytes / (1024 * 1024)} MB, "
+                + $"in {started.Elapsed.TotalSeconds:F0} s");
+    }
+
+    // Flushes everything under root to disk at once. On Linux one syncfs replaces an fsync per file,
+    // which cost hours on a snapshot of 670,000 files (SE-2027).
+    private static void SyncTree(string root)
+    {
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        if (OperatingSystem.IsLinux())
+        {
+            int fd = Open(root, 0);
+            if (fd < 0) throw new IOException($"Cannot open {root} to sync it (errno {System.Runtime.InteropServices.Marshal.GetLastPInvokeError()}).");
+            try
+            {
+                if (SyncFs(fd) != 0)
+                    throw new IOException($"syncfs failed for {root} (errno {System.Runtime.InteropServices.Marshal.GetLastPInvokeError()}).");
+            }
+            finally { Close(fd); }
+        }
+        else
+            foreach (string file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+                using (var stream = new FileStream(file, FileMode.Open, FileAccess.ReadWrite)) stream.Flush(true);
+        Console.Error.WriteLine($"restore sync of {root} took {started.Elapsed.TotalSeconds:F1} s");
+    }
+
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "open", SetLastError = true)]
+    private static extern int Open(string path, int flags);
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "syncfs", SetLastError = true)]
+    private static extern int SyncFs(int fd);
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "close")]
+    private static extern int Close(int fd);
 
     private const string ManifestEntry = "snapshot.json";
     private const string ProvenanceMismatch = "Snapshot provenance mismatch.";

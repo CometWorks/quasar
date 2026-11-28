@@ -146,10 +146,21 @@ internal static class DeploymentSelfTest
                 Assert(File.ReadAllText(privateFile) == "new state after backup", "rejected restore mutated runtime data");
                 snapshots.Restore(restore, preview: true);
                 Assert(File.ReadAllText(privateFile) == "new state after backup", "restore preview mutated runtime data");
+                // SE-2027: the preview keeps its verified staging for the restore; a marker that doesn't match is not trusted.
+                string staging = Path.Combine(Path.GetDirectoryName(runtime)!, ".restore-" + restore.RestoreId.ToString("N"));
+                Assert(File.Exists(staging + ".preview.json"), "restore preview did not keep its verified staging");
+                File.WriteAllText(Path.Combine(staging, "sentinel"), "stale");
+                File.WriteAllText(staging + ".preview.json", "{}");
+                snapshots.Restore(restore, preview: true);
+                Assert(!File.Exists(Path.Combine(staging, "sentinel")), "restore preview reused a staging it did not verify");
+                File.WriteAllText(Path.Combine(staging, "sentinel"), "reused");
                 string older = runtime + ".before-restore-" + Guid.NewGuid().ToString("N");
                 Directory.CreateDirectory(Path.Combine(older, "locked"));
                 if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(Path.Combine(older, "locked"), UnixFileMode.UserRead | UnixFileMode.UserExecute);
                 snapshots.Restore(restore);
+                Assert(File.Exists(Path.Combine(runtime, "sentinel")), "restore extracted the snapshot again after its preview");
+                File.Delete(Path.Combine(runtime, "sentinel"));
+                Assert(!File.Exists(staging + ".preview.json"), "restore left its preview marker behind");
                 Assert(!Directory.Exists(older), "restore kept an older previous runtime");
                 Assert(File.ReadAllText(privateFile) == "durable plugin state", "restore lost private plugin state");
                 Assert(Directory.Exists(Path.Combine(slot, "config/empty-private")), "restore lost empty plugin directory");
