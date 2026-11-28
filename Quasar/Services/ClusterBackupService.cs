@@ -609,6 +609,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             throw new InvalidOperationException("Prepare a restore only for a stopped, settled managed cluster.");
         if (dependencies is null || credentials is null)
             throw new InvalidOperationException("Restore preparation services are unavailable.");
+        await StopGatewayForRestoreAsync(cluster, token);
         var backup = Verify(Path.Combine(Root(cluster.UniqueName), snapshotId.ToString("N")), cluster.UniqueName);
         var provenance = backup.Deployment.ActiveDeployment?.Provenance
             ?? throw new InvalidDataException("The backup has no active deployment provenance.");
@@ -705,6 +706,36 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
         cluster.Update is not { Phase: not ClusterUpdatePhase.Complete } update
         || update.Phase == ClusterUpdatePhase.Reverting && update.Id == updateId;
 
+    /// <summary>SE-2011: the Off goal stops a Gateway only after it has drained, and the Host keeps its goal On
+    /// until then. A Gateway stuck before Serving (a failed start) never drains, and the Host respawns it whenever it
+    /// dies, so the restore's activation found it running and refused. A restore replaces the runtime data, so it
+    /// stops the live Gateway itself with a fenced Off naming that process, which also ends the Host's respawns.</summary>
+    internal async Task StopGatewayForRestoreAsync(ClusterDefinition cluster, CancellationToken token)
+    {
+        if (cluster.Gateway is null || cluster.ActiveDeployment is null) return;
+        HostContract.HostStatus host = (await hosts.GetStatusAsync(cluster, token)).Data;
+        HostContract.GatewayStatus? current = host.Gateways?.FirstOrDefault(gateway =>
+            string.Equals(gateway.ClusterId, cluster.UniqueName, StringComparison.OrdinalIgnoreCase));
+        if (current is null
+            || current is { Goal: HostContract.GatewayGoal.Off, Observed: HostContract.GatewayObservedState.Missing })
+            return;
+        await hosts.RequireNodesStoppedAsync(cluster, token);
+        HostContract.GatewayStopFence? fence = current is { ProcessId: { } processId, LaunchedAt: { } launchedAt }
+            ? new HostContract.GatewayStopFence(processId, launchedAt)
+            : null;
+        HostContract.GatewayStatus stopped = (await hosts.ApplyGatewayAsync(cluster, cluster.Gateway with
+        {
+            ClusterId = cluster.UniqueName,
+            Goal = HostContract.GatewayGoal.Off,
+            StartGeneration = current.StartGeneration,
+            StopFence = fence,
+            Ports = [.. cluster.Gateway.Ports],
+        }, token)).Data;
+        if (stopped.Observed != HostContract.GatewayObservedState.Missing)
+            throw new InvalidOperationException("The Gateway could not be stopped for the restore: "
+                + (stopped.Failure ?? stopped.Observed.ToString()));
+    }
+
     internal async Task<ClusterActiveRevision> RestoreCoreAsync(
         ClusterDefinition cluster,
         ClusterRestoreRequest request,
@@ -737,6 +768,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
         if (cluster.PendingRestoreHash is { } pending && pending != hash)
             throw new InvalidOperationException("Resume the original interrupted restore before requesting another.");
         bool update = updateId is not null;
+        await StopGatewayForRestoreAsync(cluster, token);
         await deployments.ActivateCoreAsync(cluster, request.Deployment, token, restore: true, dryRun: true, update: update, supersede: update);
         var prepared = new List<(ClusterDefinition Target, HostContract.HostSnapshotRestore Request)>();
         foreach (var host in cluster.ActiveDeployment.Hosts)

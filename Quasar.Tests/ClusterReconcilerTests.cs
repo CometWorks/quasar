@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -212,6 +213,66 @@ public sealed class ClusterReconcilerTests : IDisposable
         Assert.False(lifetime.Stopped);
         Assert.Contains(messages, message => message.Contains("Could not stop cluster"));
         Assert.DoesNotContain(messages, message => message.StartsWith("All managed"));
+    }
+
+    // SE-2011: a start that never served left the Gateway running in Bootstrapping. Goal Off waits for a drain that
+    // never comes, so the Host kept its goal On and respawned the Gateway the operator killed, and the restore's
+    // activation refused ("Gateway must be verifiably stopped before activation"). The restore now stops it first.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RestoreStopsAGatewayStuckBeforeServingWithAFencedOff(bool stops)
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using var catalog = CreateCatalog(DedicatedServerGoalState.Off, managed: true);
+        GatewaySpec? applied = null;
+        bool nodesChecked = false;
+        var host = new ContractHandler((request, _) =>
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            if (path.Contains("/recovery-readiness/"))
+            {
+                nodesChecked = true;
+                return HostResponse(new HostRecoveryReadiness("host", new string('a', 64)));
+            }
+            if (request.Method == HttpMethod.Put)
+            {
+                applied = request.Content!.ReadFromJsonAsync<GatewaySpec>(JsonOptions).GetAwaiter().GetResult();
+                return HostResponse(stops
+                    ? GatewayStatus(GatewayGoal.Off, GatewayObservedState.Missing)
+                    : GatewayStatus(GatewayGoal.On, GatewayObservedState.Running) with { Failure = "stop_failed:busy" });
+            }
+            return HostResponse(Host([GatewayStatus(GatewayGoal.On, GatewayObservedState.Running)]));
+        });
+        var hosts = new ClusterHostClient(new HttpClient(host));
+        var backups = new ClusterBackupService(catalog, hosts, new ClusterOperationStore(Path.Combine(_directory, "ops")),
+            null!, new WebServiceOptions(), null!, new ClusterGatewayClient(new HttpClient(new ContractHandler((_, _) =>
+                GatewayResponse(Status(Admin.ClusterPhase.Bootstrapping))))));
+
+        Task stopping = backups.StopGatewayForRestoreAsync(catalog.GetCluster("demo")!, CancellationToken.None);
+        if (stops) await stopping;
+        else Assert.Contains("stop_failed:busy", (await Assert.ThrowsAsync<InvalidOperationException>(() => stopping)).Message);
+
+        Assert.True(nodesChecked);
+        Assert.NotNull(applied);
+        Assert.Equal(GatewayGoal.Off, applied!.Goal);
+        Assert.Equal(new GatewayStopFence(42, DateTimeOffset.UnixEpoch), applied.StopFence);
+    }
+
+    [Fact]
+    public async Task RestoreLeavesAStoppedGatewayAlone()
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using var catalog = CreateCatalog(DedicatedServerGoalState.Off, managed: true);
+        var host = new ContractHandler((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Get, request.Method);
+            return HostResponse(Host([GatewayStatus(GatewayGoal.Off, GatewayObservedState.Missing)]));
+        });
+        var backups = new ClusterBackupService(catalog, new ClusterHostClient(new HttpClient(host)),
+            new ClusterOperationStore(Path.Combine(_directory, "ops")), null!, new WebServiceOptions(), null!,
+            new ClusterGatewayClient(new HttpClient(host)));
+        await backups.StopGatewayForRestoreAsync(catalog.GetCluster("demo")!, CancellationToken.None);
     }
 
     private sealed class ProgressSink(Action<string> report) : IProgress<string>
